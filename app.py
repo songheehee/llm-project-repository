@@ -1,11 +1,13 @@
 """VOCAI — 고객의 목소리 → 고칠 곳 (Streamlit 화면). CSS 주입은 이 파일 한 곳에서만 한다."""
 
+import html
 import os
 import time
 from datetime import date
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
@@ -60,6 +62,14 @@ def cached_kpis(start: date, end: date) -> dict:
     return data_utils.compute_kpis(data_utils.filter_period(df, start, end), data_utils.filter_period(df, ps, pe))
 
 
+@st.cache_data(show_spinner=False)
+def cached_voc_map(voc_ids: tuple[str, ...], method: str):
+    """(임베딩, 3D 좌표). 임베딩은 outputs/에도 캐시되어 투영 방식을 바꿔도 다시 부르지 않는다."""
+    df = cached_vocs().set_index("voc_id").loc[list(voc_ids)].reset_index()
+    vectors = stage1.embed_vocs(df)
+    return vectors, stage1.project_3d(vectors, method)
+
+
 @st.cache_resource
 def cached_llm():
     return stage1.get_llm()
@@ -101,6 +111,107 @@ def has_api_key() -> bool:
         return True
     st.error("`.env`에 OPENAI_API_KEY가 없습니다.")
     return False
+
+
+def hover_text(text: str, width: int = 28) -> str:
+    """Plotly 호버용: HTML 이스케이프 후 width 글자마다 줄바꿈."""
+    text = html.escape(text)
+    return "<br>".join(text[i:i + width] for i in range(0, len(text), width))
+
+
+def render_voc_map(cur: pd.DataFrame, clusters) -> None:
+    """VOC 임베딩 3D 지도 + 선택한 VOC의 유사 VOC. 색은 LLM 클러스터, 위치는 임베딩."""
+    st.subheader("🧭 VOC 유사도 지도")
+    st.caption("색은 LLM이 분류한 클러스터, 위치는 VOC 문장 임베딩을 3D로 투영한 것입니다. "
+               "가까울수록 고객 표현이 비슷합니다.")
+    c_on, c_method = st.columns([1, 3], vertical_alignment="center")
+    if not c_on.toggle("지도 보기", key="voc_map_on"):
+        return
+    method = c_method.radio("투영 방식", config.PROJECTION_METHODS, horizontal=True,
+                            key="voc_map_method", label_visibility="collapsed")
+    if not has_api_key():
+        return
+
+    cur = cur.sort_values("voc_id").reset_index(drop=True)
+    with st.spinner(f"VOC 임베딩 · {method} 투영 중…"):
+        vectors, coords = cached_voc_map(tuple(cur["voc_id"]), method)
+    cur = cur.assign(x=coords[:, 0], y=coords[:, 1], z=coords[:, 2])
+    labels = cur["cluster"].tolist()
+
+    order = [c.label for c in clusters] + [config.OTHER_LABEL]
+    palette = px.colors.qualitative.Bold
+    colors = {lab: palette[i % len(palette)] for i, lab in enumerate(order)}
+    colors[config.OTHER_LABEL] = "#BDC1C6"
+
+    pick = st.selectbox(
+        "기준 VOC", range(len(cur)),
+        format_func=lambda i: f"{cur.at[i, 'voc_id']} · [{labels[i]}] {cur.at[i, 'text'][:50]}",
+        key="voc_map_pick",
+    )
+    neighbors = stage1.similar_vocs(vectors, pick, config.SIMILAR_TOP_K)
+
+    fig = go.Figure()
+    for lab in order:
+        part = cur[cur["cluster"] == lab]
+        if part.empty:
+            continue
+        fig.add_trace(go.Scatter3d(
+            x=part["x"], y=part["y"], z=part["z"], mode="markers", name=html.escape(lab),
+            marker=dict(size=4, color=colors[lab], opacity=0.75, line=dict(width=0)),
+            hovertext=[f"<b>{v}</b> · {html.escape(lab)}<br>{hover_text(t)}"
+                       for v, t in zip(part["voc_id"], part["text"])],
+            hoverinfo="text",
+        ))
+    # 기준 VOC → 유사 VOC 연결선
+    p = cur.loc[pick]
+    lx, ly, lz = [], [], []
+    for j, _ in neighbors:
+        q = cur.loc[j]
+        lx += [p["x"], q["x"], None]
+        ly += [p["y"], q["y"], None]
+        lz += [p["z"], q["z"], None]
+    fig.add_trace(go.Scatter3d(x=lx, y=ly, z=lz, mode="lines", name="유사 연결",
+                               line=dict(color="#1428A0", width=4), hoverinfo="skip"))
+    nb = cur.loc[[j for j, _ in neighbors]]
+    fig.add_trace(go.Scatter3d(
+        x=nb["x"], y=nb["y"], z=nb["z"], mode="markers", name=f"유사 VOC Top {len(neighbors)}",
+        marker=dict(size=9, symbol="circle-open", color="#1428A0", line=dict(width=3)),
+        hovertext=[f"<b>{v}</b> · 유사도 {s:.3f}<br>{hover_text(t)}"
+                   for v, t, (_, s) in zip(nb["voc_id"], nb["text"], neighbors)],
+        hoverinfo="text",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[p["x"]], y=[p["y"]], z=[p["z"]], mode="markers", name="기준 VOC",
+        marker=dict(size=10, symbol="diamond", color="#202124", line=dict(color="#FFFFFF", width=2)),
+        hovertext=[f"<b>{p['voc_id']}</b> (기준)<br>{hover_text(p['text'])}"], hoverinfo="text",
+    ))
+    axis = dict(showticklabels=False, title="", showbackground=True,
+                backgroundcolor="#F8F9FC", gridcolor="#E3E6EF", zeroline=False)
+    fig.update_layout(
+        height=640, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor="#FFFFFF",
+        scene=dict(xaxis=axis, yaxis=axis, zaxis=axis, aspectmode="cube"),
+        legend=dict(orientation="h", y=-0.02, itemsizing="constant"),
+    )
+    with st.container(key="card_voc_map"):
+        st.plotly_chart(fig, width="stretch")
+
+    st.markdown(f"**{p['voc_id']}** 와 가장 비슷한 VOC")
+    st.dataframe(pd.DataFrame([{
+        "순위": r, "VOC": cur.at[j, "voc_id"], "유사도": s, "클러스터": labels[j],
+        "같은 클러스터": "✓" if labels[j] == labels[pick] else "⚠ 다름", "원문": cur.at[j, "text"],
+    } for r, (j, s) in enumerate(neighbors, 1)]), hide_index=True, width="stretch",
+        column_config={"유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
+
+    odd = stage1.label_disagreements(vectors, labels, config.DISAGREE_K)
+    with st.expander(f"임베딩 이웃과 LLM 라벨이 다른 VOC {len(odd)}건 (경계·오분류 후보)"):
+        if odd:
+            st.dataframe(pd.DataFrame([{
+                "VOC": cur.at[o["idx"], "voc_id"], "LLM 라벨": o["label"],
+                "이웃 다수 라벨": f"{o['neighbor_label']} ({o['agree']}/{config.DISAGREE_K})",
+                "원문": cur.at[o["idx"], "text"],
+            } for o in odd]), hide_index=True, width="stretch")
+        else:
+            st.caption("모든 VOC가 이웃 다수와 같은 클러스터입니다.")
 
 
 # ════════════════════════════ 헤더 ════════════════════════════
@@ -229,6 +340,8 @@ with tab1:
                         ss["next_ticket_no"] += 1
                         ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
                 ss["ticket_secs"] = round(time.perf_counter() - t0, 1)
+
+        render_voc_map(cur, clusters)
 
     for t in ss["tickets"].values():
         with st.container(key=f"card_ticket_{t.ticket_id}"):

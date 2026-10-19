@@ -5,19 +5,22 @@
 - score_clusters  : 건수 · 급증률 · 추세 · 우선순위 (pandas, LLM 없음)
 - run_stage1      : 위 3개 실행 + outputs/clusters_{시작}_{끝}.json 캐시
 - ticketize       : 클러스터 → 개발자 티켓 (LLM)
+- embed_vocs · project_3d · similar_vocs · label_disagreements : VOC 유사도 지도 (임베딩, 분류에는 안 씀)
 """
 
 import json
 import math
 import re
+from collections import Counter
 from datetime import date
 from functools import lru_cache
 from typing import Type, TypeVar
 
+import numpy as np
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import BaseModel, Field
 
 import config
@@ -316,6 +319,63 @@ def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
         "assignments": assignments,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     return clusters, assignments
+
+
+# ════════════════════════════ VOC 유사도 지도 ════════════════════════════
+# 클러스터 라벨은 LLM이 정한다. 임베딩은 "어떤 VOC끼리 비슷한가"를 보여 주고
+# LLM 라벨과 이웃이 어긋나는 VOC를 찾는 검증용으로만 쓴다.
+
+def embed_vocs(df: pd.DataFrame) -> np.ndarray:
+    """df 순서대로 VOC 임베딩(단위 벡터)을 돌려준다. voc_id별로 outputs/에 캐시."""
+    path = config.VOC_EMBEDDINGS_JSON
+    cache: dict[str, list[float]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    missing = df.loc[~df["voc_id"].isin(cache.keys()), ["voc_id", "text"]]
+    if not missing.empty:
+        embedder = OpenAIEmbeddings(model=config.EMBEDDING_MODEL)
+        rows = missing.to_dict("records")
+        for i in range(0, len(rows), config.EMBED_BATCH_SIZE):
+            batch = rows[i:i + config.EMBED_BATCH_SIZE]
+            vectors = embedder.embed_documents([r["text"] for r in batch])
+            cache.update({r["voc_id"]: v for r, v in zip(batch, vectors)})
+        config.OUTPUTS_DIR.mkdir(exist_ok=True)
+        path.write_text(json.dumps(cache), encoding="utf-8")
+    vectors = np.array([cache[v] for v in df["voc_id"]], dtype=np.float32)
+    return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+
+
+def project_3d(vectors: np.ndarray, method: str) -> np.ndarray:
+    """임베딩을 3차원으로 투영한다 (UMAP 또는 t-SNE, 코사인 거리)."""
+    if method == "UMAP":
+        import umap  # 로딩이 느려 필요할 때만 import
+        reducer = umap.UMAP(n_components=3, n_neighbors=min(config.UMAP_N_NEIGHBORS, len(vectors) - 1),
+                            min_dist=config.UMAP_MIN_DIST, metric="cosine",
+                            random_state=config.PROJECTION_SEED)
+    else:
+        from sklearn.manifold import TSNE
+        reducer = TSNE(n_components=3, perplexity=min(config.TSNE_PERPLEXITY, len(vectors) - 1),
+                       metric="cosine", init="pca", random_state=config.PROJECTION_SEED)
+    return reducer.fit_transform(vectors)
+
+
+def similar_vocs(vectors: np.ndarray, idx: int, k: int) -> list[tuple[int, float]]:
+    """idx번 VOC와 코사인 유사도가 높은 순으로 (인덱스, 유사도) k개. 자기 자신 제외."""
+    sims = vectors @ vectors[idx]
+    sims[idx] = -np.inf
+    order = np.argsort(-sims)[:k]
+    return [(int(j), float(sims[j])) for j in order]
+
+
+def label_disagreements(vectors: np.ndarray, labels: list[str], k: int) -> list[dict]:
+    """이웃 k개의 다수 라벨이 LLM 라벨과 다른 VOC. 경계 VOC·오분류 후보."""
+    sims = vectors @ vectors.T
+    np.fill_diagonal(sims, -np.inf)
+    neighbors = np.argsort(-sims, axis=1)[:, :k]
+    out = []
+    for i, row in enumerate(neighbors):
+        major, n = Counter(labels[j] for j in row).most_common(1)[0]
+        if major != labels[i] and n > k / 2:
+            out.append({"idx": i, "label": labels[i], "neighbor_label": major, "agree": n})
+    return out
 
 
 # ════════════════════════════ ③ 티켓화 ════════════════════════════

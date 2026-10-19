@@ -11,3 +11,5 @@ langgraph
 langchain-chroma
 chromadb
 langchain-text-splitters
+scikit-learn
+umap-learn

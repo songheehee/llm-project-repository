@@ -34,6 +34,17 @@ SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
 TICKET_SAMPLE_VOCS = 10       # 티켓화 프롬프트에 넣는 VOC 수
 FIRST_TICKET_NO = 412         # VOC-0412부터
 
+# ── VOC 유사도 지도 (임베딩 · 3D 투영) ───────────────
+VOC_EMBEDDINGS_JSON = OUTPUTS_DIR / "voc_embeddings.json"  # {voc_id: 벡터} 캐시
+EMBED_BATCH_SIZE = 100
+PROJECTION_METHODS = ["UMAP", "t-SNE"]
+PROJECTION_SEED = 42
+UMAP_N_NEIGHBORS = 15
+UMAP_MIN_DIST = 0.1
+TSNE_PERPLEXITY = 30
+SIMILAR_TOP_K = 5             # 선택한 VOC와 가장 비슷한 VOC 수
+DISAGREE_K = 7                # 라벨 불일치 판정에 쓰는 이웃 수 (다수결)
+
 # ── 급증률 · 추세 ─────────────────────────────────────
 TREND_UP = 1.3
 TREND_DOWN = 0.7
