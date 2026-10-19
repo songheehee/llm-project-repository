@@ -1,0 +1,13 @@
+streamlit>=1.50
+plotly
+pandas
+python-dotenv
+pyyaml
+pygments
+pydantic>=2
+langchain>=1.0
+langchain-openai
+langgraph
+langchain-chroma
+chromadb
+langchain-text-splitters

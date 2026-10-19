@@ -1,0 +1,28 @@
+# VOCAI 레포 레지스트리 — 이 목록 밖의 저장소는 분석하지 않는다 (교육용 가상 데이터)
+repos:
+  - name: pulsefit-py
+    path: sample_repos/pulsefit-py
+    product: 워치 앱
+    description: >-
+      PulseFit 워치 본체에서 도는 앱. 심박 센서(PPG) 측정, 운동 세션 기록, 거리 계산,
+      화면(UI) 표시, 배터리·전원 관리, 기록 저장, 폰과의 블루투스 동기화 클라이언트를 담당한다.
+    owner_parts: [센서 파트, 운동 파트, UI 파트, 전력 파트, 동기화 파트]
+    folder_roles:
+      "ui/": display_only
+
+  - name: pulsefit-sync
+    path: sample_repos/pulsefit-sync
+    product: 폰 연동
+    description: >-
+      워치와 스마트폰 사이 블루투스 연결·재연결, 데이터 전송 큐를 담당하는 동기화 모듈.
+      연결 끊김 시 재연결 재시도 루프가 여기에 있다.
+    owner_parts: [동기화 파트]
+    folder_roles: {}
+
+  - name: pulsefit-server
+    path: sample_repos/pulsefit-server
+    product: 클라우드 서버
+    description: >-
+      운동 기록을 받아 저장하고 통계 API를 제공하는 서버. 워치 하드웨어 동작과는 무관하다.
+    owner_parts: [서버 파트]
+    folder_roles: {}
