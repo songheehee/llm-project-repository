@@ -1,43 +1,48 @@
 """
-vocs.csv(311건)와 같은 구조로 VOC 10,000건을 만든다.
+VOC 1,000건 생성 (주제 13개).
 
-원본에서 읽어낸 구조
+원본 vocs.csv의 형식과 말투를 그대로 따른다.
   - 컬럼: voc_id, created_at, channel, text, rating  (UTF-8, CRLF, 따옴표 없음)
   - text = [말머리] + 핵심 문장 + [맺음말]
-  - 주제 5개, 별점은 주제로 결정: 운동 중 발열 1, 연결 끊김 시 발열 1, 배터리 2, GPS 거리 3, 메뉴·UI 3
-  - 기간 2026-09-21 ~ 10-14, 10/3부터 운동 중 발열 급증 · 연결 끊김 발열 등장 · 배터리 증가
-일별 · 주제별 건수는 원본 비율을 약 32배로 키우고 포아송 잡음을 더한 뒤 총합을 10,000건에 맞춘다.
-핵심 문장 · 말머리 · 맺음말은 원본 표현을 모두 쓰고, 같은 말투의 표현을 보강했다.
+  - 기간 2026-09-21 ~ 10-14. 10/3부터 운동 중 발열 급증, 연결 끊김 발열 등장, 배터리 증가
+주제는 원본 5개에 실제 워치 VOC에서 흔한 8개를 더했다.
+별점은 주제마다 분포를 두어 섞었다 (예: 운동 중 발열은 대부분 1점, 일부 2점).
 
-  python generate_vocs_10000.py  ->  vocs_10000.csv, vocs_10000_labels.csv
+  python generate_vocs_1000.py  ->  vocs_1000.csv, vocs_1000_labels.csv
 """
 import csv
+import math
 import random
 from datetime import date, datetime, timedelta
 
 SEED = 20261019
-TOTAL = 10_000
+TOTAL = 1_000
 START, END = date(2026, 9, 21), date(2026, 10, 14)
-CALL_CENTER_RATE = 0.32  # 원본 100/311
+SPIKE = date(2026, 10, 3)
+CALL_CENTER_RATE = 0.32
 
-# 원본 일별 · 주제별 건수 (vocs.csv에서 집계)
-ORIG = {  # day: (battery, gps, heat_disc, heat_work, menu)
-    "09-21": (3, 2, 0, 1, 3), "09-22": (3, 2, 0, 1, 3), "09-23": (3, 2, 0, 1, 3), "09-24": (3, 2, 0, 1, 3),
-    "09-25": (3, 2, 0, 1, 3), "09-26": (3, 1, 0, 1, 2), "09-27": (3, 1, 0, 1, 2), "09-28": (3, 1, 0, 1, 2),
-    "09-29": (3, 1, 0, 1, 2), "09-30": (3, 1, 0, 1, 2), "10-01": (3, 1, 0, 0, 2), "10-02": (3, 1, 0, 0, 2),
-    "10-03": (5, 2, 2, 8, 3), "10-04": (5, 2, 2, 8, 3), "10-05": (5, 2, 2, 8, 3), "10-06": (5, 2, 2, 8, 3),
-    "10-07": (5, 2, 2, 8, 3), "10-08": (5, 1, 2, 8, 2), "10-09": (5, 1, 2, 8, 2), "10-10": (5, 1, 2, 7, 2),
-    "10-11": (5, 1, 2, 7, 2), "10-12": (5, 1, 2, 7, 2), "10-13": (4, 1, 2, 7, 2), "10-14": (4, 1, 2, 7, 2),
+# 주제: (한글 이름, 급증 전 하루 평균, 10/3 이후 하루 평균, 별점 분포)
+TOPICS = {
+    "heat_work":    ("운동 중 기기 발열",       1.0, 20.0, {1: .85, 2: .15}),
+    "heat_disc":    ("연결 끊김 시 발열",       0.0,  5.0, {1: .70, 2: .30}),
+    "battery":      ("배터리 소모",             6.0, 10.0, {1: .25, 2: .60, 3: .15}),
+    "gps":          ("GPS 거리 오차",           4.0,  4.0, {2: .35, 3: .55, 4: .10}),
+    "menu":         ("메뉴·UI 사용성",          5.0,  5.0, {2: .20, 3: .60, 4: .20}),
+    "hr_accuracy":  ("심박·센서 측정 부정확",   4.0,  2.0, {1: .10, 2: .45, 3: .45}),
+    "sleep":        ("수면 측정 오류",          3.0,  3.0, {2: .35, 3: .50, 4: .15}),
+    "sync_phone":   ("폰 앱 동기화 지연·누락",  3.0,  3.5, {1: .20, 2: .50, 3: .30}),
+    "notification": ("알림 지연·누락",          3.0,  3.0, {2: .40, 3: .50, 4: .10}),
+    "step_count":   ("걸음 수 부정확",          2.5,  2.5, {2: .30, 3: .60, 4: .10}),
+    "strap_skin":   ("착용감·스트랩·피부",      1.5,  1.5, {2: .30, 3: .50, 4: .20}),
+    "charging":     ("충전 불량",               2.0,  2.0, {1: .35, 2: .50, 3: .15}),
+    "app_crash":    ("앱 멈춤·강제 종료",       2.5,  2.5, {1: .50, 2: .40, 3: .10}),
 }
-TOPICS = ("battery", "gps", "heat_disc", "heat_work", "menu")
-RATING = {"heat_work": 1, "heat_disc": 1, "battery": 2, "gps": 3, "menu": 3}
 
 PREFIXES = ["며칠째", "솔직히", "음", "아니", "최근에", "어제", "요즘", "요새", "진짜", "개인적으로",
-            "이번 주에", "아쉽게도", "오늘", "매번",
-            # 보강
-            "근데", "정말", "요즘 들어", "지난주부터", "얼마 전부터", "사실"]
+            "이번 주에", "아쉽게도", "오늘", "매번", "근데", "정말", "요즘 들어", "지난주부터", "얼마 전부터", "사실"]
 PREFIX_RATE = {"battery": 0.79, "gps": 0.71, "heat_disc": 0.62, "heat_work": 0.83, "menu": 0.48}
 SUFFIX_RATE = {"battery": 0.86, "gps": 0.71, "heat_disc": 0.83, "heat_work": 0.80, "menu": 0.78}
+DEFAULT_PREFIX_RATE, DEFAULT_SUFFIX_RATE = 0.70, 0.78
 
 CORES = {
     "heat_work": [
@@ -119,9 +124,66 @@ CORES = {
         "메뉴 아이콘 색이 비슷해서 구분이 안 돼요.", "자주 쓰는 기능을 메뉴 맨 위로 올릴 수가 없어요.",
         "메뉴 화면 전환이 느려서 답답해요.", "알람 설정 메뉴가 어디 있는지 모르겠어요.",
     ],
+    # ---- 추가 주제 ----
+    "hr_accuracy": [
+        "운동 중에 심박이 갑자기 200까지 튀어요.", "가만히 앉아 있는데 심박이 130으로 나와요.",
+        "인터벌 할 때 심박이 한참 늦게 따라와요.", "가슴 스트랩이랑 비교하면 심박이 20 넘게 차이 나요.",
+        "심박 측정 버튼 누르면 측정 실패가 자주 떠요.", "자는 동안 심박 기록이 군데군데 비어 있어요.",
+        "달리기 시작하고 몇 분 동안 심박이 그대로예요.", "손목 문신 있는 쪽에 차면 심박이 안 잡혀요.",
+        "혈중 산소 측정이 매번 실패해요.", "스트레스 지수가 늘 높게 나와요.",
+        "심박이 너무 낮게 나와서 운동 강도가 안 맞아요.",
+    ],
+    "sleep": [
+        "새벽 2시에 잤는데 12시에 잠든 걸로 기록돼요.", "낮잠은 아예 인식을 못 해요.",
+        "누워서 휴대폰만 봤는데 잠든 걸로 나와요.", "수면 점수가 매일 들쭉날쭉해요.",
+        "깊은 잠 시간이 말이 안 되게 짧아요.", "아침에 일어났는데 수면 기록이 없어요.",
+        "중간에 깬 시간이 하나도 안 잡혀요.", "코골이 측정이 켜졌다 꺼졌다 해요.",
+        "주말엔 수면 목표 알림이 너무 일찍 와요.", "잠은 7시간 잤는데 4시간으로 나와요.",
+    ],
+    "sync_phone": [
+        "운동 기록이 폰 앱에 한참 뒤에 넘어와요.", "어제 운동한 기록이 폰에 아예 없어요.",
+        "워치랑 폰 걸음 수가 서로 달라요.", "동기화 중이라고만 뜨고 끝나지를 않아요.",
+        "폰을 바꾸고 나서 예전 기록이 안 넘어왔어요.", "앱을 다시 열어야 그제서야 동기화돼요.",
+        "같은 운동이 폰 앱에 두 번 기록돼요.", "체중을 폰에서 입력해도 워치에 반영이 안 돼요.",
+        "와이파이로는 동기화가 안 되고 블루투스로만 돼요.",
+    ],
+    "notification": [
+        "메신저 알림이 몇 분씩 늦게 와요.", "방해 금지 모드인데도 알림 진동이 와요.",
+        "알림 진동이 너무 약해서 못 느껴요.", "알림이 와도 내용이 잘려서 안 보여요.",
+        "폰에서 읽은 알림이 워치에는 계속 남아 있어요.", "전화가 와도 워치가 안 울릴 때가 있어요.",
+        "같은 알림이 두세 번씩 와요.", "알람이 울렸는데 진동이 금방 멈춰서 못 일어났어요.",
+        "답장 버튼을 눌러도 아무 반응이 없어요.",
+    ],
+    "step_count": [
+        "차 타고 가는데도 걸음 수가 올라가요.", "유모차 밀면서 걸으면 걸음 수가 거의 안 잡혀요.",
+        "설거지만 했는데 천 보가 찍혀 있어요.", "만보기 앱이랑 걸음 수가 2천 보나 차이 나요.",
+        "계단을 올라도 층수가 안 올라가요.", "자전거 탈 때 걸음 수가 같이 올라가요.",
+        "하루 종일 걸었는데 걸음 수가 오후에 멈춰 있어요.", "자정 지나도 걸음 수가 초기화가 안 돼요.",
+    ],
+    "strap_skin": [
+        "스트랩이 딱딱해서 오래 차면 손목이 아파요.", "스트랩 고리가 자꾸 빠져요.",
+        "여름에 차고 있으면 스트랩 안쪽에 땀띠가 나요.", "스트랩 닿는 부분이 빨갛게 가려워요.",
+        "기본 스트랩 길이가 짧아서 끝 구멍에 겨우 맞아요.", "스트랩 교체 버튼이 너무 뻑뻑해요.",
+        "시계가 두꺼워서 소매에 자꾸 걸려요.", "운동할 때 시계가 손목에서 돌아가요.",
+        "한 달 만에 스트랩 색이 누렇게 변했어요.",
+    ],
+    "charging": [
+        "충전기에 올려놔도 충전이 시작이 안 돼요.",
+        "충전 거치대에서 자꾸 미끄러져서 아침에 보면 충전이 안 돼 있어요.",
+        "완충까지 세 시간 넘게 걸려요.", "충전 중에 시계가 따뜻해져요.",
+        "고속 충전이라는데 너무 느려요.", "충전 케이블이 한 달 만에 고장 났어요.",
+        "충전 단자 쪽이 헐거워서 각도를 맞춰야 해요.", "충전 중이라는 표시가 떴다 사라졌다 해요.",
+        "여행 갈 때 쓸 충전기가 따로 없어서 불편해요.",
+    ],
+    "app_crash": [
+        "운동 기록 중에 앱이 꺼져서 기록이 날아갔어요.", "운동 끝내기 버튼을 눌러도 반응이 없어요.",
+        "화면이 멈춰서 재부팅해야 했어요.", "업데이트 후로 앱 실행이 엄청 느려요.",
+        "건강 앱을 열면 하얀 화면만 나와요.", "워치 페이스 바꾸려고 하면 앱이 튕겨요.",
+        "운동 요약 화면에서 넘어가질 않아요.", "설정 화면 들어가면 시계가 버벅거려요.",
+        "시계가 혼자 재부팅돼요.",
+    ],
 }
-# 핵심 문장 앞 수식어 (원본 패턴)
-MODIFIER = {"heat_disc": ("자꾸 ", 0.25), "menu": ("부모님이 쓰시는데 ", 0.31)}
+MODIFIER = {"heat_disc": ("자꾸 ", 0.25), "menu": ("부모님이 쓰시는데 ", 0.31), "notification": ("부모님이 쓰시는데 ", 0.15)}
 
 SUFFIXES = {
     "heat_work": ["빨리 고쳐 주세요.", "운동을 못 하겠어요.", "아이도 쓰는데 걱정돼요.", "이거 정상인가요?",
@@ -132,16 +194,23 @@ SUFFIXES = {
                 "교환 가능한가요?", "외출할 때마다 불안해요."],
     "gps": ["아쉬워요.", "정확하게 해 주세요.", "기록이 의미가 없어요.", "러닝 앱을 따로 쓰게 돼요."],
     "menu": ["개선되면 좋겠어요.", "불편해요.", "조금만 크게 해 주세요.", "직관적으로 바꿔 주세요."],
+    "hr_accuracy": ["믿을 수가 없어요.", "운동 강도를 못 맞추겠어요.", "센서 문제인가요?", "정확하게 해 주세요."],
+    "sleep": ["수면 관리하려고 샀는데 아쉬워요.", "기록을 못 믿겠어요.", "개선 부탁드려요.", "이상해요."],
+    "sync_phone": ["기록이 날아갈까 봐 불안해요.", "매번 확인해야 해서 번거로워요.", "빨리 고쳐 주세요.", "왜 그런 거죠?"],
+    "notification": ["중요한 연락을 놓쳤어요.", "설정을 다 해 봤는데도 그래요.", "개선되면 좋겠어요.", "불편해요."],
+    "step_count": ["기록이 의미가 없어요.", "정확하게 해 주세요.", "아쉬워요.", "이상해요."],
+    "strap_skin": ["다른 스트랩을 사야 하나요?", "착용감이 아쉬워요.", "개선되면 좋겠어요.", "불편해요."],
+    "charging": ["교환 가능한가요?", "충전기 불량인가요?", "너무 불편해요.", "개선 부탁드려요."],
+    "app_crash": ["너무 답답해요.", "빨리 고쳐 주세요.", "이거 정상인가요?", "운동할 맛이 안 나요."],
 }
-SIZE_WORDS = ("작아", "글씨", "글자")  # '조금만 크게 해 주세요'는 크기 관련 문장에만 붙인다
+SIZE_WORDS = ("작아", "글씨", "글자")
+# 별점 4점(대체로 만족)에는 순한 맺음말만 붙인다
+MILD_SUFFIXES = ["그것만 빼면 만족해요.", "나머지는 다 좋아요.", "개선되면 좋겠어요.", "아쉬워요."]
 
 
 def poisson(rng, lam):
     if lam <= 0:
         return 0
-    if lam > 30:  # 정규 근사
-        return max(0, round(rng.gauss(lam, lam ** 0.5)))
-    import math
     L, k, p = math.exp(-lam), 0, 1.0
     while True:
         k += 1
@@ -151,30 +220,32 @@ def poisson(rng, lam):
 
 
 def daily_counts(rng):
-    scale = TOTAL / sum(sum(v) for v in ORIG.values())
-    counts = {(d, t): poisson(rng, ORIG[d][i] * scale) for d in ORIG for i, t in enumerate(TOPICS)}
+    days = [START + timedelta(days=i) for i in range((END - START).days + 1)]
+    expected = {(d, t): (v[2] if d >= SPIKE else v[1]) for d in days for t, v in TOPICS.items()}
+    scale = TOTAL / sum(expected.values())
+    counts = {k: poisson(rng, lam * scale) for k, lam in expected.items()}
     diff = TOTAL - sum(counts.values())
-    keys = [k for k, v in counts.items() if v > 0]
-    weights = [counts[k] for k in keys]
-    while diff != 0:  # 총합을 정확히 맞춘다 (건수에 비례해 가감)
+    keys = [k for k, lam in expected.items() if lam > 0]
+    weights = [expected[k] for k in keys]
+    while diff != 0:  # 총합을 정확히 맞춘다
         k = rng.choices(keys, weights)[0]
         if diff > 0:
             counts[k] += 1; diff -= 1
-        elif counts[k] > 1:
+        elif counts[k] > 0:
             counts[k] -= 1; diff += 1
     return counts
 
 
-def make_text(rng, topic):
+def make_text(rng, topic, rating):
     core = rng.choice(CORES[topic])
     if topic in MODIFIER and rng.random() < MODIFIER[topic][1]:
         core = MODIFIER[topic][0] + core
     parts = []
-    if rng.random() < PREFIX_RATE[topic]:
+    if rng.random() < PREFIX_RATE.get(topic, DEFAULT_PREFIX_RATE):
         parts.append(rng.choice(PREFIXES))
     parts.append(core)
-    if rng.random() < SUFFIX_RATE[topic]:
-        options = SUFFIXES[topic]
+    if rng.random() < SUFFIX_RATE.get(topic, DEFAULT_SUFFIX_RATE):
+        options = MILD_SUFFIXES if rating >= 4 else SUFFIXES[topic]
         if topic == "menu" and not any(w in core for w in SIZE_WORDS):
             options = [s for s in options if s != "조금만 크게 해 주세요."]
         parts.append(rng.choice(options))
@@ -185,30 +256,31 @@ def main():
     rng = random.Random(SEED)
     rows = []
     for (d, topic), n in daily_counts(rng).items():
-        day = datetime.strptime(f"2026-{d}", "%Y-%m-%d")
+        dist = TOPICS[topic][3]
         for _ in range(n):
-            ts = day + timedelta(seconds=rng.randrange(86400))
+            ts = datetime(d.year, d.month, d.day) + timedelta(seconds=rng.randrange(86400))
+            rating = rng.choices(list(dist), list(dist.values()))[0]
             rows.append({
                 "created_at": ts.strftime("%Y-%m-%dT%H:%M:%S"),
                 "channel": "call_center" if rng.random() < CALL_CENTER_RATE else "review",
-                "text": make_text(rng, topic),
-                "rating": RATING[topic],
+                "text": make_text(rng, topic, rating),
+                "rating": rating,
                 "topic": topic,
             })
     rows.sort(key=lambda r: r["created_at"])
     for i, r in enumerate(rows, 1):
-        r["voc_id"] = f"V{i:05d}"
+        r["voc_id"] = f"V{i:04d}"
         assert "," not in r["text"] and '"' not in r["text"]
 
-    with open("vocs_10000.csv", "w", encoding="utf-8", newline="") as f:
+    with open("vocs_1000.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
         w.writerow(["voc_id", "created_at", "channel", "text", "rating"])
         w.writerows([r["voc_id"], r["created_at"], r["channel"], r["text"], r["rating"]] for r in rows)
-    with open("vocs_10000_labels.csv", "w", encoding="utf-8", newline="") as f:
+    with open("vocs_1000_labels.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
-        w.writerow(["voc_id", "topic"])
-        w.writerows([r["voc_id"], r["topic"]] for r in rows)
-    print(f"{len(rows)} rows -> vocs_10000.csv, vocs_10000_labels.csv")
+        w.writerow(["voc_id", "topic", "topic_name"])
+        w.writerows([r["voc_id"], r["topic"], TOPICS[r["topic"]][0]] for r in rows)
+    print(f"{len(rows)} rows -> vocs_1000.csv, vocs_1000_labels.csv")
 
 
 if __name__ == "__main__":

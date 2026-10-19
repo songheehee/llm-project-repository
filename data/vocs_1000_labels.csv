@@ -1,0 +1,1001 @@
+voc_id,topic,topic_name
+V0001,strap_skin,착용감·스트랩·피부
+V0002,gps,GPS 거리 오차
+V0003,battery,배터리 소모
+V0004,hr_accuracy,심박·센서 측정 부정확
+V0005,gps,GPS 거리 오차
+V0006,battery,배터리 소모
+V0007,menu,메뉴·UI 사용성
+V0008,sleep,수면 측정 오류
+V0009,strap_skin,착용감·스트랩·피부
+V0010,sync_phone,폰 앱 동기화 지연·누락
+V0011,heat_work,운동 중 기기 발열
+V0012,menu,메뉴·UI 사용성
+V0013,sleep,수면 측정 오류
+V0014,heat_work,운동 중 기기 발열
+V0015,sync_phone,폰 앱 동기화 지연·누락
+V0016,app_crash,앱 멈춤·강제 종료
+V0017,hr_accuracy,심박·센서 측정 부정확
+V0018,heat_work,운동 중 기기 발열
+V0019,sync_phone,폰 앱 동기화 지연·누락
+V0020,step_count,걸음 수 부정확
+V0021,notification,알림 지연·누락
+V0022,charging,충전 불량
+V0023,notification,알림 지연·누락
+V0024,sync_phone,폰 앱 동기화 지연·누락
+V0025,menu,메뉴·UI 사용성
+V0026,battery,배터리 소모
+V0027,charging,충전 불량
+V0028,hr_accuracy,심박·센서 측정 부정확
+V0029,sleep,수면 측정 오류
+V0030,hr_accuracy,심박·센서 측정 부정확
+V0031,menu,메뉴·UI 사용성
+V0032,menu,메뉴·UI 사용성
+V0033,sleep,수면 측정 오류
+V0034,step_count,걸음 수 부정확
+V0035,gps,GPS 거리 오차
+V0036,menu,메뉴·UI 사용성
+V0037,hr_accuracy,심박·센서 측정 부정확
+V0038,battery,배터리 소모
+V0039,app_crash,앱 멈춤·강제 종료
+V0040,battery,배터리 소모
+V0041,sync_phone,폰 앱 동기화 지연·누락
+V0042,hr_accuracy,심박·센서 측정 부정확
+V0043,sleep,수면 측정 오류
+V0044,sync_phone,폰 앱 동기화 지연·누락
+V0045,hr_accuracy,심박·센서 측정 부정확
+V0046,gps,GPS 거리 오차
+V0047,step_count,걸음 수 부정확
+V0048,battery,배터리 소모
+V0049,gps,GPS 거리 오차
+V0050,app_crash,앱 멈춤·강제 종료
+V0051,notification,알림 지연·누락
+V0052,charging,충전 불량
+V0053,app_crash,앱 멈춤·강제 종료
+V0054,charging,충전 불량
+V0055,gps,GPS 거리 오차
+V0056,menu,메뉴·UI 사용성
+V0057,strap_skin,착용감·스트랩·피부
+V0058,hr_accuracy,심박·센서 측정 부정확
+V0059,sync_phone,폰 앱 동기화 지연·누락
+V0060,notification,알림 지연·누락
+V0061,step_count,걸음 수 부정확
+V0062,battery,배터리 소모
+V0063,sync_phone,폰 앱 동기화 지연·누락
+V0064,hr_accuracy,심박·센서 측정 부정확
+V0065,menu,메뉴·UI 사용성
+V0066,strap_skin,착용감·스트랩·피부
+V0067,gps,GPS 거리 오차
+V0068,gps,GPS 거리 오차
+V0069,battery,배터리 소모
+V0070,battery,배터리 소모
+V0071,menu,메뉴·UI 사용성
+V0072,notification,알림 지연·누락
+V0073,hr_accuracy,심박·센서 측정 부정확
+V0074,notification,알림 지연·누락
+V0075,hr_accuracy,심박·센서 측정 부정확
+V0076,app_crash,앱 멈춤·강제 종료
+V0077,battery,배터리 소모
+V0078,step_count,걸음 수 부정확
+V0079,step_count,걸음 수 부정확
+V0080,sleep,수면 측정 오류
+V0081,step_count,걸음 수 부정확
+V0082,gps,GPS 거리 오차
+V0083,menu,메뉴·UI 사용성
+V0084,battery,배터리 소모
+V0085,charging,충전 불량
+V0086,app_crash,앱 멈춤·강제 종료
+V0087,strap_skin,착용감·스트랩·피부
+V0088,battery,배터리 소모
+V0089,notification,알림 지연·누락
+V0090,app_crash,앱 멈춤·강제 종료
+V0091,gps,GPS 거리 오차
+V0092,gps,GPS 거리 오차
+V0093,hr_accuracy,심박·센서 측정 부정확
+V0094,strap_skin,착용감·스트랩·피부
+V0095,charging,충전 불량
+V0096,step_count,걸음 수 부정확
+V0097,strap_skin,착용감·스트랩·피부
+V0098,sleep,수면 측정 오류
+V0099,battery,배터리 소모
+V0100,hr_accuracy,심박·센서 측정 부정확
+V0101,hr_accuracy,심박·센서 측정 부정확
+V0102,menu,메뉴·UI 사용성
+V0103,sleep,수면 측정 오류
+V0104,strap_skin,착용감·스트랩·피부
+V0105,battery,배터리 소모
+V0106,charging,충전 불량
+V0107,step_count,걸음 수 부정확
+V0108,battery,배터리 소모
+V0109,hr_accuracy,심박·센서 측정 부정확
+V0110,menu,메뉴·UI 사용성
+V0111,hr_accuracy,심박·센서 측정 부정확
+V0112,step_count,걸음 수 부정확
+V0113,step_count,걸음 수 부정확
+V0114,battery,배터리 소모
+V0115,notification,알림 지연·누락
+V0116,app_crash,앱 멈춤·강제 종료
+V0117,hr_accuracy,심박·센서 측정 부정확
+V0118,sync_phone,폰 앱 동기화 지연·누락
+V0119,hr_accuracy,심박·센서 측정 부정확
+V0120,menu,메뉴·UI 사용성
+V0121,charging,충전 불량
+V0122,battery,배터리 소모
+V0123,battery,배터리 소모
+V0124,sync_phone,폰 앱 동기화 지연·누락
+V0125,step_count,걸음 수 부정확
+V0126,menu,메뉴·UI 사용성
+V0127,step_count,걸음 수 부정확
+V0128,menu,메뉴·UI 사용성
+V0129,battery,배터리 소모
+V0130,hr_accuracy,심박·센서 측정 부정확
+V0131,hr_accuracy,심박·센서 측정 부정확
+V0132,charging,충전 불량
+V0133,battery,배터리 소모
+V0134,menu,메뉴·UI 사용성
+V0135,sync_phone,폰 앱 동기화 지연·누락
+V0136,battery,배터리 소모
+V0137,menu,메뉴·UI 사용성
+V0138,menu,메뉴·UI 사용성
+V0139,hr_accuracy,심박·센서 측정 부정확
+V0140,menu,메뉴·UI 사용성
+V0141,notification,알림 지연·누락
+V0142,notification,알림 지연·누락
+V0143,sleep,수면 측정 오류
+V0144,battery,배터리 소모
+V0145,app_crash,앱 멈춤·강제 종료
+V0146,app_crash,앱 멈춤·강제 종료
+V0147,battery,배터리 소모
+V0148,battery,배터리 소모
+V0149,step_count,걸음 수 부정확
+V0150,gps,GPS 거리 오차
+V0151,menu,메뉴·UI 사용성
+V0152,menu,메뉴·UI 사용성
+V0153,hr_accuracy,심박·센서 측정 부정확
+V0154,strap_skin,착용감·스트랩·피부
+V0155,app_crash,앱 멈춤·강제 종료
+V0156,battery,배터리 소모
+V0157,battery,배터리 소모
+V0158,app_crash,앱 멈춤·강제 종료
+V0159,sleep,수면 측정 오류
+V0160,heat_work,운동 중 기기 발열
+V0161,sync_phone,폰 앱 동기화 지연·누락
+V0162,app_crash,앱 멈춤·강제 종료
+V0163,notification,알림 지연·누락
+V0164,strap_skin,착용감·스트랩·피부
+V0165,sync_phone,폰 앱 동기화 지연·누락
+V0166,gps,GPS 거리 오차
+V0167,sleep,수면 측정 오류
+V0168,battery,배터리 소모
+V0169,gps,GPS 거리 오차
+V0170,hr_accuracy,심박·센서 측정 부정확
+V0171,gps,GPS 거리 오차
+V0172,charging,충전 불량
+V0173,sync_phone,폰 앱 동기화 지연·누락
+V0174,gps,GPS 거리 오차
+V0175,step_count,걸음 수 부정확
+V0176,charging,충전 불량
+V0177,notification,알림 지연·누락
+V0178,hr_accuracy,심박·센서 측정 부정확
+V0179,sleep,수면 측정 오류
+V0180,sync_phone,폰 앱 동기화 지연·누락
+V0181,gps,GPS 거리 오차
+V0182,sync_phone,폰 앱 동기화 지연·누락
+V0183,hr_accuracy,심박·센서 측정 부정확
+V0184,step_count,걸음 수 부정확
+V0185,hr_accuracy,심박·센서 측정 부정확
+V0186,sync_phone,폰 앱 동기화 지연·누락
+V0187,hr_accuracy,심박·센서 측정 부정확
+V0188,heat_work,운동 중 기기 발열
+V0189,hr_accuracy,심박·센서 측정 부정확
+V0190,menu,메뉴·UI 사용성
+V0191,app_crash,앱 멈춤·강제 종료
+V0192,sync_phone,폰 앱 동기화 지연·누락
+V0193,hr_accuracy,심박·센서 측정 부정확
+V0194,battery,배터리 소모
+V0195,gps,GPS 거리 오차
+V0196,sync_phone,폰 앱 동기화 지연·누락
+V0197,hr_accuracy,심박·센서 측정 부정확
+V0198,step_count,걸음 수 부정확
+V0199,sync_phone,폰 앱 동기화 지연·누락
+V0200,menu,메뉴·UI 사용성
+V0201,gps,GPS 거리 오차
+V0202,app_crash,앱 멈춤·강제 종료
+V0203,gps,GPS 거리 오차
+V0204,sync_phone,폰 앱 동기화 지연·누락
+V0205,sleep,수면 측정 오류
+V0206,gps,GPS 거리 오차
+V0207,step_count,걸음 수 부정확
+V0208,menu,메뉴·UI 사용성
+V0209,sleep,수면 측정 오류
+V0210,battery,배터리 소모
+V0211,heat_work,운동 중 기기 발열
+V0212,hr_accuracy,심박·센서 측정 부정확
+V0213,charging,충전 불량
+V0214,battery,배터리 소모
+V0215,gps,GPS 거리 오차
+V0216,sync_phone,폰 앱 동기화 지연·누락
+V0217,gps,GPS 거리 오차
+V0218,gps,GPS 거리 오차
+V0219,battery,배터리 소모
+V0220,sleep,수면 측정 오류
+V0221,battery,배터리 소모
+V0222,charging,충전 불량
+V0223,gps,GPS 거리 오차
+V0224,menu,메뉴·UI 사용성
+V0225,hr_accuracy,심박·센서 측정 부정확
+V0226,sleep,수면 측정 오류
+V0227,hr_accuracy,심박·센서 측정 부정확
+V0228,app_crash,앱 멈춤·강제 종료
+V0229,menu,메뉴·UI 사용성
+V0230,hr_accuracy,심박·센서 측정 부정확
+V0231,battery,배터리 소모
+V0232,sync_phone,폰 앱 동기화 지연·누락
+V0233,notification,알림 지연·누락
+V0234,sync_phone,폰 앱 동기화 지연·누락
+V0235,charging,충전 불량
+V0236,strap_skin,착용감·스트랩·피부
+V0237,heat_work,운동 중 기기 발열
+V0238,battery,배터리 소모
+V0239,sleep,수면 측정 오류
+V0240,step_count,걸음 수 부정확
+V0241,sleep,수면 측정 오류
+V0242,app_crash,앱 멈춤·강제 종료
+V0243,battery,배터리 소모
+V0244,battery,배터리 소모
+V0245,battery,배터리 소모
+V0246,battery,배터리 소모
+V0247,strap_skin,착용감·스트랩·피부
+V0248,step_count,걸음 수 부정확
+V0249,step_count,걸음 수 부정확
+V0250,hr_accuracy,심박·센서 측정 부정확
+V0251,hr_accuracy,심박·센서 측정 부정확
+V0252,sync_phone,폰 앱 동기화 지연·누락
+V0253,notification,알림 지연·누락
+V0254,notification,알림 지연·누락
+V0255,sleep,수면 측정 오류
+V0256,gps,GPS 거리 오차
+V0257,gps,GPS 거리 오차
+V0258,heat_work,운동 중 기기 발열
+V0259,menu,메뉴·UI 사용성
+V0260,sleep,수면 측정 오류
+V0261,battery,배터리 소모
+V0262,sleep,수면 측정 오류
+V0263,sync_phone,폰 앱 동기화 지연·누락
+V0264,hr_accuracy,심박·센서 측정 부정확
+V0265,hr_accuracy,심박·센서 측정 부정확
+V0266,hr_accuracy,심박·센서 측정 부정확
+V0267,charging,충전 불량
+V0268,hr_accuracy,심박·센서 측정 부정확
+V0269,notification,알림 지연·누락
+V0270,gps,GPS 거리 오차
+V0271,menu,메뉴·UI 사용성
+V0272,menu,메뉴·UI 사용성
+V0273,hr_accuracy,심박·센서 측정 부정확
+V0274,strap_skin,착용감·스트랩·피부
+V0275,battery,배터리 소모
+V0276,hr_accuracy,심박·센서 측정 부정확
+V0277,battery,배터리 소모
+V0278,notification,알림 지연·누락
+V0279,gps,GPS 거리 오차
+V0280,hr_accuracy,심박·센서 측정 부정확
+V0281,notification,알림 지연·누락
+V0282,notification,알림 지연·누락
+V0283,sleep,수면 측정 오류
+V0284,gps,GPS 거리 오차
+V0285,battery,배터리 소모
+V0286,charging,충전 불량
+V0287,notification,알림 지연·누락
+V0288,sleep,수면 측정 오류
+V0289,battery,배터리 소모
+V0290,battery,배터리 소모
+V0291,menu,메뉴·UI 사용성
+V0292,sync_phone,폰 앱 동기화 지연·누락
+V0293,sync_phone,폰 앱 동기화 지연·누락
+V0294,hr_accuracy,심박·센서 측정 부정확
+V0295,notification,알림 지연·누락
+V0296,battery,배터리 소모
+V0297,menu,메뉴·UI 사용성
+V0298,menu,메뉴·UI 사용성
+V0299,app_crash,앱 멈춤·강제 종료
+V0300,sync_phone,폰 앱 동기화 지연·누락
+V0301,app_crash,앱 멈춤·강제 종료
+V0302,heat_work,운동 중 기기 발열
+V0303,charging,충전 불량
+V0304,gps,GPS 거리 오차
+V0305,battery,배터리 소모
+V0306,step_count,걸음 수 부정확
+V0307,step_count,걸음 수 부정확
+V0308,battery,배터리 소모
+V0309,menu,메뉴·UI 사용성
+V0310,step_count,걸음 수 부정확
+V0311,heat_work,운동 중 기기 발열
+V0312,battery,배터리 소모
+V0313,notification,알림 지연·누락
+V0314,heat_work,운동 중 기기 발열
+V0315,menu,메뉴·UI 사용성
+V0316,menu,메뉴·UI 사용성
+V0317,app_crash,앱 멈춤·강제 종료
+V0318,sync_phone,폰 앱 동기화 지연·누락
+V0319,gps,GPS 거리 오차
+V0320,battery,배터리 소모
+V0321,step_count,걸음 수 부정확
+V0322,notification,알림 지연·누락
+V0323,menu,메뉴·UI 사용성
+V0324,menu,메뉴·UI 사용성
+V0325,battery,배터리 소모
+V0326,sync_phone,폰 앱 동기화 지연·누락
+V0327,sleep,수면 측정 오류
+V0328,step_count,걸음 수 부정확
+V0329,strap_skin,착용감·스트랩·피부
+V0330,sleep,수면 측정 오류
+V0331,gps,GPS 거리 오차
+V0332,battery,배터리 소모
+V0333,menu,메뉴·UI 사용성
+V0334,charging,충전 불량
+V0335,notification,알림 지연·누락
+V0336,sync_phone,폰 앱 동기화 지연·누락
+V0337,sleep,수면 측정 오류
+V0338,notification,알림 지연·누락
+V0339,notification,알림 지연·누락
+V0340,battery,배터리 소모
+V0341,hr_accuracy,심박·센서 측정 부정확
+V0342,sync_phone,폰 앱 동기화 지연·누락
+V0343,app_crash,앱 멈춤·강제 종료
+V0344,app_crash,앱 멈춤·강제 종료
+V0345,notification,알림 지연·누락
+V0346,battery,배터리 소모
+V0347,sync_phone,폰 앱 동기화 지연·누락
+V0348,hr_accuracy,심박·센서 측정 부정확
+V0349,hr_accuracy,심박·센서 측정 부정확
+V0350,gps,GPS 거리 오차
+V0351,hr_accuracy,심박·센서 측정 부정확
+V0352,charging,충전 불량
+V0353,battery,배터리 소모
+V0354,charging,충전 불량
+V0355,menu,메뉴·UI 사용성
+V0356,sleep,수면 측정 오류
+V0357,menu,메뉴·UI 사용성
+V0358,gps,GPS 거리 오차
+V0359,menu,메뉴·UI 사용성
+V0360,sleep,수면 측정 오류
+V0361,menu,메뉴·UI 사용성
+V0362,menu,메뉴·UI 사용성
+V0363,battery,배터리 소모
+V0364,hr_accuracy,심박·센서 측정 부정확
+V0365,battery,배터리 소모
+V0366,menu,메뉴·UI 사용성
+V0367,heat_work,운동 중 기기 발열
+V0368,strap_skin,착용감·스트랩·피부
+V0369,step_count,걸음 수 부정확
+V0370,sleep,수면 측정 오류
+V0371,battery,배터리 소모
+V0372,heat_work,운동 중 기기 발열
+V0373,menu,메뉴·UI 사용성
+V0374,heat_work,운동 중 기기 발열
+V0375,sleep,수면 측정 오류
+V0376,heat_work,운동 중 기기 발열
+V0377,hr_accuracy,심박·센서 측정 부정확
+V0378,heat_work,운동 중 기기 발열
+V0379,heat_work,운동 중 기기 발열
+V0380,strap_skin,착용감·스트랩·피부
+V0381,gps,GPS 거리 오차
+V0382,gps,GPS 거리 오차
+V0383,heat_work,운동 중 기기 발열
+V0384,heat_work,운동 중 기기 발열
+V0385,sync_phone,폰 앱 동기화 지연·누락
+V0386,heat_work,운동 중 기기 발열
+V0387,heat_disc,연결 끊김 시 발열
+V0388,heat_work,운동 중 기기 발열
+V0389,heat_disc,연결 끊김 시 발열
+V0390,battery,배터리 소모
+V0391,heat_work,운동 중 기기 발열
+V0392,menu,메뉴·UI 사용성
+V0393,menu,메뉴·UI 사용성
+V0394,sleep,수면 측정 오류
+V0395,heat_work,운동 중 기기 발열
+V0396,notification,알림 지연·누락
+V0397,heat_disc,연결 끊김 시 발열
+V0398,heat_work,운동 중 기기 발열
+V0399,hr_accuracy,심박·센서 측정 부정확
+V0400,notification,알림 지연·누락
+V0401,battery,배터리 소모
+V0402,step_count,걸음 수 부정확
+V0403,heat_work,운동 중 기기 발열
+V0404,sleep,수면 측정 오류
+V0405,heat_disc,연결 끊김 시 발열
+V0406,battery,배터리 소모
+V0407,gps,GPS 거리 오차
+V0408,heat_disc,연결 끊김 시 발열
+V0409,step_count,걸음 수 부정확
+V0410,battery,배터리 소모
+V0411,sync_phone,폰 앱 동기화 지연·누락
+V0412,heat_work,운동 중 기기 발열
+V0413,heat_work,운동 중 기기 발열
+V0414,heat_disc,연결 끊김 시 발열
+V0415,heat_work,운동 중 기기 발열
+V0416,heat_disc,연결 끊김 시 발열
+V0417,gps,GPS 거리 오차
+V0418,battery,배터리 소모
+V0419,heat_work,운동 중 기기 발열
+V0420,gps,GPS 거리 오차
+V0421,notification,알림 지연·누락
+V0422,heat_work,운동 중 기기 발열
+V0423,charging,충전 불량
+V0424,battery,배터리 소모
+V0425,sync_phone,폰 앱 동기화 지연·누락
+V0426,sync_phone,폰 앱 동기화 지연·누락
+V0427,sync_phone,폰 앱 동기화 지연·누락
+V0428,step_count,걸음 수 부정확
+V0429,heat_work,운동 중 기기 발열
+V0430,battery,배터리 소모
+V0431,gps,GPS 거리 오차
+V0432,battery,배터리 소모
+V0433,battery,배터리 소모
+V0434,sync_phone,폰 앱 동기화 지연·누락
+V0435,sleep,수면 측정 오류
+V0436,menu,메뉴·UI 사용성
+V0437,heat_disc,연결 끊김 시 발열
+V0438,strap_skin,착용감·스트랩·피부
+V0439,heat_work,운동 중 기기 발열
+V0440,heat_work,운동 중 기기 발열
+V0441,battery,배터리 소모
+V0442,sleep,수면 측정 오류
+V0443,gps,GPS 거리 오차
+V0444,heat_work,운동 중 기기 발열
+V0445,heat_work,운동 중 기기 발열
+V0446,heat_work,운동 중 기기 발열
+V0447,heat_work,운동 중 기기 발열
+V0448,heat_work,운동 중 기기 발열
+V0449,battery,배터리 소모
+V0450,heat_work,운동 중 기기 발열
+V0451,sleep,수면 측정 오류
+V0452,heat_work,운동 중 기기 발열
+V0453,battery,배터리 소모
+V0454,sleep,수면 측정 오류
+V0455,heat_work,운동 중 기기 발열
+V0456,heat_work,운동 중 기기 발열
+V0457,gps,GPS 거리 오차
+V0458,heat_work,운동 중 기기 발열
+V0459,battery,배터리 소모
+V0460,battery,배터리 소모
+V0461,heat_disc,연결 끊김 시 발열
+V0462,hr_accuracy,심박·센서 측정 부정확
+V0463,charging,충전 불량
+V0464,sync_phone,폰 앱 동기화 지연·누락
+V0465,gps,GPS 거리 오차
+V0466,heat_work,운동 중 기기 발열
+V0467,heat_work,운동 중 기기 발열
+V0468,battery,배터리 소모
+V0469,battery,배터리 소모
+V0470,sync_phone,폰 앱 동기화 지연·누락
+V0471,battery,배터리 소모
+V0472,charging,충전 불량
+V0473,heat_work,운동 중 기기 발열
+V0474,heat_disc,연결 끊김 시 발열
+V0475,menu,메뉴·UI 사용성
+V0476,heat_work,운동 중 기기 발열
+V0477,strap_skin,착용감·스트랩·피부
+V0478,heat_work,운동 중 기기 발열
+V0479,heat_disc,연결 끊김 시 발열
+V0480,battery,배터리 소모
+V0481,heat_work,운동 중 기기 발열
+V0482,heat_work,운동 중 기기 발열
+V0483,battery,배터리 소모
+V0484,menu,메뉴·UI 사용성
+V0485,heat_work,운동 중 기기 발열
+V0486,menu,메뉴·UI 사용성
+V0487,heat_work,운동 중 기기 발열
+V0488,heat_work,운동 중 기기 발열
+V0489,gps,GPS 거리 오차
+V0490,menu,메뉴·UI 사용성
+V0491,gps,GPS 거리 오차
+V0492,heat_work,운동 중 기기 발열
+V0493,step_count,걸음 수 부정확
+V0494,heat_work,운동 중 기기 발열
+V0495,heat_work,운동 중 기기 발열
+V0496,heat_disc,연결 끊김 시 발열
+V0497,app_crash,앱 멈춤·강제 종료
+V0498,heat_work,운동 중 기기 발열
+V0499,strap_skin,착용감·스트랩·피부
+V0500,menu,메뉴·UI 사용성
+V0501,menu,메뉴·UI 사용성
+V0502,battery,배터리 소모
+V0503,notification,알림 지연·누락
+V0504,battery,배터리 소모
+V0505,battery,배터리 소모
+V0506,step_count,걸음 수 부정확
+V0507,heat_work,운동 중 기기 발열
+V0508,notification,알림 지연·누락
+V0509,heat_work,운동 중 기기 발열
+V0510,sleep,수면 측정 오류
+V0511,menu,메뉴·UI 사용성
+V0512,app_crash,앱 멈춤·강제 종료
+V0513,heat_work,운동 중 기기 발열
+V0514,step_count,걸음 수 부정확
+V0515,charging,충전 불량
+V0516,notification,알림 지연·누락
+V0517,gps,GPS 거리 오차
+V0518,heat_disc,연결 끊김 시 발열
+V0519,step_count,걸음 수 부정확
+V0520,gps,GPS 거리 오차
+V0521,charging,충전 불량
+V0522,menu,메뉴·UI 사용성
+V0523,sync_phone,폰 앱 동기화 지연·누락
+V0524,gps,GPS 거리 오차
+V0525,app_crash,앱 멈춤·강제 종료
+V0526,heat_work,운동 중 기기 발열
+V0527,heat_work,운동 중 기기 발열
+V0528,app_crash,앱 멈춤·강제 종료
+V0529,step_count,걸음 수 부정확
+V0530,heat_work,운동 중 기기 발열
+V0531,heat_work,운동 중 기기 발열
+V0532,heat_work,운동 중 기기 발열
+V0533,heat_work,운동 중 기기 발열
+V0534,heat_work,운동 중 기기 발열
+V0535,battery,배터리 소모
+V0536,strap_skin,착용감·스트랩·피부
+V0537,sleep,수면 측정 오류
+V0538,heat_work,운동 중 기기 발열
+V0539,heat_work,운동 중 기기 발열
+V0540,battery,배터리 소모
+V0541,battery,배터리 소모
+V0542,heat_work,운동 중 기기 발열
+V0543,battery,배터리 소모
+V0544,battery,배터리 소모
+V0545,menu,메뉴·UI 사용성
+V0546,heat_disc,연결 끊김 시 발열
+V0547,heat_work,운동 중 기기 발열
+V0548,menu,메뉴·UI 사용성
+V0549,heat_work,운동 중 기기 발열
+V0550,heat_work,운동 중 기기 발열
+V0551,charging,충전 불량
+V0552,heat_disc,연결 끊김 시 발열
+V0553,heat_work,운동 중 기기 발열
+V0554,menu,메뉴·UI 사용성
+V0555,menu,메뉴·UI 사용성
+V0556,heat_work,운동 중 기기 발열
+V0557,sync_phone,폰 앱 동기화 지연·누락
+V0558,gps,GPS 거리 오차
+V0559,gps,GPS 거리 오차
+V0560,battery,배터리 소모
+V0561,notification,알림 지연·누락
+V0562,heat_disc,연결 끊김 시 발열
+V0563,heat_work,운동 중 기기 발열
+V0564,gps,GPS 거리 오차
+V0565,heat_work,운동 중 기기 발열
+V0566,menu,메뉴·UI 사용성
+V0567,hr_accuracy,심박·센서 측정 부정확
+V0568,battery,배터리 소모
+V0569,heat_work,운동 중 기기 발열
+V0570,sync_phone,폰 앱 동기화 지연·누락
+V0571,hr_accuracy,심박·센서 측정 부정확
+V0572,heat_work,운동 중 기기 발열
+V0573,heat_work,운동 중 기기 발열
+V0574,heat_work,운동 중 기기 발열
+V0575,heat_work,운동 중 기기 발열
+V0576,gps,GPS 거리 오차
+V0577,battery,배터리 소모
+V0578,step_count,걸음 수 부정확
+V0579,heat_work,운동 중 기기 발열
+V0580,app_crash,앱 멈춤·강제 종료
+V0581,sync_phone,폰 앱 동기화 지연·누락
+V0582,battery,배터리 소모
+V0583,battery,배터리 소모
+V0584,step_count,걸음 수 부정확
+V0585,heat_work,운동 중 기기 발열
+V0586,charging,충전 불량
+V0587,notification,알림 지연·누락
+V0588,app_crash,앱 멈춤·강제 종료
+V0589,heat_work,운동 중 기기 발열
+V0590,gps,GPS 거리 오차
+V0591,heat_disc,연결 끊김 시 발열
+V0592,heat_disc,연결 끊김 시 발열
+V0593,battery,배터리 소모
+V0594,heat_work,운동 중 기기 발열
+V0595,heat_work,운동 중 기기 발열
+V0596,gps,GPS 거리 오차
+V0597,heat_work,운동 중 기기 발열
+V0598,sleep,수면 측정 오류
+V0599,heat_disc,연결 끊김 시 발열
+V0600,heat_work,운동 중 기기 발열
+V0601,heat_work,운동 중 기기 발열
+V0602,sleep,수면 측정 오류
+V0603,strap_skin,착용감·스트랩·피부
+V0604,battery,배터리 소모
+V0605,hr_accuracy,심박·센서 측정 부정확
+V0606,charging,충전 불량
+V0607,strap_skin,착용감·스트랩·피부
+V0608,heat_work,운동 중 기기 발열
+V0609,battery,배터리 소모
+V0610,sleep,수면 측정 오류
+V0611,heat_work,운동 중 기기 발열
+V0612,heat_work,운동 중 기기 발열
+V0613,battery,배터리 소모
+V0614,menu,메뉴·UI 사용성
+V0615,heat_disc,연결 끊김 시 발열
+V0616,app_crash,앱 멈춤·강제 종료
+V0617,menu,메뉴·UI 사용성
+V0618,heat_work,운동 중 기기 발열
+V0619,step_count,걸음 수 부정확
+V0620,sync_phone,폰 앱 동기화 지연·누락
+V0621,menu,메뉴·UI 사용성
+V0622,sleep,수면 측정 오류
+V0623,strap_skin,착용감·스트랩·피부
+V0624,notification,알림 지연·누락
+V0625,sync_phone,폰 앱 동기화 지연·누락
+V0626,heat_work,운동 중 기기 발열
+V0627,heat_work,운동 중 기기 발열
+V0628,gps,GPS 거리 오차
+V0629,heat_work,운동 중 기기 발열
+V0630,app_crash,앱 멈춤·강제 종료
+V0631,heat_work,운동 중 기기 발열
+V0632,heat_work,운동 중 기기 발열
+V0633,heat_disc,연결 끊김 시 발열
+V0634,menu,메뉴·UI 사용성
+V0635,heat_work,운동 중 기기 발열
+V0636,strap_skin,착용감·스트랩·피부
+V0637,battery,배터리 소모
+V0638,step_count,걸음 수 부정확
+V0639,heat_work,운동 중 기기 발열
+V0640,heat_work,운동 중 기기 발열
+V0641,heat_work,운동 중 기기 발열
+V0642,sleep,수면 측정 오류
+V0643,heat_disc,연결 끊김 시 발열
+V0644,heat_work,운동 중 기기 발열
+V0645,battery,배터리 소모
+V0646,battery,배터리 소모
+V0647,battery,배터리 소모
+V0648,heat_work,운동 중 기기 발열
+V0649,gps,GPS 거리 오차
+V0650,battery,배터리 소모
+V0651,heat_disc,연결 끊김 시 발열
+V0652,hr_accuracy,심박·센서 측정 부정확
+V0653,heat_work,운동 중 기기 발열
+V0654,battery,배터리 소모
+V0655,app_crash,앱 멈춤·강제 종료
+V0656,battery,배터리 소모
+V0657,gps,GPS 거리 오차
+V0658,notification,알림 지연·누락
+V0659,sleep,수면 측정 오류
+V0660,heat_work,운동 중 기기 발열
+V0661,heat_work,운동 중 기기 발열
+V0662,charging,충전 불량
+V0663,heat_work,운동 중 기기 발열
+V0664,battery,배터리 소모
+V0665,heat_work,운동 중 기기 발열
+V0666,notification,알림 지연·누락
+V0667,heat_work,운동 중 기기 발열
+V0668,heat_work,운동 중 기기 발열
+V0669,heat_disc,연결 끊김 시 발열
+V0670,heat_work,운동 중 기기 발열
+V0671,heat_work,운동 중 기기 발열
+V0672,heat_disc,연결 끊김 시 발열
+V0673,sleep,수면 측정 오류
+V0674,sync_phone,폰 앱 동기화 지연·누락
+V0675,heat_work,운동 중 기기 발열
+V0676,app_crash,앱 멈춤·강제 종료
+V0677,heat_work,운동 중 기기 발열
+V0678,hr_accuracy,심박·센서 측정 부정확
+V0679,sync_phone,폰 앱 동기화 지연·누락
+V0680,strap_skin,착용감·스트랩·피부
+V0681,heat_work,운동 중 기기 발열
+V0682,menu,메뉴·UI 사용성
+V0683,heat_work,운동 중 기기 발열
+V0684,gps,GPS 거리 오차
+V0685,heat_work,운동 중 기기 발열
+V0686,battery,배터리 소모
+V0687,heat_work,운동 중 기기 발열
+V0688,menu,메뉴·UI 사용성
+V0689,gps,GPS 거리 오차
+V0690,heat_work,운동 중 기기 발열
+V0691,charging,충전 불량
+V0692,battery,배터리 소모
+V0693,app_crash,앱 멈춤·강제 종료
+V0694,gps,GPS 거리 오차
+V0695,heat_work,운동 중 기기 발열
+V0696,heat_work,운동 중 기기 발열
+V0697,sync_phone,폰 앱 동기화 지연·누락
+V0698,step_count,걸음 수 부정확
+V0699,hr_accuracy,심박·센서 측정 부정확
+V0700,menu,메뉴·UI 사용성
+V0701,step_count,걸음 수 부정확
+V0702,heat_work,운동 중 기기 발열
+V0703,sync_phone,폰 앱 동기화 지연·누락
+V0704,battery,배터리 소모
+V0705,battery,배터리 소모
+V0706,charging,충전 불량
+V0707,menu,메뉴·UI 사용성
+V0708,heat_work,운동 중 기기 발열
+V0709,heat_work,운동 중 기기 발열
+V0710,heat_work,운동 중 기기 발열
+V0711,sleep,수면 측정 오류
+V0712,heat_work,운동 중 기기 발열
+V0713,gps,GPS 거리 오차
+V0714,sync_phone,폰 앱 동기화 지연·누락
+V0715,heat_work,운동 중 기기 발열
+V0716,notification,알림 지연·누락
+V0717,heat_disc,연결 끊김 시 발열
+V0718,notification,알림 지연·누락
+V0719,battery,배터리 소모
+V0720,heat_work,운동 중 기기 발열
+V0721,gps,GPS 거리 오차
+V0722,heat_work,운동 중 기기 발열
+V0723,heat_disc,연결 끊김 시 발열
+V0724,heat_disc,연결 끊김 시 발열
+V0725,heat_work,운동 중 기기 발열
+V0726,heat_work,운동 중 기기 발열
+V0727,gps,GPS 거리 오차
+V0728,heat_disc,연결 끊김 시 발열
+V0729,notification,알림 지연·누락
+V0730,step_count,걸음 수 부정확
+V0731,heat_work,운동 중 기기 발열
+V0732,menu,메뉴·UI 사용성
+V0733,battery,배터리 소모
+V0734,heat_work,운동 중 기기 발열
+V0735,heat_work,운동 중 기기 발열
+V0736,gps,GPS 거리 오차
+V0737,heat_work,운동 중 기기 발열
+V0738,heat_work,운동 중 기기 발열
+V0739,heat_work,운동 중 기기 발열
+V0740,menu,메뉴·UI 사용성
+V0741,heat_work,운동 중 기기 발열
+V0742,app_crash,앱 멈춤·강제 종료
+V0743,battery,배터리 소모
+V0744,notification,알림 지연·누락
+V0745,app_crash,앱 멈춤·강제 종료
+V0746,hr_accuracy,심박·센서 측정 부정확
+V0747,notification,알림 지연·누락
+V0748,hr_accuracy,심박·센서 측정 부정확
+V0749,battery,배터리 소모
+V0750,gps,GPS 거리 오차
+V0751,menu,메뉴·UI 사용성
+V0752,battery,배터리 소모
+V0753,heat_disc,연결 끊김 시 발열
+V0754,heat_disc,연결 끊김 시 발열
+V0755,heat_work,운동 중 기기 발열
+V0756,heat_work,운동 중 기기 발열
+V0757,heat_work,운동 중 기기 발열
+V0758,battery,배터리 소모
+V0759,heat_work,운동 중 기기 발열
+V0760,heat_disc,연결 끊김 시 발열
+V0761,heat_work,운동 중 기기 발열
+V0762,heat_work,운동 중 기기 발열
+V0763,heat_work,운동 중 기기 발열
+V0764,gps,GPS 거리 오차
+V0765,hr_accuracy,심박·센서 측정 부정확
+V0766,notification,알림 지연·누락
+V0767,heat_work,운동 중 기기 발열
+V0768,sync_phone,폰 앱 동기화 지연·누락
+V0769,heat_disc,연결 끊김 시 발열
+V0770,gps,GPS 거리 오차
+V0771,charging,충전 불량
+V0772,battery,배터리 소모
+V0773,hr_accuracy,심박·센서 측정 부정확
+V0774,heat_work,운동 중 기기 발열
+V0775,sync_phone,폰 앱 동기화 지연·누락
+V0776,battery,배터리 소모
+V0777,menu,메뉴·UI 사용성
+V0778,battery,배터리 소모
+V0779,gps,GPS 거리 오차
+V0780,sync_phone,폰 앱 동기화 지연·누락
+V0781,battery,배터리 소모
+V0782,menu,메뉴·UI 사용성
+V0783,hr_accuracy,심박·센서 측정 부정확
+V0784,hr_accuracy,심박·센서 측정 부정확
+V0785,battery,배터리 소모
+V0786,heat_work,운동 중 기기 발열
+V0787,heat_disc,연결 끊김 시 발열
+V0788,heat_work,운동 중 기기 발열
+V0789,step_count,걸음 수 부정확
+V0790,heat_disc,연결 끊김 시 발열
+V0791,strap_skin,착용감·스트랩·피부
+V0792,notification,알림 지연·누락
+V0793,heat_work,운동 중 기기 발열
+V0794,heat_disc,연결 끊김 시 발열
+V0795,battery,배터리 소모
+V0796,gps,GPS 거리 오차
+V0797,app_crash,앱 멈춤·강제 종료
+V0798,heat_work,운동 중 기기 발열
+V0799,menu,메뉴·UI 사용성
+V0800,sync_phone,폰 앱 동기화 지연·누락
+V0801,charging,충전 불량
+V0802,battery,배터리 소모
+V0803,menu,메뉴·UI 사용성
+V0804,heat_work,운동 중 기기 발열
+V0805,heat_work,운동 중 기기 발열
+V0806,charging,충전 불량
+V0807,heat_disc,연결 끊김 시 발열
+V0808,strap_skin,착용감·스트랩·피부
+V0809,step_count,걸음 수 부정확
+V0810,battery,배터리 소모
+V0811,heat_work,운동 중 기기 발열
+V0812,strap_skin,착용감·스트랩·피부
+V0813,heat_work,운동 중 기기 발열
+V0814,heat_work,운동 중 기기 발열
+V0815,sync_phone,폰 앱 동기화 지연·누락
+V0816,hr_accuracy,심박·센서 측정 부정확
+V0817,charging,충전 불량
+V0818,heat_work,운동 중 기기 발열
+V0819,menu,메뉴·UI 사용성
+V0820,heat_work,운동 중 기기 발열
+V0821,heat_disc,연결 끊김 시 발열
+V0822,menu,메뉴·UI 사용성
+V0823,heat_work,운동 중 기기 발열
+V0824,heat_disc,연결 끊김 시 발열
+V0825,strap_skin,착용감·스트랩·피부
+V0826,heat_work,운동 중 기기 발열
+V0827,heat_work,운동 중 기기 발열
+V0828,app_crash,앱 멈춤·강제 종료
+V0829,heat_disc,연결 끊김 시 발열
+V0830,heat_work,운동 중 기기 발열
+V0831,heat_work,운동 중 기기 발열
+V0832,battery,배터리 소모
+V0833,strap_skin,착용감·스트랩·피부
+V0834,heat_work,운동 중 기기 발열
+V0835,battery,배터리 소모
+V0836,heat_work,운동 중 기기 발열
+V0837,gps,GPS 거리 오차
+V0838,heat_work,운동 중 기기 발열
+V0839,charging,충전 불량
+V0840,battery,배터리 소모
+V0841,step_count,걸음 수 부정확
+V0842,heat_work,운동 중 기기 발열
+V0843,battery,배터리 소모
+V0844,heat_disc,연결 끊김 시 발열
+V0845,hr_accuracy,심박·센서 측정 부정확
+V0846,heat_work,운동 중 기기 발열
+V0847,heat_work,운동 중 기기 발열
+V0848,menu,메뉴·UI 사용성
+V0849,app_crash,앱 멈춤·강제 종료
+V0850,heat_work,운동 중 기기 발열
+V0851,sync_phone,폰 앱 동기화 지연·누락
+V0852,battery,배터리 소모
+V0853,battery,배터리 소모
+V0854,heat_work,운동 중 기기 발열
+V0855,heat_work,운동 중 기기 발열
+V0856,gps,GPS 거리 오차
+V0857,app_crash,앱 멈춤·강제 종료
+V0858,heat_work,운동 중 기기 발열
+V0859,heat_work,운동 중 기기 발열
+V0860,battery,배터리 소모
+V0861,gps,GPS 거리 오차
+V0862,notification,알림 지연·누락
+V0863,gps,GPS 거리 오차
+V0864,menu,메뉴·UI 사용성
+V0865,battery,배터리 소모
+V0866,sync_phone,폰 앱 동기화 지연·누락
+V0867,heat_work,운동 중 기기 발열
+V0868,battery,배터리 소모
+V0869,heat_work,운동 중 기기 발열
+V0870,heat_disc,연결 끊김 시 발열
+V0871,heat_work,운동 중 기기 발열
+V0872,sleep,수면 측정 오류
+V0873,battery,배터리 소모
+V0874,sleep,수면 측정 오류
+V0875,menu,메뉴·UI 사용성
+V0876,sleep,수면 측정 오류
+V0877,charging,충전 불량
+V0878,battery,배터리 소모
+V0879,battery,배터리 소모
+V0880,strap_skin,착용감·스트랩·피부
+V0881,gps,GPS 거리 오차
+V0882,step_count,걸음 수 부정확
+V0883,battery,배터리 소모
+V0884,heat_work,운동 중 기기 발열
+V0885,heat_work,운동 중 기기 발열
+V0886,heat_work,운동 중 기기 발열
+V0887,gps,GPS 거리 오차
+V0888,battery,배터리 소모
+V0889,notification,알림 지연·누락
+V0890,step_count,걸음 수 부정확
+V0891,strap_skin,착용감·스트랩·피부
+V0892,gps,GPS 거리 오차
+V0893,heat_work,운동 중 기기 발열
+V0894,heat_work,운동 중 기기 발열
+V0895,notification,알림 지연·누락
+V0896,heat_work,운동 중 기기 발열
+V0897,heat_work,운동 중 기기 발열
+V0898,battery,배터리 소모
+V0899,heat_work,운동 중 기기 발열
+V0900,battery,배터리 소모
+V0901,gps,GPS 거리 오차
+V0902,battery,배터리 소모
+V0903,battery,배터리 소모
+V0904,charging,충전 불량
+V0905,heat_work,운동 중 기기 발열
+V0906,heat_work,운동 중 기기 발열
+V0907,battery,배터리 소모
+V0908,battery,배터리 소모
+V0909,heat_disc,연결 끊김 시 발열
+V0910,heat_disc,연결 끊김 시 발열
+V0911,heat_disc,연결 끊김 시 발열
+V0912,menu,메뉴·UI 사용성
+V0913,battery,배터리 소모
+V0914,heat_work,운동 중 기기 발열
+V0915,app_crash,앱 멈춤·강제 종료
+V0916,step_count,걸음 수 부정확
+V0917,heat_work,운동 중 기기 발열
+V0918,heat_work,운동 중 기기 발열
+V0919,gps,GPS 거리 오차
+V0920,charging,충전 불량
+V0921,gps,GPS 거리 오차
+V0922,battery,배터리 소모
+V0923,menu,메뉴·UI 사용성
+V0924,step_count,걸음 수 부정확
+V0925,notification,알림 지연·누락
+V0926,heat_work,운동 중 기기 발열
+V0927,hr_accuracy,심박·센서 측정 부정확
+V0928,sleep,수면 측정 오류
+V0929,heat_work,운동 중 기기 발열
+V0930,step_count,걸음 수 부정확
+V0931,gps,GPS 거리 오차
+V0932,heat_disc,연결 끊김 시 발열
+V0933,menu,메뉴·UI 사용성
+V0934,heat_work,운동 중 기기 발열
+V0935,sleep,수면 측정 오류
+V0936,sleep,수면 측정 오류
+V0937,heat_work,운동 중 기기 발열
+V0938,heat_disc,연결 끊김 시 발열
+V0939,battery,배터리 소모
+V0940,heat_disc,연결 끊김 시 발열
+V0941,heat_work,운동 중 기기 발열
+V0942,battery,배터리 소모
+V0943,battery,배터리 소모
+V0944,heat_work,운동 중 기기 발열
+V0945,menu,메뉴·UI 사용성
+V0946,menu,메뉴·UI 사용성
+V0947,gps,GPS 거리 오차
+V0948,battery,배터리 소모
+V0949,sync_phone,폰 앱 동기화 지연·누락
+V0950,heat_work,운동 중 기기 발열
+V0951,sleep,수면 측정 오류
+V0952,heat_work,운동 중 기기 발열
+V0953,battery,배터리 소모
+V0954,battery,배터리 소모
+V0955,charging,충전 불량
+V0956,menu,메뉴·UI 사용성
+V0957,gps,GPS 거리 오차
+V0958,charging,충전 불량
+V0959,notification,알림 지연·누락
+V0960,menu,메뉴·UI 사용성
+V0961,heat_work,운동 중 기기 발열
+V0962,heat_work,운동 중 기기 발열
+V0963,gps,GPS 거리 오차
+V0964,sleep,수면 측정 오류
+V0965,battery,배터리 소모
+V0966,gps,GPS 거리 오차
+V0967,sleep,수면 측정 오류
+V0968,hr_accuracy,심박·센서 측정 부정확
+V0969,menu,메뉴·UI 사용성
+V0970,heat_work,운동 중 기기 발열
+V0971,heat_work,운동 중 기기 발열
+V0972,step_count,걸음 수 부정확
+V0973,step_count,걸음 수 부정확
+V0974,battery,배터리 소모
+V0975,heat_disc,연결 끊김 시 발열
+V0976,menu,메뉴·UI 사용성
+V0977,gps,GPS 거리 오차
+V0978,battery,배터리 소모
+V0979,heat_work,운동 중 기기 발열
+V0980,battery,배터리 소모
+V0981,sync_phone,폰 앱 동기화 지연·누락
+V0982,menu,메뉴·UI 사용성
+V0983,heat_work,운동 중 기기 발열
+V0984,battery,배터리 소모
+V0985,gps,GPS 거리 오차
+V0986,sync_phone,폰 앱 동기화 지연·누락
+V0987,heat_work,운동 중 기기 발열
+V0988,menu,메뉴·UI 사용성
+V0989,hr_accuracy,심박·센서 측정 부정확
+V0990,heat_work,운동 중 기기 발열
+V0991,charging,충전 불량
+V0992,gps,GPS 거리 오차
+V0993,gps,GPS 거리 오차
+V0994,battery,배터리 소모
+V0995,battery,배터리 소모
+V0996,battery,배터리 소모
+V0997,battery,배터리 소모
+V0998,heat_work,운동 중 기기 발열
+V0999,heat_disc,연결 끊김 시 발열
+V1000,battery,배터리 소모
