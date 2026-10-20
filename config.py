@@ -23,10 +23,13 @@ def _dataset_key(path: Path) -> str:
 
 DATASET = _dataset_key(VOCS_CSV)
 REPOS_YAML = DATA_DIR / "repos.yaml"
+USERS_YAML = DATA_DIR / "users.yaml"            # 개발자 목록 (사이드바 '현재 개발자' — 로그인 대신)
 SAMPLE_REPOS_DIR = BASE_DIR / "sample_repos"
 MIRRORS_DIR = BASE_DIR / "mirrors"            # repos.yaml에 url이 있는 저장소의 로컬 미러 (clone → 분석 전마다 pull)
 GIT_SYNC_TIMEOUT_S = 60                      # clone · pull 제한 시간. 실패하면 sample_repos로 대체
 OUTPUTS_DIR = BASE_DIR / "outputs"
+TICKETS_JSON = OUTPUTS_DIR / "tickets.json"      # 발행된 티켓 + 다음 티켓 번호 (앱 시작·새로고침해도 유지)
+STAGE2_RESULTS_DIR = OUTPUTS_DIR / "stage2"      # 코드 찾기 결과 — 티켓 id별 json (개발자를 바꿨다 돌아와도 다시 실행 안 함)
 
 # ── 기간 ─────────────────────────────────────────────
 ANALYSIS_START = date(2026, 10, 3)
@@ -52,6 +55,7 @@ PROBLEM_MAX_CHARS = 40        # 티켓 문제점(개발자 언어 한 줄) 최�
 REASON_MAX_CHARS = 60         # 수정 라인 추천 사유 최대 글자 수 (명사형 한 문장)
 FIRST_TICKET_NO = 1           # 티켓 번호 시작 (발행 순서대로 TKT-0001, TKT-0002 …)
 TICKET_ID_PREFIX = "TKT"      # 티켓은 VOC 하나가 아니라 VOC 유형 하나에 대한 것 — 개별 VOC ID(V0001…)와 구분
+TICKET_STATUS_OPEN = "진행 중"  # 이번 범위의 티켓 상태는 이 값 하나 (완료 처리 기능 없음)
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 
 # ── 1️⃣ 대시보드 표시 ─────────────────────────────────

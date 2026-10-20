@@ -20,8 +20,9 @@ def main() -> None:
     clusters, _ = stage1.run_stage1(start, end, df)
     top = clusters[0]
     ticket = stage1.ticketize(top, stage1.sample_texts(df, top, config.TICKET_SAMPLE_VOCS),
-                              f"{start}~{end}", config.FIRST_TICKET_NO)
-    print(f"[티켓] {ticket.ticket_id} [{ticket.priority}] {ticket.problem} · {ticket.owner_part}")
+                              f"{start}~{end}", config.FIRST_TICKET_NO,
+                              assignee=data_utils.load_users()[0])  # 터미널 확인용: 첫 번째 개발자
+    print(f"[티켓] {ticket.ticket_id} [{ticket.priority}] {ticket.problem} · 담당 {ticket.assignee}({ticket.owner_part}) · 추천 {ticket.recommended_part}")
     print(f"  code_terms: {ticket.code_terms}\n")
 
     graph = stage2.build_stage2_graph()

@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 
 import pandas as pd
+import yaml
 
 import config
 
@@ -15,6 +16,12 @@ def load_vocs() -> pd.DataFrame:
     df["created_at"] = pd.to_datetime(df["created_at"])
     df["date"] = df["created_at"].dt.date
     return df
+
+
+def load_users() -> list[dict]:
+    """data/users.yaml의 개발자 목록 [{id, name, part}] — 사이드바 '현재 개발자'(로그인 대신)."""
+    data = yaml.safe_load(config.USERS_YAML.read_text(encoding="utf-8"))
+    return list(data.get("users", []))
 
 
 def prev_period(start: date, end: date) -> tuple[date, date]:

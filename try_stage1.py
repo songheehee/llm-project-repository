@@ -136,7 +136,8 @@ def main() -> None:
     if "--no-ticket" not in sys.argv and clusters:
         top = clusters[0]
         samples = stage1.sample_texts(df, top, config.TICKET_SAMPLE_VOCS)
-        ticket = stage1.ticketize(top, samples, f"{start}~{end}", config.FIRST_TICKET_NO)
+        ticket = stage1.ticketize(top, samples, f"{start}~{end}", config.FIRST_TICKET_NO,
+                                  assignee=data_utils.load_users()[0])  # 터미널 확인용: 첫 번째 개발자
         print("\n[티켓]")
         for k, v in ticket.model_dump(exclude={"voc_ids"}).items():
             print(f"  {k}: {v}")

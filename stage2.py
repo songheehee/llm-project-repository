@@ -278,14 +278,14 @@ def ticket_brief(t: Ticket) -> str:
         f"발생 조건: {', '.join(t.conditions)}\n"
         f"기술 키워드: {', '.join(t.tech_keywords)}\n"
         f"코드 검색어: {', '.join(t.code_terms)}\n"
-        f"담당 파트: {t.owner_part} · 제품: {t.product} · VOC {t.count}건 ({t.trend})"
+        f"추천 파트: {t.recommended_part} · 제품: {t.product} · VOC {t.count}건 ({t.trend})"
     )
 
 
 def route_repos(ticket: Ticket) -> list[RepoCandidate]:
     """RAG 근거 + 레지스트리로 저장소마다 점수를 매긴다. 레지스트리 밖 이름은 버린다."""
     registry = load_registry()
-    docs = search_docs(f"{ticket.problem} {' '.join(ticket.tech_keywords)} {ticket.owner_part}")
+    docs = search_docs(f"{ticket.problem} {' '.join(ticket.tech_keywords)} {ticket.recommended_part}")
     repo_text = "\n".join(
         f"- {r['name']} ({r['product']}): {r['description']} / 담당: {', '.join(r['owner_parts'])}"
         for r in registry.values()
@@ -932,6 +932,43 @@ def build_stage2_graph():
 def initial_state(ticket: Ticket) -> Stage2State:
     return {"ticket": ticket, "repo_sources": {}, "repo_candidates": [], "folder_scores": [], "line_recs": [],
             "impacts": [], "retry": 0, "errors": [], "timings": {}}
+
+
+RESULT_LIST_MODELS = {"repo_candidates": RepoCandidate, "folder_scores": FolderScore,
+                      "line_recs": LineRec, "impacts": Impact}
+
+
+def result_path(ticket_id: str) -> Path:
+    return config.STAGE2_RESULTS_DIR / f"{ticket_id}.json"
+
+
+def save_result(ticket_id: str, state: dict) -> None:
+    """코드 찾기 결과를 티켓 id별로 저장 — 현재 개발자를 바꿨다 돌아와도·새로고침해도 다시 실행하지 않는다."""
+    data = {k: v for k, v in state.items() if k not in RESULT_LIST_MODELS and k != "ticket"}
+    data["ticket"] = state["ticket"].model_dump()
+    for k in RESULT_LIST_MODELS:
+        data[k] = [x.model_dump() for x in state.get(k, [])]
+    config.STAGE2_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    result_path(ticket_id).write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def load_result(ticket: Ticket) -> dict | None:
+    """저장된 결과를 지금 모델로 다시 만든다. 같은 id라도 다른 티켓(발행일·유형이 다름)의 결과면 쓰지 않는다."""
+    path = result_path(ticket.ticket_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        saved = Ticket(**data["ticket"])
+        if (saved.cluster_id, saved.period, saved.issued_on) != (ticket.cluster_id, ticket.period, ticket.issued_on):
+            return None
+        state = dict(data)
+        state["ticket"] = ticket
+        for k, model in RESULT_LIST_MODELS.items():
+            state[k] = [model(**x) for x in data.get(k, [])]
+        return state
+    except Exception:  # noqa: BLE001 — 예전 형식 결과는 쓰지 않는다
+        return None
 
 
 def stream_stage2(graph, ticket: Ticket) -> Iterator[tuple]:

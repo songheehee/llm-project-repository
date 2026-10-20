@@ -64,8 +64,11 @@ class Ticket(BaseModel):
     conditions: list[str]
     tech_keywords: list[str]
     code_terms: list[str]
-    owner_part: str
-    assignee: str               # departments.md의 owner_part 담당자 (LLM이 만들지 않음)
+    assignee_id: str            # 발행한(=담당) 개발자 id — 사이드바 '현재 개발자'가 "내가 맡겠다"로 발행
+    assignee: str               # 담당 개발자 이름 (users.yaml)
+    owner_part: str             # 담당 개발자의 파트 (users.yaml)
+    recommended_part: str       # LLM이 departments.md를 보고 추천한 파트 (담당 파트와 다를 수 있음)
+    status: str = config.TICKET_STATUS_OPEN  # "진행 중" (완료 처리 기능 없음)
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름
@@ -102,7 +105,7 @@ class TicketDraft(BaseModel):
     tech_keywords: list[str] = Field(description="의심되는 기술 원인 용어 3~6개, 한국어")
     code_terms: list[str] = Field(
         description="코드 검색용 영문 소문자 식별자 조각 4~8개. 변수·함수·모듈 이름에 들어갈 법한 단어")
-    owner_part: str = Field(description="담당 파트 이름. 부서 정보의 파트 이름 중 하나 그대로")
+    recommended_part: str = Field(description="추천 파트 이름. 부서 정보의 파트 이름 중 하나 그대로")
 
 
 # ════════════════════════════ LLM 공통 ════════════════════════════
@@ -140,15 +143,10 @@ def part_names() -> list[str]:
     return re.findall(r"^##\s+(.+파트)\s*$", read_departments_md(), flags=re.M)
 
 
-def part_assignees() -> dict[str, str]:
-    """departments.md의 {파트 이름: 담당자} — 각 '## OO 파트' 아래 '- 담당자: 이름' 줄."""
-    result = {}
-    for section in re.split(r"^(?=##\s)", read_departments_md(), flags=re.M):
-        part = re.match(r"^##\s+(.+파트)\s*$", section, flags=re.M)
-        person = re.search(r"^-\s*담당자:\s*(.+?)\s*$", section, flags=re.M)
-        if part and person:
-            result[part.group(1)] = person.group(1)
-    return result
+def recommended_part_for(cluster: "Cluster") -> str:
+    """클러스터 표의 '추천 파트': 유형의 카테고리를 departments.md 파트 이름에 맞춘 것 (발행 전에도 보임, LLM 없음)."""
+    part = f"{cluster.category} 파트"
+    return part if part in part_names() else "–"
 
 
 def product_names() -> list[str]:
@@ -506,10 +504,10 @@ def due_date_for(priority: str, issued_on: date) -> date:
     return issued_on + timedelta(days=config.DUE_DAYS[priority])
 
 
-def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int,
+def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int, assignee: dict,
               issued_on: date | None = None) -> Ticket:
-    """고객 언어 클러스터를 개발자 언어 티켓으로 바꾼다. 담당 파트는 departments.md의 파트 중 하나.
-    담당자·예상 완료일은 LLM이 아니라 departments.md와 config.DUE_DAYS로 채운다."""
+    """고객 언어 클러스터를 개발자 언어 티켓으로 바꾼다. 추천 파트는 LLM이 departments.md 파트 중 하나로 고른다.
+    담당자는 발행한 개발자(assignee = users.yaml 항목 {id, name, part}), 예상 완료일은 config.DUE_DAYS — LLM이 아님."""
     parts = part_names()
     system = (
         "너는 고객 VOC를 개발 티켓으로 옮기는 테크 리드다. "
@@ -522,7 +520,7 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         "- code_terms: 코드에서 그 원인을 찾을 때 쓸 영문 소문자 단어 "
         "(예: poll, interval, sensor, retry, loop). 한국어·공백 금지. "
         "고객 증상 단어(heat, temperature, hot, warning 등)는 넣지 않고 원인이 될 동작·설정 쪽 단어만 넣는다\n"
-        f"- owner_part: 다음 중 하나 그대로 → {', '.join(parts)}. "
+        f"- recommended_part: 다음 중 하나 그대로 → {', '.join(parts)}. "
         "부서 정보의 '이런 VOC가 오면'과 발생 조건을 보고, 원인 코드를 고칠 파트를 고른다.\n\n"
         f"부서 정보:\n{read_departments_md()}\n\n"
         f"제품 정보·사내 용어:\n{(config.RAG_DIR / 'products.md').read_text(encoding='utf-8')}"
@@ -534,8 +532,8 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
     )
 
     def validate(d: TicketDraft):
-        if d.owner_part not in parts:
-            raise ValueError(f"알 수 없는 파트: {d.owner_part}")
+        if d.recommended_part not in parts:
+            raise ValueError(f"알 수 없는 파트: {d.recommended_part}")
 
     def validate_short(d: TicketDraft):
         validate(d)
@@ -553,7 +551,8 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         product=cluster.product, priority=cluster.priority, problem=draft.problem,
         count=cluster.count, trend=cluster.trend, conditions=draft.conditions,
         tech_keywords=draft.tech_keywords, code_terms=list(dict.fromkeys(code_terms)),
-        owner_part=draft.owner_part, assignee=part_assignees().get(draft.owner_part, "미지정"),
+        assignee_id=assignee["id"], assignee=assignee["name"], owner_part=assignee["part"],
+        recommended_part=draft.recommended_part, status=config.TICKET_STATUS_OPEN,
         issued_on=issued_on.isoformat(), due_date=due_date_for(cluster.priority, issued_on).isoformat(),
         cluster_label=cluster.label, voc_ids=cluster.voc_ids,
     )
@@ -562,7 +561,7 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
 def ticket_card_fields(t: Ticket) -> dict:
     """티켓 카드 · 티켓 Markdown이 같은 항목·순서를 쓰도록 한 곳에서 정의한다."""
     return {
-        "티켓 ID": t.ticket_id, "우선순위": t.priority, "문제점": t.problem, "건수": f"{t.count:,}건",
+        "티켓 ID": t.ticket_id, "우선순위": t.priority, "상태": t.status, "문제점": t.problem, "건수": f"{t.count:,}건",
         "담당 부서": t.owner_part, "담당자": t.assignee, "발행일": t.issued_on, "예상 완료일": t.due_date,
     }
 
@@ -570,3 +569,32 @@ def ticket_card_fields(t: Ticket) -> dict:
 def sort_tickets(tickets) -> list[Ticket]:
     """우선순위 높은 순, 같으면 발행 순."""
     return sorted(tickets, key=lambda t: (config.PRIORITY_ORDER.get(t.priority, 9), t.ticket_id))
+
+
+# ════════════════════════════ 발행된 티켓 저장 (outputs/tickets.json) ════════════════════════════
+
+def load_tickets() -> tuple[dict[str, Ticket], int]:
+    """({ticket_id: Ticket}, 다음 티켓 번호). 파일이 없으면 빈 목록 · FIRST_TICKET_NO.
+    지금 모델에 맞지 않는 항목(예전 형식)은 건너뛴다."""
+    path = config.TICKETS_JSON
+    if not path.exists():
+        return {}, config.FIRST_TICKET_NO
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tickets = {}
+    for raw in data.get("tickets", []):
+        try:
+            t = Ticket(**raw)
+        except Exception:  # noqa: BLE001 — 예전 형식 티켓
+            continue
+        tickets[t.ticket_id] = t
+    used = [int(t.ticket_id.split("-")[-1]) for t in tickets.values()]
+    next_no = max([data.get("next_ticket_no", config.FIRST_TICKET_NO), *(n + 1 for n in used)])
+    return tickets, next_no
+
+
+def save_tickets(tickets: dict[str, Ticket], next_no: int) -> None:
+    config.OUTPUTS_DIR.mkdir(exist_ok=True)
+    config.TICKETS_JSON.write_text(json.dumps({
+        "next_ticket_no": next_no,
+        "tickets": [t.model_dump() for t in tickets.values()],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
