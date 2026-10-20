@@ -1,5 +1,6 @@
 """VOCAI 설정 상수 — 경로 · 기간 · 가중치 · 임계값 · 모델명은 모두 여기 한 곳에 둔다."""
 
+import hashlib
 from datetime import date
 from pathlib import Path
 
@@ -10,7 +11,17 @@ RAG_DIR = DATA_DIR / "rag"
 VOCS_CSV = DATA_DIR / "vocs.csv"            # VOC 입력 — 건수는 이 CSV를 읽을 때 정해진다 (지금은 테스트용 1000건)
 ANSWER_CSV = DATA_DIR / "vocs_labels.csv"   # 정답 확인 전용 (앱·LLM에 넣지 않음, try_stage1에서만)
 ANSWER_LABEL_COL = "topic_name"                  # ANSWER_CSV의 정답 라벨 열
-DATASET = VOCS_CSV.stem                          # 캐시 파일 이름에 넣어 데이터셋끼리 섞이지 않게 한다
+
+
+def _dataset_key(path: Path) -> str:
+    """캐시 파일 이름용: 파일 이름 + 내용 해시(줄바꿈 무시). 같은 이름에 다른 데이터가 들어와도 캐시가 섞이지 않는다."""
+    if not path.exists():
+        return path.stem
+    digest = hashlib.sha1(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:8]
+    return f"{path.stem}_{digest}"
+
+
+DATASET = _dataset_key(VOCS_CSV)
 REPOS_YAML = DATA_DIR / "repos.yaml"
 SAMPLE_REPOS_DIR = BASE_DIR / "sample_repos"
 MIRRORS_DIR = BASE_DIR / "mirrors"            # repos.yaml에 url이 있는 저장소의 로컬 미러 (clone → 분석 전마다 pull)
