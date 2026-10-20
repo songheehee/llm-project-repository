@@ -5,7 +5,9 @@
 - score_clusters  : 건수 · 급증률 · 추세 · 우선순위 (pandas, LLM 없음)
 - run_stage1      : 위 3개 실행 + outputs/clusters_{시작}_{끝}.json 캐시
 - ticketize       : 클러스터 → 개발자 티켓 (LLM)
-- embed_vocs · project_3d · similar_vocs · label_disagreements : VOC 유사도 지도 (임베딩, 분류에는 안 씀)
+- embed_vocs · project_3d · similar_vocs · label_disagreements : VOC 유사도 지도 (임베딩, 티켓 분류에는 안 씀)
+- cluster_embeddings · embedding_cluster_names : 임베딩만으로 묶는 비교용 클러스터링 (LLM 없음)
+- clustering_metrics · agreement_metrics : LLM vs 임베딩 분류 품질 지표
 """
 
 import json
@@ -181,6 +183,8 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
         n = len(res.clusters)
         if not (config.MIN_CLUSTERS <= n <= config.MAX_CLUSTERS):
             raise ValueError(f"클러스터 수 {n}개")
+        if len({c.label for c in res.clusters}) != n:  # 같은 라벨이 두 번이면 VOC가 중복 집계된다
+            raise ValueError("중복 라벨")
 
     return call_structured(ClusterProposalList, system, user, validate).clusters
 
@@ -285,7 +289,7 @@ def score_clusters(cur: pd.DataFrame, prev: pd.DataFrame,
 # ════════════════════════════ 실행 + 캐시 ════════════════════════════
 
 def cache_path(start: date, end: date):
-    return config.OUTPUTS_DIR / f"clusters_{start.isoformat()}_{end.isoformat()}.json"
+    return config.OUTPUTS_DIR / f"clusters_{config.DATASET}_{start.isoformat()}_{end.isoformat()}.json"
 
 
 def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
@@ -325,13 +329,13 @@ def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
 # 클러스터 라벨은 LLM이 정한다. 임베딩은 "어떤 VOC끼리 비슷한가"를 보여 주고
 # LLM 라벨과 이웃이 어긋나는 VOC를 찾는 검증용으로만 쓴다.
 
-def embed_vocs(df: pd.DataFrame) -> np.ndarray:
-    """df 순서대로 VOC 임베딩(단위 벡터)을 돌려준다. voc_id별로 outputs/에 캐시."""
-    path = config.VOC_EMBEDDINGS_JSON
+def embed_vocs(df: pd.DataFrame, model: str = config.VOC_EMBEDDING_MODEL) -> np.ndarray:
+    """df 순서대로 VOC 임베딩(단위 벡터)을 돌려준다. 모델·voc_id별로 outputs/에 캐시."""
+    path = config.OUTPUTS_DIR / config.VOC_EMBEDDINGS_TEMPLATE.format(dataset=config.DATASET, model=model)
     cache: dict[str, list[float]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     missing = df.loc[~df["voc_id"].isin(cache.keys()), ["voc_id", "text"]]
     if not missing.empty:
-        embedder = OpenAIEmbeddings(model=config.EMBEDDING_MODEL)
+        embedder = OpenAIEmbeddings(model=model)
         rows = missing.to_dict("records")
         for i in range(0, len(rows), config.EMBED_BATCH_SIZE):
             batch = rows[i:i + config.EMBED_BATCH_SIZE]
@@ -343,17 +347,11 @@ def embed_vocs(df: pd.DataFrame) -> np.ndarray:
     return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
 
-def project_3d(vectors: np.ndarray, method: str) -> np.ndarray:
-    """임베딩을 3차원으로 투영한다 (UMAP 또는 t-SNE, 코사인 거리)."""
-    if method == "UMAP":
-        import umap  # 로딩이 느려 필요할 때만 import
-        reducer = umap.UMAP(n_components=3, n_neighbors=min(config.UMAP_N_NEIGHBORS, len(vectors) - 1),
-                            min_dist=config.UMAP_MIN_DIST, metric="cosine",
-                            random_state=config.PROJECTION_SEED)
-    else:
-        from sklearn.manifold import TSNE
-        reducer = TSNE(n_components=3, perplexity=min(config.TSNE_PERPLEXITY, len(vectors) - 1),
-                       metric="cosine", init="pca", random_state=config.PROJECTION_SEED)
+def project_3d(vectors: np.ndarray) -> np.ndarray:
+    """임베딩을 t-SNE(코사인 거리)로 3차원 투영한다."""
+    from sklearn.manifold import TSNE
+    reducer = TSNE(n_components=3, perplexity=min(config.TSNE_PERPLEXITY, len(vectors) - 1),
+                   metric="cosine", init="pca", random_state=config.PROJECTION_SEED)
     return reducer.fit_transform(vectors)
 
 
@@ -376,6 +374,72 @@ def label_disagreements(vectors: np.ndarray, labels: list[str], k: int) -> list[
         if major != labels[i] and n > k / 2:
             out.append({"idx": i, "label": labels[i], "neighbor_label": major, "agree": n})
     return out
+
+
+# ════════════════════════════ 임베딩 클러스터링 (비교용) ════════════════════════════
+# 단위 벡터에서는 유클리드 거리² = 2 − 2×코사인이라 KMeans가 코사인 기준 묶음과 같다.
+
+def cluster_embeddings(vectors: np.ndarray) -> tuple[np.ndarray, dict[int, float]]:
+    """k = MIN~MAX_CLUSTERS로 KMeans를 돌려 실루엣(코사인)이 가장 높은 k를 고른다.
+    반환: (VOC별 클러스터 번호 — 큰 묶음부터 0, 1, 2…, {k: 실루엣})"""
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
+
+    n = len(vectors)
+    k_max = min(config.MAX_CLUSTERS, n - 1)
+    if n < 3 or k_max < 2:
+        return np.zeros(n, dtype=int), {}
+    scores: dict[int, float] = {}
+    best_k, best_labels = None, None
+    for k in range(min(config.MIN_CLUSTERS, k_max), k_max + 1):
+        km = KMeans(n_clusters=k, n_init=config.KMEANS_N_INIT, random_state=config.PROJECTION_SEED).fit(vectors)
+        scores[k] = float(silhouette_score(vectors, km.labels_, metric="cosine"))
+        if best_k is None or scores[k] > scores[best_k]:
+            best_k, best_labels = k, km.labels_
+    remap = {c: i for i, (c, _) in enumerate(Counter(best_labels).most_common())}
+    return np.array([remap[c] for c in best_labels]), scores
+
+
+def embedding_cluster_names(vectors: np.ndarray, ids: np.ndarray, texts: list[str]) -> list[str]:
+    """클러스터마다 중심에 가장 가까운 VOC 문장으로 이름을 붙인다 (LLM 없음). 예: 'E1 · 러닝하면 손목이…'"""
+    names = []
+    for c in range(int(ids.max()) + 1):
+        idx = np.where(ids == c)[0]
+        center = vectors[idx].mean(axis=0)
+        rep = texts[idx[int(np.argmax(vectors[idx] @ center))]]
+        short = rep if len(rep) <= config.EMBED_NAME_CHARS else rep[:config.EMBED_NAME_CHARS] + "…"
+        names.append(f"E{c + 1} · {short}")
+    return [names[c] for c in ids]
+
+
+def clustering_metrics(vectors: np.ndarray, labels: list[str], k: int) -> dict:
+    """정답 없이 계산하는 내부 지표. 같은 임베딩 공간에서 LLM 라벨·임베딩 라벨을 똑같이 잰다.
+    - silhouette  (-1~1, 높을수록 좋음): 자기 묶음과는 가깝고 다른 묶음과는 먼가
+    - davies_bouldin (0~, 낮을수록 좋음): 묶음끼리 겹치는 정도
+    - knn_consistency (0~1, 높을수록 좋음): 이웃 k개 중 같은 라벨 비율 평균
+    - other_ratio: '기타' 비율 (티켓으로 못 넘어가는 VOC)"""
+    from sklearn.metrics import davies_bouldin_score, silhouette_score
+
+    arr = np.array(labels)
+    n_labels = len(set(labels))
+    ok = 2 <= n_labels <= len(labels) - 1
+    sims = vectors @ vectors.T
+    np.fill_diagonal(sims, -np.inf)
+    neighbors = np.argsort(-sims, axis=1)[:, :k]
+    return {
+        "n_clusters": len(set(labels) - {config.OTHER_LABEL}),
+        "silhouette": float(silhouette_score(vectors, arr, metric="cosine")) if ok else None,
+        "davies_bouldin": float(davies_bouldin_score(vectors, arr)) if ok else None,
+        "knn_consistency": float((arr[neighbors] == arr[:, None]).mean()),
+        "other_ratio": float((arr == config.OTHER_LABEL).mean()),
+    }
+
+
+def agreement_metrics(a: list[str], b: list[str]) -> dict:
+    """두 분류가 얼마나 같은가 (라벨 이름과 무관). ARI: -0.5~1, NMI: 0~1, 1이면 완전히 같은 분할."""
+    from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+
+    return {"ari": float(adjusted_rand_score(a, b)), "nmi": float(normalized_mutual_info_score(a, b))}
 
 
 # ════════════════════════════ ③ 티켓화 ════════════════════════════

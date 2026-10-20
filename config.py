@@ -7,8 +7,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 RAG_DIR = DATA_DIR / "rag"
-VOCS_CSV = DATA_DIR / "vocs.csv"
-ANSWER_CSV = DATA_DIR / "answer_labels.csv"  # 정답 확인 전용 (앱·LLM에 넣지 않음)
+VOCS_CSV = DATA_DIR / "vocs_1000.csv"            # 원본 311건은 "vocs.csv"
+ANSWER_CSV = DATA_DIR / "vocs_1000_labels.csv"   # 정답 확인 전용 (앱·LLM에 넣지 않음). 원본은 "answer_labels.csv"
+ANSWER_LABEL_COL = "topic_name"                  # 원본은 "true_label"
+DATASET = VOCS_CSV.stem                          # 캐시 파일 이름에 넣어 데이터셋끼리 섞이지 않게 한다
 REPOS_YAML = DATA_DIR / "repos.yaml"
 SAMPLE_REPOS_DIR = BASE_DIR / "sample_repos"
 OUTPUTS_DIR = BASE_DIR / "outputs"
@@ -27,23 +29,25 @@ LLM_MAX_RETRIES = 2  # 구조화 출력 실패 시 재시도 횟수
 # ── 클러스터링 ───────────────────────────────────────
 ASSIGN_BATCH_SIZE = 50
 MIN_CLUSTERS = 5
-MAX_CLUSTERS = 7
+MAX_CLUSTERS = 20
 OTHER_LABEL = "기타"
 MIN_CLUSTER_SIZE = 3          # 분석 기간 건수가 이보다 적은 클러스터는 '기타'로 돌린다
 SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
 TICKET_SAMPLE_VOCS = 10       # 티켓화 프롬프트에 넣는 VOC 수
 FIRST_TICKET_NO = 412         # VOC-0412부터
 
-# ── VOC 유사도 지도 (임베딩 · 3D 투영) ───────────────
-VOC_EMBEDDINGS_JSON = OUTPUTS_DIR / "voc_embeddings.json"  # {voc_id: 벡터} 캐시
+# ── VOC 유사도 지도 (임베딩 · t-SNE 3D 투영) ───────────────
+VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 지도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)
+VOC_EMBEDDINGS_TEMPLATE = "voc_embeddings_{dataset}_{model}.json"  # outputs/ 안 {voc_id: 벡터} 캐시 (데이터셋·모델별)
 EMBED_BATCH_SIZE = 100
-PROJECTION_METHODS = ["UMAP", "t-SNE"]
 PROJECTION_SEED = 42
-UMAP_N_NEIGHBORS = 15
-UMAP_MIN_DIST = 0.1
 TSNE_PERPLEXITY = 30
 SIMILAR_TOP_K = 5             # 선택한 VOC와 가장 비슷한 VOC 수
+MAP_POINT_SIZE = 2.5          # 지도 VOC 점 크기
+MAP_HIGHLIGHT_SIZE = 6        # 기준·유사 VOC 강조 점 크기
 DISAGREE_K = 7                # 라벨 불일치 판정에 쓰는 이웃 수 (다수결)
+KMEANS_N_INIT = 10            # 임베딩 클러스터링: k마다 KMeans 초기화 횟수 (k는 MIN~MAX_CLUSTERS 중 실루엣 최대)
+EMBED_NAME_CHARS = 18         # 임베딩 클러스터 이름에 쓰는 대표 문장 길이
 
 # ── 급증률 · 추세 ─────────────────────────────────────
 TREND_UP = 1.3

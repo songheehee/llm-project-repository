@@ -63,11 +63,26 @@ def cached_kpis(start: date, end: date) -> dict:
 
 
 @st.cache_data(show_spinner=False)
-def cached_voc_map(voc_ids: tuple[str, ...], method: str):
-    """(임베딩, 3D 좌표). 임베딩은 outputs/에도 캐시되어 투영 방식을 바꿔도 다시 부르지 않는다."""
+def cached_voc_vectors(voc_ids: tuple[str, ...]):
+    """VOC 임베딩. outputs/에도 캐시되어 투영 방식을 바꿔도 다시 부르지 않는다."""
     df = cached_vocs().set_index("voc_id").loc[list(voc_ids)].reset_index()
-    vectors = stage1.embed_vocs(df)
-    return vectors, stage1.project_3d(vectors, method)
+    return stage1.embed_vocs(df)
+
+
+@st.cache_data(show_spinner=False)
+def cached_voc_map(voc_ids: tuple[str, ...]):
+    """(임베딩, t-SNE 3D 좌표)."""
+    vectors = cached_voc_vectors(voc_ids)
+    return vectors, stage1.project_3d(vectors)
+
+
+@st.cache_data(show_spinner=False)
+def cached_embed_clusters(voc_ids: tuple[str, ...]):
+    """임베딩 클러스터링 결과 (VOC별 이름, {k: 실루엣})."""
+    vectors = cached_voc_vectors(voc_ids)
+    ids, sil_by_k = stage1.cluster_embeddings(vectors)
+    texts = cached_vocs().set_index("voc_id").loc[list(voc_ids), "text"].tolist()
+    return stage1.embedding_cluster_names(vectors, ids, texts), sil_by_k
 
 
 @st.cache_resource
@@ -120,26 +135,34 @@ def hover_text(text: str, width: int = 28) -> str:
 
 
 def render_voc_map(cur: pd.DataFrame, clusters) -> None:
-    """VOC 임베딩 3D 지도 + 선택한 VOC의 유사 VOC. 색은 LLM 클러스터, 위치는 임베딩."""
+    """VOC 임베딩 3D 지도 + 선택한 VOC의 유사 VOC. 색은 LLM 또는 임베딩 클러스터, 위치는 임베딩."""
     st.subheader("🧭 VOC 유사도 지도")
-    st.caption("색은 LLM이 분류한 클러스터, 위치는 VOC 문장 임베딩을 3D로 투영한 것입니다. "
-               "가까울수록 고객 표현이 비슷합니다.")
-    c_on, c_method = st.columns([1, 3], vertical_alignment="center")
+    st.caption(f"위치는 VOC 문장 임베딩({config.VOC_EMBEDDING_MODEL})을 t-SNE로 3D 투영한 것입니다. "
+               "가까울수록 고객 표현이 비슷합니다. 색은 LLM 분류 또는 임베딩만으로 묶은 분류(KMeans)입니다.")
+    c_on, c_color = st.columns([1, 3], vertical_alignment="center")
     if not c_on.toggle("지도 보기", key="voc_map_on"):
         return
-    method = c_method.radio("투영 방식", config.PROJECTION_METHODS, horizontal=True,
-                            key="voc_map_method", label_visibility="collapsed")
+    color_by = c_color.radio("색 기준", ["LLM 분류", "임베딩 분류"], horizontal=True,
+                             key="voc_map_color", label_visibility="collapsed")
     if not has_api_key():
         return
 
     cur = cur.sort_values("voc_id").reset_index(drop=True)
-    with st.spinner(f"VOC 임베딩 · {method} 투영 중…"):
-        vectors, coords = cached_voc_map(tuple(cur["voc_id"]), method)
-    cur = cur.assign(x=coords[:, 0], y=coords[:, 1], z=coords[:, 2])
+    voc_ids = tuple(cur["voc_id"])
+    with st.spinner("VOC 임베딩 · t-SNE 투영 · 임베딩 클러스터링 중…"):
+        vectors, coords = cached_voc_map(voc_ids)
+        emb_labels, sil_by_k = cached_embed_clusters(voc_ids)
+    cur = cur.assign(x=coords[:, 0], y=coords[:, 1], z=coords[:, 2], emb=emb_labels)
     labels = cur["cluster"].tolist()
 
-    order = [c.label for c in clusters] + [config.OTHER_LABEL]
     palette = px.colors.qualitative.Bold
+    if color_by == "LLM 분류":
+        color_col = "cluster"
+        order = [c.label for c in clusters] + [config.OTHER_LABEL]
+    else:
+        color_col = "emb"
+        order = sorted(set(emb_labels), key=lambda s: int(s.split(" ·")[0][1:]))
+        palette = px.colors.qualitative.Alphabet if len(order) > len(palette) else palette
     colors = {lab: palette[i % len(palette)] for i, lab in enumerate(order)}
     colors[config.OTHER_LABEL] = "#BDC1C6"
 
@@ -152,14 +175,14 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
 
     fig = go.Figure()
     for lab in order:
-        part = cur[cur["cluster"] == lab]
+        part = cur[cur[color_col] == lab]
         if part.empty:
             continue
         fig.add_trace(go.Scatter3d(
             x=part["x"], y=part["y"], z=part["z"], mode="markers", name=html.escape(lab),
-            marker=dict(size=4, color=colors[lab], opacity=0.75, line=dict(width=0)),
-            hovertext=[f"<b>{v}</b> · {html.escape(lab)}<br>{hover_text(t)}"
-                       for v, t in zip(part["voc_id"], part["text"])],
+            marker=dict(size=config.MAP_POINT_SIZE, color=colors[lab], opacity=0.8, line=dict(width=0)),
+            hovertext=[f"<b>{v}</b><br>LLM: {html.escape(a)}<br>임베딩: {html.escape(b)}<br>{hover_text(t)}"
+                       for v, a, b, t in zip(part["voc_id"], part["cluster"], part["emb"], part["text"])],
             hoverinfo="text",
         ))
     # 기준 VOC → 유사 VOC 연결선
@@ -171,18 +194,18 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
         ly += [p["y"], q["y"], None]
         lz += [p["z"], q["z"], None]
     fig.add_trace(go.Scatter3d(x=lx, y=ly, z=lz, mode="lines", name="유사 연결",
-                               line=dict(color="#1428A0", width=4), hoverinfo="skip"))
+                               line=dict(color="#1428A0", width=2), hoverinfo="skip"))
     nb = cur.loc[[j for j, _ in neighbors]]
     fig.add_trace(go.Scatter3d(
         x=nb["x"], y=nb["y"], z=nb["z"], mode="markers", name=f"유사 VOC Top {len(neighbors)}",
-        marker=dict(size=9, symbol="circle-open", color="#1428A0", line=dict(width=3)),
+        marker=dict(size=config.MAP_HIGHLIGHT_SIZE, symbol="circle-open", color="#1428A0", line=dict(width=2)),
         hovertext=[f"<b>{v}</b> · 유사도 {s:.3f}<br>{hover_text(t)}"
                    for v, t, (_, s) in zip(nb["voc_id"], nb["text"], neighbors)],
         hoverinfo="text",
     ))
     fig.add_trace(go.Scatter3d(
         x=[p["x"]], y=[p["y"]], z=[p["z"]], mode="markers", name="기준 VOC",
-        marker=dict(size=10, symbol="diamond", color="#202124", line=dict(color="#FFFFFF", width=2)),
+        marker=dict(size=config.MAP_HIGHLIGHT_SIZE, symbol="diamond", color="#202124", line=dict(color="#FFFFFF", width=1)),
         hovertext=[f"<b>{p['voc_id']}</b> (기준)<br>{hover_text(p['text'])}"], hoverinfo="text",
     ))
     axis = dict(showticklabels=False, title="", showbackground=True,
@@ -197,8 +220,9 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
 
     st.markdown(f"**{p['voc_id']}** 와 가장 비슷한 VOC")
     st.dataframe(pd.DataFrame([{
-        "순위": r, "VOC": cur.at[j, "voc_id"], "유사도": s, "클러스터": labels[j],
-        "같은 클러스터": "✓" if labels[j] == labels[pick] else "⚠ 다름", "원문": cur.at[j, "text"],
+        "순위": r, "VOC": cur.at[j, "voc_id"], "유사도": s, "LLM 클러스터": labels[j],
+        "같은 LLM 클러스터": "✓" if labels[j] == labels[pick] else "⚠ 다름",
+        "임베딩 클러스터": emb_labels[j], "원문": cur.at[j, "text"],
     } for r, (j, s) in enumerate(neighbors, 1)]), hide_index=True, width="stretch",
         column_config={"유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
 
@@ -212,6 +236,61 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
             } for o in odd]), hide_index=True, width="stretch")
         else:
             st.caption("모든 VOC가 이웃 다수와 같은 클러스터입니다.")
+
+    render_cluster_comparison(vectors, labels, emb_labels, sil_by_k)
+
+
+METRIC_HELP = {
+    "실루엣 ↑": "자기 묶음과는 가깝고 다른 묶음과는 먼 정도 (-1~1). 임베딩 분류는 이 값을 최대화하도록 k를 골랐으므로 유리하다.",
+    "Davies-Bouldin ↓": "묶음끼리 겹치는 정도 (0~, 낮을수록 잘 분리).",
+    "kNN 일관성 ↑": f"가장 비슷한 VOC {config.DISAGREE_K}개 중 같은 라벨 비율 평균 (0~1).",
+    "기타 비율 ↓": "어느 묶음에도 못 들어가 티켓으로 넘어가지 못하는 VOC 비율.",
+}
+
+
+def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[str], sil_by_k: dict) -> None:
+    """LLM 분류 vs 임베딩 분류: 내부 지표 · 두 분류 일치도 · 교차표 · k별 실루엣."""
+    st.markdown("#### 📏 LLM 분류 vs 임베딩 분류")
+    k = config.DISAGREE_K
+    m_llm = stage1.clustering_metrics(vectors, llm_labels, k)
+    m_emb = stage1.clustering_metrics(vectors, emb_labels, k)
+    both = stage1.agreement_metrics(llm_labels, emb_labels)
+
+    def fmt(v, digits=3):
+        return "–" if v is None else f"{v:.{digits}f}"
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("클러스터 수 (LLM · 임베딩)", f"{m_llm['n_clusters']} · {m_emb['n_clusters']}")
+    c2.metric("두 분류 일치 ARI", fmt(both["ari"]), help="라벨 이름과 무관하게 같은 VOC끼리 묶였는지 (1 = 완전 일치, 0 = 무작위 수준)")
+    c3.metric("두 분류 일치 NMI", fmt(both["nmi"]), help="한 분류를 알면 다른 분류를 얼마나 알 수 있는지 (0~1)")
+
+    st.dataframe(pd.DataFrame([
+        {"지표": "실루엣 ↑", "LLM": fmt(m_llm["silhouette"]), "임베딩": fmt(m_emb["silhouette"])},
+        {"지표": "Davies-Bouldin ↓", "LLM": fmt(m_llm["davies_bouldin"]), "임베딩": fmt(m_emb["davies_bouldin"])},
+        {"지표": "kNN 일관성 ↑", "LLM": fmt(m_llm["knn_consistency"]), "임베딩": fmt(m_emb["knn_consistency"])},
+        {"지표": "기타 비율 ↓", "LLM": f"{m_llm['other_ratio']:.1%}", "임베딩": f"{m_emb['other_ratio']:.1%}"},
+    ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP)), hide_index=True, width="stretch")
+
+    tab = pd.crosstab(pd.Series(llm_labels, name="LLM"), pd.Series(emb_labels, name="임베딩"))
+    tab = tab[sorted(tab.columns, key=lambda s: int(s.split(" ·")[0][1:]))]
+    fig = px.imshow(tab, text_auto=True, aspect="auto", color_continuous_scale="Blues",
+                    labels={"x": "임베딩 클러스터", "y": "LLM 클러스터", "color": "건수"})
+    fig.update_layout(height=120 + 38 * len(tab), margin=dict(l=10, r=10, t=30, b=10),
+                      title="교차표 — 한 행이 여러 열로 갈라지면 임베딩이 더 잘게, 한 열이 여러 행에 걸치면 LLM이 더 잘게 나눈 것",
+                      title_font_size=13, coloraxis_showscale=False)
+    fig.update_xaxes(tickangle=-30)
+    with st.container(key="card_cluster_compare"):
+        st.plotly_chart(fig, width="stretch")
+
+    if sil_by_k:
+        with st.expander(f"임베딩 분류의 k 선택 — k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} 중 실루엣 최대"):
+            sil = pd.DataFrame({"k": list(sil_by_k), "실루엣": list(sil_by_k.values())})
+            fig_k = px.line(sil, x="k", y="실루엣", markers=True)
+            best = sil.loc[sil["실루엣"].idxmax()]
+            fig_k.add_scatter(x=[best["k"]], y=[best["실루엣"]], mode="markers", name=f"선택 k={int(best['k'])}",
+                              marker=dict(size=12, color="#D93025"))
+            fig_k.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="#FFFFFF")
+            st.plotly_chart(fig_k, width="stretch")
 
 
 # ════════════════════════════ 헤더 ════════════════════════════
