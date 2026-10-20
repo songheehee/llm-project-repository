@@ -28,3 +28,16 @@ users:
   - {id: u26, name: 서지유, part: 기구 파트}
   - {id: u27, name: 유건우, part: 웹 파트}
   - {id: u28, name: 류가은, part: 웹 파트}
+  - {id: u29, name: 강은성, part: 신입}
+  - {id: u30, name: 윤지현, part: 신입}
+  - {id: u31, name: 이온유, part: 신입}
+  - {id: u32, name: 이종협, part: 신입}
+  - {id: u33, name: 이지호, part: 신입}
+  - {id: u34, name: 이하나, part: 신입}
+  - {id: u35, name: 임승현, part: 신입}
+  - {id: u36, name: 정동은, part: 신입}
+  - {id: u37, name: 정회수, part: 신입}
+  - {id: u38, name: 조명현, part: 신입}
+  - {id: u39, name: 천예은, part: 신입}
+  - {id: u40, name: 홍송희, part: 신입}
+  - {id: u41, name: 황지희, part: 신입}
