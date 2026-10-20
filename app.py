@@ -44,6 +44,17 @@ CSS = """
 /* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
 [class*="st-key-tprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0;}
 [class*="st-key-tline_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
+/* 사이드바 내 티켓: 본문 티켓 카드를 줄인 압축 카드. 카드 전체를 덮는 투명 버튼으로 선택 */
+[class*="st-key-sbcards"] {gap:6px;}
+[class*="st-key-sbcard_"] {position:relative; background:#FFFFFF; border:1px solid #E3E6EF; border-radius:8px;
+  padding:8px 10px; gap:2px; text-align:left;}
+[class*="st-key-sbcard_sel_"] {border-left:3px solid #1428A0;}
+[class*="st-key-sbcard_"] {height:auto !important; max-height:none !important; padding:10px 10px !important;}
+[class*="st-key-sbcard_"] p {font-size:0.85rem; line-height:1.4; margin:0; text-align:left;}
+[class*="st-key-sbcard_"] [data-testid="stCaptionContainer"] p {font-size:0.75rem;}
+[class*="st-key-sbprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+[class*="st-key-sbpick_"] {position:absolute; inset:0; z-index:5; margin:0;}
+[class*="st-key-sbpick_"] button {width:100%; height:100%; opacity:0; cursor:pointer;}
 </style>
 """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
@@ -51,8 +62,8 @@ FONT_CSS = (f"<style>html, body, .stApp, .vocai-header {{font-family: {config.AP
             ".vocai-code pre {font-family: ui-monospace, Consolas, 'Courier New', monospace;}</style>")
 st.markdown(CSS + FONT_CSS, unsafe_allow_html=True)
 
-VIEW_RAW = "📄 원본 VOC"
-VIEW_CLUSTER = "🧩 유형 분석 결과"
+VIEW_RAW = "원본 VOC"
+VIEW_CLUSTER = "유형 분석 결과"
 VIEW_OPTIONS = [VIEW_RAW, VIEW_CLUSTER]
 PERIOD_RECENT, PERIOD_CUSTOM, PERIOD_ALL = "최근 2주", "직접 선택", "전체 기간"
 PERIOD_MODES = [PERIOD_RECENT, PERIOD_CUSTOM, PERIOD_ALL]
@@ -97,6 +108,20 @@ def cached_embed_clusters(voc_ids: tuple[str, ...]):
 @st.cache_data
 def cached_users() -> list[dict]:
     return data_utils.load_users()
+
+
+@st.cache_data(show_spinner=False)
+def cached_rep_vocs(voc_ids: tuple[str, ...]) -> list[str]:
+    """유형의 대표 VOC: 임베딩(의미 공간과 같은 캐시) 중심에 가까운 순 REP_VOC_MAX건.
+    API 키가 없으면 유형 목록에서 고르게 뽑는다."""
+    texts = cached_vocs().set_index("voc_id").reindex(list(voc_ids))["text"].dropna()
+    if texts.empty:
+        return []
+    if os.getenv("OPENAI_API_KEY"):
+        vectors = cached_voc_vectors(tuple(texts.index))
+        return [texts.iloc[i] for i in stage1.nearest_to_center(vectors, config.REP_VOC_MAX)]
+    step = max(len(texts) // config.REP_VOC_MAX, 1)
+    return texts.iloc[::step].head(config.REP_VOC_MAX).tolist()
 
 
 @st.cache_resource
@@ -240,6 +265,26 @@ def show_table(df: pd.DataFrame, key: str, **kwargs) -> None:
         if view[c].map(lambda v: isinstance(v, str) and len(v) > config.CELL_MAX_CHARS).any():
             view[c] = view[c].map(shorten)
     st.dataframe(view, hide_index=True, width="stretch", key=key, **kwargs)
+
+
+def md_escape(text: str) -> str:
+    """고객 VOC 원문을 마크다운으로 해석하지 않고 그대로 보이게."""
+    for ch in "\\`*_{}[]<>()#+-.!|~":
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
+def render_representative_vocs() -> None:
+    """대표 VOC 보기: 현재 개발자가 담당한 티켓마다 접힌 expander 하나 (다른 개발자의 티켓은 없음).
+    펼치면 그 유형의 대표 VOC를 유형 중심에 가까운 순으로 최대 REP_VOC_MAX건, 원문 그대로."""
+    st.subheader("대표 VOC 보기")
+    if not my_tickets:
+        st.info("티켓을 발행하면 해당 유형의 대표 VOC를 볼 수 있습니다")
+        return
+    for t in my_tickets:
+        with st.expander(f"{t.ticket_id} · {t.problem}", expanded=False):
+            for v in cached_rep_vocs(tuple(t.voc_ids)):
+                st.markdown(f"- {md_escape(v)}")
 
 
 def stage2_result_ok(result: dict) -> bool:
@@ -415,26 +460,34 @@ def pick_ticket(ticket_id: str) -> None:
 
 with st.sidebar:
     user_labels = {user_label(u): u["id"] for u in USERS}
-    id_to_label = {v: k for k, v in user_labels.items()}
-    picked_user = st.selectbox("현재 개발자", list(user_labels),
-                               index=list(user_labels).index(id_to_label[ss["current_user_id"]]))
+    # key로 선택 상태를 고정한다 (index로 그리면 바꾼 직후 다시 바꿀 때 다른 위젯으로 인식돼 선택이 무시된다)
+    ss.setdefault("current_user_label", user_label(USER_BY_ID[ss["current_user_id"]]))
+    picked_user = st.selectbox("현재 개발자", list(user_labels), key="current_user_label")
     ss["current_user_id"] = user_labels[picked_user]
     me = USER_BY_ID[ss["current_user_id"]]
 
     st.markdown("**내 티켓**")
     my_tickets = [t for t in stage1.sort_tickets(ss["tickets"].values()) if t.assignee_id == me["id"]]
-    if not my_tickets:
-        st.caption("맡은 티켓이 없습니다")
-    for t in my_tickets:
-        due = date.fromisoformat(t.due_date)
-        left = (due - date.today()).days
-        when = ":red[기한 지남]" if left < 0 else f"~{due:%m/%d} (D-{left})"
-        st.button(f"{t.ticket_id} · {t.priority} · {when}", key=f"my_ticket_{t.ticket_id}", width="stretch",
-                  type="primary" if t.ticket_id == ss["current_ticket"] else "secondary",
-                  on_click=pick_ticket, args=(t.ticket_id,))
     # 현재 티켓은 항상 내 티켓 중 하나 (개발자를 바꾸면 그 사람의 첫 티켓)
     if ss["current_ticket"] not in {t.ticket_id for t in my_tickets}:
         ss["current_ticket"] = my_tickets[0].ticket_id if my_tickets else None
+    if not my_tickets:
+        st.caption("맡은 티켓이 없습니다")
+    with st.container(key="sbcards"):
+        for t in my_tickets:
+            due = date.fromisoformat(t.due_date)
+            left = (due - date.today()).days
+            selected = t.ticket_id == ss["current_ticket"]
+            # 선택된 카드는 왼쪽 primaryColor 세로 줄 (CSS st-key-sbcard_sel_)
+            with st.container(key=f"sbcard_{'sel_' if selected else ''}{t.ticket_id}"):
+                # 카드 전체를 덮는 투명 버튼 → 누르면 현재 티켓 (2️⃣·3️⃣ 탭 · 대표 VOC 보기에 반영)
+                st.button(f"{t.ticket_id} 선택", key=f"sbpick_{t.ticket_id}", on_click=pick_ticket, args=(t.ticket_id,))
+                c_id, c_badge = st.columns([3, 2], vertical_alignment="center")
+                c_id.markdown(f"**{t.ticket_id}**")
+                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+                with st.container(key=f"sbprob_{t.ticket_id}"):   # 문제점 최대 2줄, 넘치면 …
+                    st.markdown(t.problem)
+                st.caption(":red[기한 지남]" if left < 0 else f"~{due:%m/%d} · D-{left}")
 
 tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 의심 위치", "3️⃣ 수정 라인"])
 
@@ -443,13 +496,14 @@ tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 의심 위치",
 with tab1:
     # 기간 방식: 최근 2주(기본, 오늘 포함) · 직접 선택 · 전체 기간(조회 전용)
     # 세 경우 모두 같은 줄 구성: 날짜 위젯은 항상 같은 자리(직접 선택일 때만 활성) → 방식을 바꿔도 화면이 움직이지 않는다
-    c_mode, c_date, _ = st.columns([3, 2, 3], vertical_alignment="bottom")  # 방식 · 날짜 · 빈칸
-    mode = c_mode.segmented_control("기간", PERIOD_MODES, key="period_mode", required=True)
+    # 왼쪽부터 붙인 한 줄 (화면이 넓어져도 같은 자리): [기간 방식] [날짜 칸 고정 폭 DATE_INPUT_WIDTH]
+    period_row = st.container(horizontal=True, gap="small", vertical_alignment="bottom")
+    mode = period_row.segmented_control("기간", PERIOD_MODES, key="period_mode", required=True)
     today = date.today()
     date_max = max(max_d, today)
     if mode == PERIOD_CUSTOM:
-        picked = c_date.date_input("날짜", key="custom_dates", min_value=min_d, max_value=date_max,
-                                   format="YYYY/MM/DD", width="stretch")
+        picked = period_row.date_input("날짜", key="custom_dates", min_value=min_d, max_value=date_max,
+                                       format="YYYY/MM/DD", width=config.DATE_INPUT_WIDTH)
         if isinstance(picked, (tuple, list)) and len(picked) == 2:
             start, end = picked
             ss["last_custom"] = (start, end)
@@ -460,8 +514,9 @@ with tab1:
             start, end = min_d, max_d
         else:  # 최근 2주: 데이터 마지막 날짜가 아니라 오늘 기준
             start, end = today - timedelta(days=config.RECENT_PERIOD_DAYS), today
-        c_date.date_input("날짜", value=(start, end), min_value=min(min_d, start), max_value=max(date_max, end),
-                          format="YYYY/MM/DD", width="stretch", disabled=True, key=f"fixed_dates_{mode}")
+        period_row.date_input("날짜", value=(start, end), min_value=min(min_d, start), max_value=max(date_max, end),
+                              format="YYYY/MM/DD", width=config.DATE_INPUT_WIDTH, disabled=True,
+                              key=f"fixed_dates_{mode}")
     ss["period"] = (start, end)
     key = (start, end)
     full_period = mode == PERIOD_ALL
@@ -481,7 +536,7 @@ with tab1:
 
     # 보기 전환 줄: 왼쪽 보기 전환 · 오른쪽 분석 버튼 (누르면 보기도 '유형 분석 결과'로 — 콜백은 위젯보다 먼저 실행)
     c_view, c_btn = st.columns([4, 1], vertical_alignment="center")
-    run_clicked = c_btn.button("🔍 유형 분석", type="primary", width="stretch", disabled=bool(block_reason),
+    run_clicked = c_btn.button("유형 분석", type="primary", width="stretch", disabled=bool(block_reason),
                                help=block_reason or None, on_click=lambda: ss.update(voc_view=VIEW_CLUSTER))
     view = c_view.segmented_control("보기", VIEW_OPTIONS, key="voc_view", required=True,
                                     label_visibility="collapsed")
@@ -533,38 +588,50 @@ with tab1:
         elif full_period:
             st.info("전체 기간은 조회만 가능합니다. 분석하려면 기간을 줄여 주세요")
         elif not s1:
-            st.info("🔍 유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
+            st.info("유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
         else:
             period_txt = f"{start}~{end}"
             # 이미 발행된 유형(누가 발행했든, 같은 기간의 cluster_id)은 표에서 빼고 아래 티켓 카드에서만 보인다
             issued = {t.cluster_id for t in ss["tickets"].values() if t.period == period_txt}
-            # 제목 줄: 왼쪽 섹션 제목 · 오른쪽 끝 발행 버튼 (버튼은 표의 체크 결과를 본 뒤 아래에서 채운다)
+            all_clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순 (전체)
+
+            # 1. 일별 VOC 건수 차트 (유형별 누적)
+            cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
+            # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다
+            unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
+            chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
+                                                                keep=(config.UNASSIGNED_LABEL,)))
+            daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
+            st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
+                       f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
+
+            # 2. VOC 유형별 처리 우선순위 표 — 제목 줄 오른쪽 [티켓 발행] (버튼은 표의 체크 결과를 본 뒤 채운다)
             c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
-            c_title.subheader("VOC 유형")
+            c_title.subheader("VOC 유형별 처리 우선순위")
             st.caption("체크한 유형만 티켓 발행")
-            clusters = sorted((c for c in s1["clusters"] if c.cluster_id not in issued),
-                              key=lambda c: -c.priority_score)  # 처리 시급도 높은 순
+            clusters = [c for c in all_clusters if c.cluster_id not in issued]
+            # 열: 우선순위·처리 시급도를 건수보다 앞에, 그 뒤는 시급도 계산식 순서(건수 → 증가율(추세) → 심각도)
+            columns = ["발행", "우선순위", "유형", "처리 시급도", "이번 기간", "이전 기간", "추세", "심각도", "카테고리 · 제품"]
             table = pd.DataFrame([{
                 "발행": False,
                 "우선순위": f"{config.PRIORITY_BADGE[c.priority]} {c.priority}",
                 "유형": c.label,
-                "영역 · 제품": f"{c.category} · {c.product}",
+                "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
                 "이번 기간": c.count,
                 "이전 기간": c.prev_count,
                 "추세": c.trend,
-                "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
                 "심각도": c.severity,
-            } for c in clusters], columns=["발행", "우선순위", "유형", "영역 · 제품", "이번 기간", "이전 기간",
-                                         "추세", "처리 시급도", "심각도"])
+                "카테고리 · 제품": f"{c.category} · {c.product}",
+            } for c in clusters], columns=columns)
             if clusters:
                 edited = st.data_editor(
                     table, hide_index=True, width="stretch", key=f"editor_{start}_{end}_{ss['editor_nonce']}",
                     height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
                     column_config={
                         "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
+                        "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
                         "이번 기간": st.column_config.NumberColumn(format="%d건"),
                         "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
-                        "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
                     },
                     disabled=[c for c in table.columns if c != "발행"],
                 )
@@ -572,7 +639,7 @@ with tab1:
             else:
                 st.caption("이 기간의 유형은 모두 티켓으로 발행되었습니다.")
                 to_issue = []
-            issue_clicked = c_issue.button("🎫 티켓 발행", type="primary", width="stretch", disabled=not to_issue)
+            issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch", disabled=not to_issue)
 
             if issue_clicked and has_api_key():
                 # 현재 개발자(me)를 담당자로 바로 발행 → outputs/tickets.json. 그사이 다른 개발자가 발행한 유형은 건너뛴다
@@ -592,29 +659,18 @@ with tab1:
                 st.rerun()
             thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
             st.caption(
-                f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d}). 날짜는 선택한 기간에 따라 자동으로 바뀝니다.  \n"
+                f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d})  \n"
                 f"· 처리 시급도 = 건수 {config.W_COUNT:.0%} + 증가율 {config.W_SURGE:.0%} + 심각도 {config.W_SEVERITY:.0%}를 합친 점수 "
                 f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
                 "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
             )
-            render_ticket_cards()  # 순서: 요약 카드 → 유형 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
 
-            cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
-            # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다
-            unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
-            chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
-                                                                keep=(config.UNASSIGNED_LABEL,)))
-            daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
-            st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
-                       f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
-
-            df_idx = df_all.set_index("voc_id")
-            for c in clusters:
-                with st.expander(f"{config.PRIORITY_BADGE[c.priority]} {c.label} — 대표 VOC 보기"):
-                    for vid in c.voc_ids[:config.SAMPLE_VOCS_PER_CLUSTER]:
-                        st.text(f"{vid} · {df_idx.loc[vid, 'text']}")
-
-            render_voc_map(cur, clusters)
+            # 3. 발행된 티켓 카드
+            render_ticket_cards()
+            # 4. 대표 VOC 보기 (내 티켓의 유형만)
+            render_representative_vocs()
+            # 5. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
+            render_voc_map(cur, all_clusters)
 
 # ════════════════════════════ 탭 2: 의심 위치 ════════════════════════════
 

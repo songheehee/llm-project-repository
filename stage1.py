@@ -369,6 +369,15 @@ def embed_vocs(df: pd.DataFrame, model: str = config.VOC_EMBEDDING_MODEL) -> np.
     return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
 
+def nearest_to_center(vectors: np.ndarray, n: int) -> list[int]:
+    """유형 중심(평균 벡터)에 가장 가까운 순으로 n개 인덱스 — 대표 VOC 선정용. vectors는 단위 벡터."""
+    if len(vectors) == 0:
+        return []
+    center = vectors.mean(axis=0)
+    center = center / (np.linalg.norm(center) or 1.0)
+    return [int(i) for i in np.argsort(-(vectors @ center))[:n]]
+
+
 def project_3d(vectors: np.ndarray) -> np.ndarray:
     """임베딩을 t-SNE(코사인 거리)로 3차원 투영한다."""
     from sklearn.manifold import TSNE
