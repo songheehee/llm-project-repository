@@ -148,23 +148,58 @@ def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
         st.plotly_chart(fig, width="stretch")
 
 
-def render_ticket_table() -> None:
-    """발행된 티켓: 표 한 개(우선순위 순, 5줄 고정 + 스크롤) + 티켓 상세 접기. 티켓이 없으면 숨긴다."""
+def render_folder_map(cards, repo: str, branch: str, voc_type: str) -> None:
+    """폴더 지도: 제목 줄 · 범례 · 폴더 카드 그리드(한 줄 3장). HTML은 st.html로, 모든 값은 html.escape."""
+    esc = html.escape
+    pill = "display:block; border-radius:8px; padding:3px 10px; margin:4px 0; font-size:13px;"
+    title = (f'<div style="font-weight:700; font-size:15px; margin-bottom:4px;">'
+             f'<span style="font-family:monospace;">{esc(repo)} / {esc(branch)}</span> · {esc(voc_type)} 기준</div>')
+    legend_items = []
+    for status in config.CLASS_STATUS_ORDER:
+        style = config.CLASS_STATUS_STYLE[status]
+        mark = "┅" if status == "감점" else "■"
+        sw = (f'<span style="display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; '
+              f'{style}"></span>') if mark == "■" else f'<span style="color:#D93025; font-weight:700;">{mark}</span>'
+        legend_items.append(f"{sw} {esc(status)}")
+    legend = f'<div style="font-size:13px; color:#3C4043; margin-bottom:10px;">{" · ".join(legend_items)}</div>'
+    if not cards:
+        st.html(title + legend + '<div style="color:#5F6368; font-size:13px;">보여 줄 폴더가 없습니다.</div>')
+        return
+    boxes = []
+    for card in cards:
+        pills = []
+        for item in card.items:
+            label = esc(item.name) + (" ✕" if item.status == "감점" else "")
+            tip = f' title="{esc(item.note)}"' if item.note else f' title="{esc(item.file)}"'
+            pills.append(f'<span style="{pill}{config.CLASS_STATUS_STYLE[item.status]}"{tip}>{label}</span>')
+        boxes.append(
+            '<div style="background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 14px;">'
+            f'<div style="font-family:monospace; font-weight:700; margin-bottom:6px;">📁 {esc(card.path)}</div>'
+            f'{"".join(pills)}</div>')
+    grid = (f'<div style="display:grid; grid-template-columns:repeat({config.FOLDER_MAP_COLUMNS}, minmax(0, 1fr)); '
+            f'gap:12px;">{"".join(boxes)}</div>')
+    st.html(title + legend + grid)
+
+
+def render_ticket_cards() -> None:
+    """발행된 티켓: 카드 한 줄 3장, 우선순위 순. 항목은 ID·우선순위·문제점·건수·담당 부서·담당자·발행일→예상 완료일뿐.
+    티켓이 없으면 숨긴다."""
     tickets = stage1.sort_tickets(ss["tickets"].values())
     if not tickets:
         return
     st.subheader("발행된 티켓")
-    st.dataframe(pd.DataFrame([stage1.ticket_summary_row(t) for t in tickets]), hide_index=True, width="stretch",
-                 height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
-                 column_config={"건수": st.column_config.NumberColumn(format="%d건"),
-                                "문제점": st.column_config.TextColumn(width="large")})
-    with st.expander("티켓 상세"):
-        for t in tickets:
-            st.markdown(f"**{t.ticket_id}** · {t.problem}")
-            st.markdown(f"발생 조건: {', '.join(t.conditions)}  \n기술 키워드: {', '.join(t.tech_keywords)}")
-            for v in t.sample_vocs:
-                st.text(f"대표 VOC · {v}")
-            st.divider()
+    n = config.TICKET_CARDS_PER_ROW
+    for i in range(0, len(tickets), n):
+        cols = st.columns(n)
+        for col, t in zip(cols, tickets[i:i + n]):
+            with col.container(border=True):
+                c_id, c_badge = st.columns([3, 1], vertical_alignment="center")
+                c_id.markdown(f"`{t.ticket_id}`")
+                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+                st.markdown(f"**{t.problem}**")
+                st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
+                st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
+                           f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
 
 
 def hover_text(text: str, width: int = 28) -> str:
@@ -258,21 +293,23 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
         st.plotly_chart(fig, width="stretch")
 
     st.markdown(f"**{p['voc_id']}** 와 가장 비슷한 VOC")
-    st.dataframe(pd.DataFrame([{
+    near = pd.DataFrame([{
         "순위": r, "VOC": cur.at[j, "voc_id"], "유사도": s, "LLM 클러스터": labels[j],
         "같은 LLM 클러스터": "✓" if labels[j] == labels[pick] else "⚠ 다름",
         "임베딩 클러스터": emb_labels[j], "원문": cur.at[j, "text"],
-    } for r, (j, s) in enumerate(neighbors, 1)]), hide_index=True, width="stretch",
-        column_config={"유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
+    } for r, (j, s) in enumerate(neighbors, 1)])
+    st.dataframe(near, hide_index=True, width="stretch", column_config={
+        "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
 
     odd = stage1.label_disagreements(vectors, labels, config.DISAGREE_K)
     with st.expander(f"임베딩 이웃과 LLM 라벨이 다른 VOC {len(odd)}건 (경계·오분류 후보)"):
         if odd:
-            st.dataframe(pd.DataFrame([{
+            odd_df = pd.DataFrame([{
                 "VOC": cur.at[o["idx"], "voc_id"], "LLM 라벨": o["label"],
                 "이웃 다수 라벨": f"{o['neighbor_label']} ({o['agree']}/{config.DISAGREE_K})",
                 "원문": cur.at[o["idx"], "text"],
-            } for o in odd]), hide_index=True, width="stretch")
+            } for o in odd])
+            st.dataframe(odd_df, hide_index=True, width="stretch")
         else:
             st.caption("모든 VOC가 이웃 다수와 같은 클러스터입니다.")
 
@@ -303,12 +340,13 @@ def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[s
     c2.metric("두 분류 일치 ARI", fmt(both["ari"]), help="라벨 이름과 무관하게 같은 VOC끼리 묶였는지 (1 = 완전 일치, 0 = 무작위 수준)")
     c3.metric("두 분류 일치 NMI", fmt(both["nmi"]), help="한 분류를 알면 다른 분류를 얼마나 알 수 있는지 (0~1)")
 
-    st.dataframe(pd.DataFrame([
+    metrics_df = pd.DataFrame([
         {"지표": "실루엣 ↑", "LLM": fmt(m_llm["silhouette"]), "임베딩": fmt(m_emb["silhouette"])},
         {"지표": "Davies-Bouldin ↓", "LLM": fmt(m_llm["davies_bouldin"]), "임베딩": fmt(m_emb["davies_bouldin"])},
         {"지표": "kNN 일관성 ↑", "LLM": fmt(m_llm["knn_consistency"]), "임베딩": fmt(m_emb["knn_consistency"])},
         {"지표": "기타 비율 ↓", "LLM": f"{m_llm['other_ratio']:.1%}", "임베딩": f"{m_emb['other_ratio']:.1%}"},
-    ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP)), hide_index=True, width="stretch")
+    ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP))
+    st.dataframe(metrics_df, hide_index=True, width="stretch")
 
     if sil_by_k:
         with st.expander(f"임베딩 분류의 k 선택 — k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} 중 실루엣 최대"):
@@ -329,7 +367,7 @@ period = ss.get("period", (config.ANALYSIS_START, config.ANALYSIS_END))
 
 st.markdown('<div class="vocai-header"><span class="vocai-title">VOCAI</span></div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 레포 지도", "3️⃣ 수정 라인"])
+tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 의심 위치", "3️⃣ 수정 라인"])
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
@@ -383,11 +421,12 @@ with tab1:
     if view == VIEW_RAW:
         daily_bar_chart(data_utils.daily_counts(cur, "channel"), "일별 VOC 건수 (채널별 누적)")
         st.subheader("VOC 원문")
-        st.dataframe(data_utils.voc_table(cur), hide_index=True, width="stretch", height=320)
+        raw = data_utils.voc_table(cur)
+        st.dataframe(raw, hide_index=True, width="stretch",
+                     height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
     elif not s1:
         st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
     else:
-        render_ticket_table()
         # 제목 줄: 왼쪽 섹션 제목 · 오른쪽 끝 발행 버튼 (버튼은 표의 체크 결과를 본 뒤 아래에서 채운다)
         c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
         c_title.subheader("클러스터")
@@ -424,6 +463,7 @@ with tab1:
             f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
             "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
         )
+        render_ticket_cards()  # 순서: 요약 카드 → 클러스터 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
 
         cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
         chart_df = cur.assign(cluster=data_utils.top_groups(cur["cluster"], config.CHART_TOP_TYPES, config.OTHER_LABEL))
@@ -454,11 +494,11 @@ with tab1:
                         ss["next_ticket_no"] += 1
                         ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
                 ss["ticket_secs"] = round(time.perf_counter() - t0, 1)
-                st.rerun()  # 발행된 티켓 표(클러스터 위)에 바로 보이도록
+                st.rerun()  # 발행된 티켓 카드(이 버튼보다 위에 그려짐)에 바로 보이도록
 
         render_voc_map(cur, clusters)
 
-# ════════════════════════════ 탭 2: 레포 지도 ════════════════════════════
+# ════════════════════════════ 탭 2: 의심 위치 ════════════════════════════
 
 with tab2:
     if not ss["tickets"]:
@@ -485,50 +525,33 @@ with tab2:
         if not result:
             st.caption("▶ 코드 좁혀 가기를 누르면 ④ 레포 라우팅 → ⑤ 폴더 의심도 → ⑥ 라인 탐색 → ⑦ 영향 범위를 차례로 실행합니다.")
         else:
-            with st.container(key="card_repos"):
-                st.markdown("#### 레포 후보")
-                cands = result.get("repo_candidates", [])
-                sources = result.get("repo_sources", {})
-                if not cands:
-                    st.warning("점수 0.1 이상인 레포 후보가 없습니다.")
-                else:
-                    # 후보마다 한 블록: 1줄 이름 · 점수 막대 · 점수 / 2줄 이유 전체 (표 셀에 넣으면 잘린다)
-                    for c in cands:
-                        c_name, c_bar, c_score = st.columns([2, 5, 1], vertical_alignment="center")
-                        c_name.markdown(f"**{c.name}**")
-                        c_bar.progress(min(max(c.score, 0.0), 1.0))
-                        c_score.markdown(f"{c.score:.2f}")
-                        st.caption(c.reason)
-                        if c.name in sources:
-                            st.caption(f"코드 출처: {sources[c.name]}")
-            if cands:
-                with st.container(key="card_folders"):
-                    st.markdown("#### 폴더 의심도")
-                    repo_sel = st.radio("레포", [c.name for c in cands], horizontal=True, label_visibility="collapsed")
-                    folders = [f for f in result.get("folder_scores", []) if f.repo == repo_sel]
-                    if folders:
-                        fdf = pd.DataFrame([{"폴더": f.path, "점수": f.score, "근거": f.note,
-                                             "구분": "감점" if f.role else "일반"} for f in folders])
-                        fig = px.bar(fdf.iloc[::-1], x="점수", y="폴더", orientation="h", text="점수",
-                                     color="구분", hover_data=["근거"],
-                                     color_discrete_map={"일반": "#1428A0", "감점": "#9AA0A6"})
-                        fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=60 + 42 * len(fdf), margin=dict(l=10, r=40, t=10, b=10),
-                                          xaxis=dict(range=[0, 1.1]), showlegend=False, plot_bgcolor="#FFFFFF")
-                        st.plotly_chart(fig, width="stretch")
-                        for f in folders:
-                            st.caption(("⚠ " if f.role else "") + f"{f.path} — {f.note}")
-                        with st.expander("점수 구성 · 키워드 vs 함수 의미 비교"):
-                            st.caption(f"점수 = ({config.W_KEYWORD}×키워드 + {config.W_SEMANTIC}×함수 의미 + "
-                                       f"{config.W_RECENT}×최근 변경) × 역할보정. 함수 의미 = LLM이 함수 동작을 요약한 문장과 "
-                                       "티켓 원인 문장의 임베딩 유사도. 코드 원문 = 함수 코드를 그대로 임베딩한 유사도(비교용, 점수에 안 들어감).")
-                            st.dataframe(pd.DataFrame([{
-                                "폴더": f.path, "점수": f.score, "키워드": f.keyword, "함수 의미": f.semantic,
-                                "코드 원문(비교)": f.semantic_code, "최근 변경": f.recent,
-                                "가장 비슷한 함수": f.top_unit, "함수 동작 요약 (LLM)": f.top_summary,
-                            } for f in folders]), hide_index=True, width="stretch")
-                    else:
-                        st.caption("폴더 점수가 없습니다.")
+            cands = result.get("repo_candidates", [])
+            sources = result.get("repo_sources", {})
+            st.markdown("#### 레포 후보")
+            if not cands:
+                st.warning("점수 0.1 이상인 레포 후보가 없습니다.")
+            else:
+                # 한 줄 선택지: "pulsefit-py 0.98"처럼 이름 + 점수, 기본은 1위 레포
+                labels = {f"{c.name} {c.score:.2f}": c for c in cands}
+                picked = st.segmented_control("레포 후보", list(labels), default=list(labels)[0], required=True,
+                                              key=f"repo_pick_{sel}", label_visibility="collapsed")
+                cand = labels.get(picked, cands[0])
+                st.caption(cand.reason + (f"  \n코드 출처: {sources[cand.name]}" if cand.name in sources else ""))
+
+                st.markdown("#### 폴더 지도")
+                render_folder_map(stage2.build_folder_map(result, cand.name), cand.name,
+                                  stage2.repo_branch(cand.name), ticket.cluster_label)
+                folders = [f for f in result.get("folder_scores", []) if f.repo == cand.name]
+                if folders:
+                    with st.expander("점수 구성 · 키워드 vs 함수 의미 비교"):
+                        st.caption(f"점수 = ({config.W_KEYWORD}×키워드 + {config.W_SEMANTIC}×함수 의미 + "
+                                   f"{config.W_RECENT}×최근 변경) × 역할보정. 함수 의미 = LLM이 함수 동작을 요약한 문장과 "
+                                   "티켓 원인 문장의 임베딩 유사도. 코드 원문 = 함수 코드를 그대로 임베딩한 유사도(비교용, 점수에 안 들어감).")
+                        st.dataframe(pd.DataFrame([{
+                            "폴더": f.path, "점수": f.score, "키워드": f.keyword, "함수 의미": f.semantic,
+                            "코드 원문(비교)": f.semantic_code, "최근 변경": f.recent,
+                            "가장 비슷한 함수": f.top_unit, "함수 동작 요약 (LLM)": f.top_summary,
+                        } for f in folders]), hide_index=True, width="stretch")
 
 # ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
 
@@ -582,8 +605,9 @@ with tab3:
             st.markdown("#### 함께 확인할 곳")
             impacts = result.get("impacts", [])
             if impacts:
-                st.dataframe(pd.DataFrame([{"저장소": i.repo, "파일": i.path, "라인": i.line, "심볼": i.symbol,
-                                            "관계": i.relation} for i in impacts]), hide_index=True, width="stretch")
+                imp = pd.DataFrame([{"저장소": i.repo, "파일": i.path, "라인": i.line, "심볼": i.symbol,
+                                     "관계": i.relation} for i in impacts])
+                st.dataframe(imp, hide_index=True, width="stretch")
             else:
                 st.caption("같은 저장소의 다른 파일에서 참조하는 곳이 없습니다.")
         st.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),

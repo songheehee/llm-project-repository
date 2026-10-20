@@ -69,8 +69,7 @@ class Ticket(BaseModel):
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름
-    sample_vocs: list[str] = [] # 대표 VOC 원문 (티켓 상세용, TICKET_DETAIL_VOCS건)
-    voc_ids: list[str]
+    voc_ids: list[str]          # 이 티켓에 묶인 개별 VOC ID (V0001 …)
 
 
 # ── LLM 구조화 출력용 ──
@@ -550,21 +549,21 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
     code_terms = [t for t in (re.sub(r"[^a-z0-9_]", "", s.lower()) for s in draft.code_terms) if t]
     issued_on = issued_on or date.today()
     return Ticket(
-        ticket_id=f"VOC-{ticket_no:04d}", cluster_id=cluster.cluster_id, period=period,
+        ticket_id=f"{config.TICKET_ID_PREFIX}-{ticket_no:04d}", cluster_id=cluster.cluster_id, period=period,
         product=cluster.product, priority=cluster.priority, problem=draft.problem,
         count=cluster.count, trend=cluster.trend, conditions=draft.conditions,
         tech_keywords=draft.tech_keywords, code_terms=list(dict.fromkeys(code_terms)),
         owner_part=draft.owner_part, assignee=part_assignees().get(draft.owner_part, "미지정"),
         issued_on=issued_on.isoformat(), due_date=due_date_for(cluster.priority, issued_on).isoformat(),
-        cluster_label=cluster.label, sample_vocs=sample_vocs[:config.TICKET_DETAIL_VOCS], voc_ids=cluster.voc_ids,
+        cluster_label=cluster.label, voc_ids=cluster.voc_ids,
     )
 
 
-def ticket_summary_row(t: Ticket) -> dict:
-    """발행된 티켓 표 · 티켓 Markdown이 같은 열 순서를 쓰도록 한 곳에서 정의한다."""
+def ticket_card_fields(t: Ticket) -> dict:
+    """티켓 카드 · 티켓 Markdown이 같은 항목·순서를 쓰도록 한 곳에서 정의한다."""
     return {
-        "티켓 ID": t.ticket_id, "우선순위": t.priority, "문제점": t.problem, "담당 부서": t.owner_part,
-        "담당자": t.assignee, "건수": t.count, "추세": t.trend, "발행일": t.issued_on, "예상 완료일": t.due_date,
+        "티켓 ID": t.ticket_id, "우선순위": t.priority, "문제점": t.problem, "건수": f"{t.count:,}건",
+        "담당 부서": t.owner_part, "담당자": t.assignee, "발행일": t.issued_on, "예상 완료일": t.due_date,
     }
 
 

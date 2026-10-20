@@ -48,10 +48,10 @@ MIN_CLUSTER_SIZE = 3          # 분석 기간 건수가 이보다 적은 클러�
 MIN_CLUSTER_SHARE = 0.02      # 프롬프트 안내: 분석 기간 VOC의 이 비율 미만이 될 묶음은 따로 만들지 말고 합친다 (건수는 데이터에 따라 동적)
 SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
 TICKET_SAMPLE_VOCS = 10       # 티켓화 프롬프트에 넣는 VOC 수
-TICKET_DETAIL_VOCS = 2        # 티켓 상세에 보여 줄 대표 VOC 수
 PROBLEM_MAX_CHARS = 40        # 티켓 문제점(개발자 언어 한 줄) 최대 글자 수 — 표에서 잘리지 않게
 REASON_MAX_CHARS = 60         # 수정 라인 추천 사유 최대 글자 수 (명사형 한 문장)
-FIRST_TICKET_NO = 412         # VOC-0412부터
+FIRST_TICKET_NO = 1           # 티켓 번호 시작 (발행 순서대로 TKT-0001, TKT-0002 …)
+TICKET_ID_PREFIX = "TKT"      # 티켓은 VOC 하나가 아니라 VOC 유형 하나에 대한 것 — 개별 VOC ID(V0001…)와 구분
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 
 # ── 1️⃣ 대시보드 표시 ─────────────────────────────────
@@ -59,6 +59,21 @@ CHART_TOP_TYPES = 5           # 일별 차트: 건수 상위 N개 유형만 색�
 OTHER_COLOR = "#BDC1C6"       # 차트 '기타' 색
 TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많으면 표 안에서 스크롤
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
+RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
+TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 개수
+
+# ── 2️⃣ 의심 위치 — 폴더 지도 ─────────────────────────
+DEFAULT_DEPLOY_BRANCH = "main"  # repos.yaml에 branch가 없고 .git/HEAD도 못 읽을 때
+FOLDER_MAP_COLUMNS = 3          # 폴더 카드 한 줄 개수
+FOLDER_MAP_MAX_CLASSES = 5      # 폴더당 보여 줄 클래스 최대 수
+CLASS_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점", "일반"]  # 위에 있을수록 우선 적용·먼저 표시
+CLASS_STATUS_STYLE = {          # 폴더 지도 클래스 알약 모양 (CSS)
+    "원인 후보": "background:#E8622C; color:#FFFFFF; font-weight:700; border:1px solid #E8622C;",
+    "함께 확인": "background:#F9D3C7; color:#202124; font-weight:700; border:1px solid #E8622C;",
+    "키워드 일치": "background:#FFB547; color:#202124; font-weight:700; border:1px solid #FFB547;",
+    "감점": "background:#FFFFFF; color:#D93025; border:1px dashed #D93025;",
+    "일반": "background:#F1F3F4; color:#3C4043; border:1px solid #F1F3F4;",
+}
 
 # ── VOC 유사도 지도 (임베딩 · t-SNE 3D 투영) ───────────────
 VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 지도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)
