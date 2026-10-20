@@ -40,7 +40,10 @@ def main() -> None:
         print(f"  {c.name:<16} {c.score:.2f}  {c.reason}")
     print("\n[⑤ 폴더 의심도]")
     for f in result["folder_scores"]:
-        print(f"  {f.repo}/{f.path:<10} {f.score:.2f}  (키워드 {f.keyword:.2f} · 최근 {f.recent})  {f.note}")
+        print(f"  {f.repo}/{f.path:<10} {f.score:.2f}  (키워드 {f.keyword:.2f} · 의미 {f.semantic:.2f} · "
+              f"원문 {f.semantic_code:.2f} · 최근 {f.recent})  {f.note}")
+        if f.top_summary:
+            print(f"      ↳ {f.top_unit}: {f.top_summary}")
     print("\n[⑥ 수정 라인 — 검증됨]")
     for r in result["line_recs"]:
         rng = ", ".join(f"L{s}" if s == e else f"L{s}–{e}" for s, e in r.ranges)

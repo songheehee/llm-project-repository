@@ -578,9 +578,9 @@ with tab2:
                                               key=f"repo_pick_{sel}")
                 repo_name = picked if picked in names else names[0]
 
-                st.markdown("#### 원인 후보 폴더")
-                render_folder_cards(stage2.build_folder_cards(result, repo_name), repo_name,
-                                    stage2.repo_branch(repo_name), ticket.cluster_label)
+                st.markdown("#### 폴더 지도")
+                render_folder_map(stage2.build_folder_map(result, cand.name), cand.name,
+                                  stage2.repo_branch(cand.name), ticket.cluster_label)
 
 # ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
 
