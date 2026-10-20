@@ -7,9 +7,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 RAG_DIR = DATA_DIR / "rag"
-VOCS_CSV = DATA_DIR / "vocs_1000.csv"            # 원본 311건은 "vocs.csv"
-ANSWER_CSV = DATA_DIR / "vocs_1000_labels.csv"   # 정답 확인 전용 (앱·LLM에 넣지 않음). 원본은 "answer_labels.csv"
-ANSWER_LABEL_COL = "topic_name"                  # 원본은 "true_label"
+VOCS_CSV = DATA_DIR / "vocs.csv"            # VOC 입력 — 건수는 이 CSV를 읽을 때 정해진다 (지금은 테스트용 1000건)
+ANSWER_CSV = DATA_DIR / "vocs_labels.csv"   # 정답 확인 전용 (앱·LLM에 넣지 않음, try_stage1에서만)
+ANSWER_LABEL_COL = "topic_name"                  # ANSWER_CSV의 정답 라벨 열
 DATASET = VOCS_CSV.stem                          # 캐시 파일 이름에 넣어 데이터셋끼리 섞이지 않게 한다
 REPOS_YAML = DATA_DIR / "repos.yaml"
 SAMPLE_REPOS_DIR = BASE_DIR / "sample_repos"
@@ -34,10 +34,17 @@ MIN_CLUSTERS = 5
 MAX_CLUSTERS = 20
 OTHER_LABEL = "기타"
 MIN_CLUSTER_SIZE = 3          # 분석 기간 건수가 이보다 적은 클러스터는 '기타'로 돌린다
+MIN_CLUSTER_SHARE = 0.02      # 프롬프트 안내: 분석 기간 VOC의 이 비율 미만이 될 묶음은 따로 만들지 말고 합친다 (건수는 데이터에 따라 동적)
 SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
 TICKET_SAMPLE_VOCS = 10       # 티켓화 프롬프트에 넣는 VOC 수
 FIRST_TICKET_NO = 412         # VOC-0412부터
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
+
+# ── 1️⃣ 대시보드 표시 ─────────────────────────────────
+CHART_TOP_TYPES = 5           # 일별 차트: 건수 상위 N개 유형만 색으로 나누고 나머지는 '기타'
+OTHER_COLOR = "#BDC1C6"       # 차트 '기타' 색
+TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많으면 표 안에서 스크롤
+TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 
 # ── VOC 유사도 지도 (임베딩 · t-SNE 3D 투영) ───────────────
 VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 지도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)

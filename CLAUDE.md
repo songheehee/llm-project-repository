@@ -11,9 +11,9 @@
 
 ```bash
 pip install -r requirements.txt
-python scripts/make_sample_data.py     # Step 0: data/ 생성
+python scripts/make_sample_data.py     # Step 0: repos.yaml · rag/*.md 생성 (VOC CSV는 만들지 않음)
 python scripts/build_sample_repos.py   # Step 0: sample_repos/ 생성 (git 필요)
-python try_stage1.py                   # Step 2·3: 클러스터·티켓 터미널 확인
+python try_stage1.py                   # Step 2·3: 클러스터·정답 기준 PASS/FAIL·티켓 터미널 확인 (--no-cache, --no-ticket)
 python try_stage2.py                   # Step 4·5: 레포·폴더·라인·영향 터미널 확인
 streamlit run app.py                   # 화면
 ```
@@ -32,9 +32,9 @@ try_stage1.py          # 터미널 확인용
 try_stage2.py          # 터미널 확인용
 requirements.txt
 .streamlit/config.toml # Step 6
-scripts/make_sample_data.py     # vocs.csv · answer_labels.csv · repos.yaml · rag/*.md 생성
-scripts/build_sample_repos.py   # pulsefit-* 3개 git 저장소 생성
-data/                  # 입력 데이터 — 생성 후 읽기 전용
+scripts/make_sample_data.py     # repos.yaml · rag/*.md 생성
+scripts/build_sample_repos.py   # pulsefit-* git 저장소 생성 (repos.yaml의 저장소들)
+data/                  # 입력 데이터 — 읽기 전용. VOC CSV는 config.VOCS_CSV (현재 vocs.csv, generate_vocs.py로 생성)
 sample_repos/          # 분석 대상 저장소 — 읽기 전용 (git 조회만)
 outputs/               # 클러스터 캐시(clusters_{시작}_{끝}.json) · 티켓 md (자동 생성)
 ```
@@ -58,31 +58,36 @@ from pygments.formatters import HtmlFormatter
 
 LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. 실패하면 최대 2회 재시도한다.
 
-## 데이터 (scripts/make_sample_data.py가 생성)
+## 데이터
 
-기간: 분석 **2026-10-03 ~ 2026-10-14**(12일), 직전 **2026-09-21 ~ 2026-10-02**(12일). `random.seed(42)`로 매번 같은 결과.
+기간: 분석 **2026-10-03 ~ 2026-10-14**(12일), 이전 **2026-09-21 ~ 2026-10-02**(12일, 분석 기간과 같은 길이로 자동 계산).
 
-| 파일                      | 내용                                                                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `data/vocs.csv`           | voc_id(V0001~), created_at(ISO), channel(review/call_center), text                                                                    |
-| `data/answer_labels.csv`  | voc_id, true_label — **정답 확인 전용**. 앱·LLM에 절대 넣지 않는다 (try_stage1에서 일치율 출력만)                                     |
-| `data/repos.yaml`         | 저장소 3개: name, path(`sample_repos/<name>`), product, description, owner_parts, folder_roles                                        |
-| `data/rag/products.md`    | 워치 헬스 앱 기능 ↔ 레포·폴더, 사내 용어(PPG, 폴링 주기 등)                                                                           |
-| `data/rag/departments.md` | 파트 ↔ 담당 영역·레포·담당자(`- 담당자: 이름`, 가상 1명): 센서(sensor/, 김서준) · 전력(power/) · UI(ui/) · 운동(workout/) · 동기화(sync/, pulsefit-sync) · 서버(pulsefit-server) |
+**VOC 건수는 고정이 아니다.** `config.VOCS_CSV`의 CSV를 읽을 때 정해진다. 코드에 건수를 하드코딩하지 않는다.
+지금은 큰 건수 테스트용으로 `data/vocs.csv`(1,000건, 주제 13개)를 쓴다.
 
-VOC 생성 규칙 (클러스터별 건수):
+| 파일                         | 내용                                                                                                                       |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `data/vocs.csv`         | `config.VOCS_CSV`. voc_id(V0001~), created_at(ISO), channel(review/call_center), text                                       |
+| `data/vocs_labels.csv`  | `config.ANSWER_CSV`. voc_id, topic, topic_name(`ANSWER_LABEL_COL`) — **정답 확인 전용**. 앱·LLM에 절대 넣지 않는다 (try_stage1만) |
+| `data/generate_vocs.py` | 위 두 파일 생성 (seed 고정). 별도 데이터로 바꾸면 이 표와 §정답을 다시 계산한다                                             |
+| `data/repos.yaml`            | 저장소 레지스트리: name, path(`sample_repos/<name>`), url(있으면 원격 미러 우선), product, description, owner_parts, folder_roles |
+| `data/rag/products.md`       | 워치 헬스 앱 기능 ↔ 레포·폴더, 사내 용어(PPG, 폴링 주기 등)                                                                |
+| `data/rag/departments.md`    | 파트 ↔ 담당 영역·레포·담당자(`- 담당자: 이름`, 가상 1명). 예: 센서 파트(sensor/, 김서준) · 동기화 파트(sync/, pulsefit-sync) |
 
-| 정답 클러스터     | 분석 기간 | 직전 기간 | 문장 예 (고객 말투, 코드 용어 금지)                                  |
-| ----------------- | --------- | --------- | -------------------------------------------------------------------- |
-| 운동 중 기기 발열 | 91        | 10        | "업데이트하고 러닝하면 손목이 뜨거워요"                              |
-| 배터리 급소모     | 58        | 36        | "하루도 못 가고 배터리가 바닥나요"                                   |
-| 연결 끊김 시 발열 | 24        | 0         | "폰이랑 연결이 끊기면 시계가 따뜻해져요" (반드시 '연결 끊김'을 언급) |
-| 화면 사용성       | 29        | 29        | "메뉴 버튼이 너무 작아요"                                            |
-| GPS 거리 오차     | 17        | 17        | "달린 거리가 실제보다 짧게 나와요"                                   |
+현재 데이터(`vocs.csv`)의 정답 주제별 건수 (`vocs_labels.csv` 기준):
 
-- 클러스터마다 문장 템플릿 12개 이상 + 어미·상황 변형으로 섞는다. 클러스터끼리 표현이 겹치지 않게 한다.
-- 날짜: 클러스터 안 i번째 VOC는 기간 시작일 + (i % 12)일, 시각은 무작위.
-- 채널: 클러스터·기간별 i번째(0부터) VOC가 `i % 3 == 2`면 call_center, 나머지 review.
+| 정답 주제              | 분석 기간 | 이전 기간 | 정답 주제            | 분석 기간 | 이전 기간 |
+| ---------------------- | --------- | --------- | -------------------- | --------- | --------- |
+| 운동 중 기기 발열      | 198       | 11        | 수면 측정 오류       | 27        | 28        |
+| 배터리 소모            | 101       | 56        | 걸음 수 부정확       | 26        | 26        |
+| GPS 거리 오차          | 54        | 35        | 알림 지연·누락       | 23        | 27        |
+| 연결 끊김 시 발열      | 50        | 0         | 충전 불량            | 22        | 20        |
+| 메뉴·UI 사용성         | 49        | 43        | 심박·센서 측정 부정확 | 20        | 49        |
+| 폰 앱 동기화 지연·누락 | 29        | 34        | 앱 멈춤·강제 종료    | 18        | 22        |
+|                        |           |           | 착용감·스트랩·피부   | 18        | 14        |
+| **합계**               | **635**   | **365**   |                      |           |           |
+
+- 문장은 고객 말투, 코드 용어 금지. '연결 끊김 시 발열'은 반드시 '연결 끊김'을 언급한다.
 
 `repos.yaml`의 `pulsefit-py`에는 `folder_roles: {"ui/": display_only}`를 둔다.
 
@@ -213,8 +218,8 @@ class WorkoutSession:
 class Cluster(BaseModel):   # stage1
     cluster_id: str; label: str; category: str; product: str; severity: int  # 1~5
     voc_ids: list[str]; count: int; prev_count: int
-    surge_ratio: float | None   # None = 신규
-    trend: str                  # "▲ 9.1배" / "▲ 신규" / "– 보합" / "▼ 0.5배"
+    surge_ratio: float | None   # None = 새로 생김 (이전 기간 0건)
+    trend: str                  # "▲ 17.8배" / "▲ 새로 생김" / "– 변화 없음" / "▼ 0.4배"
     priority_score: float; priority: str  # 긴급/높음/보통/낮음
 
 class Ticket(BaseModel):    # stage1
@@ -254,8 +259,8 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 
 ## 계산식 (config.py 상수로)
 
-- 급증률 = 분석 건수 ÷ 직전 건수(0이면 신규). 추세: ≥1.3 ▲ / ≤0.7 ▼ / 그 외 – 보합
-- 우선순위 = `0.3×(건수÷최대건수) + 0.3×급증항 + 0.4×(심각도÷5)`, 급증항 = 신규 1 / 급증률≤1이면 0 / 그 외 `min(log2(급증률)/3, 1)`
+- 급증률 = 이번 기간 건수 ÷ 이전 기간 건수(0이면 "▲ 새로 생김"). 추세: ≥1.3 "▲ N배" / ≤0.7 "▼ N배" / 그 외 "– 변화 없음"
+- 우선순위 = `0.3×(건수÷최대건수) + 0.3×급증항 + 0.4×(심각도÷5)`, 급증항 = 새로 생김 1 / 급증률≤1이면 0 / 그 외 `min(log2(급증률)/3, 1)`
 - 라벨: ≥0.80 긴급 · ≥0.45 높음 · ≥0.23 보통 · 그 아래 낮음
 - 심각도 기준(프롬프트): 발열·화상 5 / 기능 불가 4 / 성능 저하(배터리) 3 / 부정확·사용성 2 / 단순 불만 1
 - 폴더 의심도 = `(0.6×키워드 + 0.4×최근변경) × 역할보정`
@@ -264,22 +269,34 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
   - 역할보정: `display_only` ×0.5 + note "표시 전용 폴더 → 감점"
 - 레포 후보: 점수 < 0.1 제외, 최대 3개
 - 예상 완료일 = 발행일 + `DUE_DAYS`: 긴급 3일 · 높음 7일 · 보통 14일 · 낮음 30일
-- 최다 급증 유형 = 급증률(surge_ratio)이 가장 큰 클러스터. 신규(직전 0건)는 배수 비교가 안 돼 제외
+- 처리 시급도(화면) = `round(priority_score × 100)` (0~100). 내부 계산·임계값은 0~1 그대로
+- 요약 카드: VOC 유형 = 클러스터 수 · 긴급 유형 = 우선순위 "긴급"인 클러스터 수 · 긴급 건수 = 긴급 클러스터 count 합
+- 일별 차트: 건수 상위 `CHART_TOP_TYPES`(5)개 유형만 색, 나머지는 "기타" · 클러스터 표 높이 = (`TABLE_VISIBLE_ROWS`(5) + 1) × `TABLE_ROW_PX`
 
-## 정답 (화면·터미널 숫자 확인용)
+## 정답 (현재 데이터 `vocs.csv` 기준 — 데이터를 바꾸면 다시 계산)
 
-- 분석 기간 총 VOC **219건** (직전 92건, **+138.0%**)
-- 요약 카드 4개: 총 VOC **219건(+138.0%)** · 최다 급증 유형 **운동 중 기기 발열(▲ 9.1배)** · VOC 유형 **5개** · 긴급 처리 건수 **1개** (분석 전에는 2~4번 "–")
-- 클러스터 5개 (LLM 분류라 건수 ±2 허용, **우선순위 라벨은 반드시 일치**):
+LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **꼭 맞아야 하는 것**과 **허용 범위**를 나눠 확인한다.
+`python try_stage1.py --no-cache`가 아래 기준을 PASS/FAIL로 출력한다(기대값은 try_stage1.py 맨 위 상수).
 
-| 클러스터          | 건수 | 추세    | 점수 | 우선순위 |
-| ----------------- | ---- | ------- | ---- | -------- |
-| 운동 중 기기 발열 | 91   | ▲ 9.1배 | 1.00 | 긴급     |
-| 연결 끊김 시 발열 | 24   | ▲ 신규  | 0.78 | 높음     |
-| 배터리 급소모     | 58   | ▲ 1.6배 | 0.50 | 높음     |
-| 화면 사용성       | 29   | – 보합  | 0.26 | 보통     |
-| GPS 거리 오차     | 17   | – 보합  | 0.22 | 낮음     |
+**꼭 맞아야 하는 것**
+- 분석 기간 총 VOC **635건** (이전 365건, **+74.0%**) — LLM과 무관, 항상 같음
+- 요약 카드: 총 VOC **635건(+74.0%)** · 긴급 유형 **1개** · 긴급 건수 = 운동 중 발열 유형 건수 (분석 전에는 2~4번 "–")
+- 우선순위 (유형은 다수 정답 주제로 대응):
 
+| 정답 주제         | 이번 기간 (참고 범위) | 추세 (참고)   | 처리 시급도 (참고) | 우선순위 |
+| ----------------- | --------------------- | ------------- | ------------------ | -------- |
+| 운동 중 기기 발열 | 190~201               | ▲ 16~20배     | 100 (1위)          | **긴급** |
+| 연결 끊김 시 발열 | 44~52                 | ▲ 새로 생김   | 77~78              | **높음** |
+| 배터리 소모       | 94~102                | ▲ 1.7~1.8배   | 46~49              | **높음** |
+| 그 외 모든 유형   |                       |               | 50 미만            | 보통·낮음 |
+
+**허용 범위**
+- 유형 수: 분석 기간 정답 주제 수(13) **± 3** → 10~16개 (확인 실행에서 12~13개)
+- 분석 기간 LLM 분류 vs 정답 **ARI ≥ 0.85** (확인 실행에서 0.90~0.98)
+- '기타' 비율 **≤ 10%** (확인 실행에서 2~9%)
+- 그 외 유형의 이름·건수·보통/낮음 구분은 실행마다 달라도 된다
+
+**코드 쪽 (티켓 이후)**
 - 티켓 VOC-0412: 운동 중 센서 과다 동작(발열) · **센서 파트** · 담당자 **김서준** · 예상 완료일 **발행일 + 3일**
 - 레포 1위 `pulsefit-py` · 폴더 1위 `sensor/` · `ui/`는 감점 note가 붙고 1·2위가 아님 (점수 수치는 화면 예시와 달라도 됨)
 - 수정 라인 `sensor/heart_rate.py` **L17, L45–52** · 커밋 근거 **2026-10-02** "측정 주기 단축" (L17에만 붙음)
@@ -289,7 +306,8 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 
 ## 구현 힌트
 
-- **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc*id 없이 텍스트만)를 주고 5~7개 라벨을 받는다. `assign_clusters`는 분석+직전 기간 VOC를 50건씩 `[{voc_id, text}]`로 넘겨 `{voc_id: label}`을 받는다. 결과는 `outputs/clusters*{시작}\_{끝}.json`에 캐시해 같은 기간이면 LLM을 다시 부르지 않는다.
+- **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc_id 없이 텍스트만)를 주고 `MIN_CLUSTERS`~`MAX_CLUSTERS`개 라벨을 받는다(발열은 '운동 중'과 '연결 끊김'을 반드시 따로). `assign_clusters`는 분석+이전 기간 VOC를 50건씩 `[{voc_id, text}]`로 넘겨 `{voc_id: label}`을 받는다.
+  `dissolve_small_clusters`: 분석 기간 건수가 `max(MIN_CLUSTER_SIZE, 분석 기간 VOC 수 × MIN_CLUSTER_SHARE(2%))` 미만인 묶음을 **가장 작은 것부터 하나씩** 해체하고 그 VOC만 남은 묶음 중 하나로 다시 분류한다(같은 증상이 작은 조각으로 갈라지는 것 방지, 기준은 데이터 건수에 따라 동적). 결과는 `outputs/clusters_{데이터셋}_{시작}_{끝}.json`에 캐시해 같은 기간이면 LLM을 다시 부르지 않는다.
 - **티켓 ID**: 발행 순서대로 VOC-0412, VOC-0413 … (`st.session_state["next_ticket_no"]`). 우선순위 높은 순으로 발행.
 - **RAG**: `data/rag/*.md` → `RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)` → `Chroma.from_documents(docs, OpenAIEmbeddings(...))`(persist_directory 없음). stage2에서는 `functools.lru_cache`로 한 번만 만든다.
 - **git 호출**: `subprocess.run(["git", "-C", repo_path, "-c", "core.quotepath=false", ...], capture_output=True, text=True, encoding="utf-8", check=True)`.
@@ -301,8 +319,9 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 - **진행 표시**: `for update in graph.stream(state, stream_mode="updates")` → 키가 노드명. `stream_stage2`가 `("node", 노드명, 소요초)`를 내고 마지막에 `("done", 최종 state)`. 최종 state는 업데이트를 누적해 만든다. 화면 표기: route_repos=④ 레포 라우팅, score_folders=⑤ 폴더 의심도, search_lines·verify_lines·add_commit_evidence=⑥ 라인 탐색·검증·커밋 근거, analyze_impact=⑦ 영향 범위.
 - **코드 뷰**: 추천 범위 앞뒤 5줄만 잘라 `HtmlFormatter(linenos="table", linenostart=시작줄, hl_lines=[...], noclasses=True)`. `hl_lines`는 **잘라낸 조각 기준 1부터** 번호다(절대 줄 번호 아님).
 - **1️⃣ 보기 전환**: `st.segmented_control(["📄 원본 VOC", "🧩 클러스터 분석 결과"], key="voc_view", required=True)`. [🔍 클러스터 분석]의 `on_click`에서 `voc_view`를 결과 보기로 바꾼다. 결과는 `st.session_state["stage1"]`에서 읽어 전환해도 LLM을 다시 부르지 않는다.
-- **요약 카드**: 총 VOC · 최다 급증 유형 · VOC 유형 · 긴급 처리 건수. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
+- **요약 카드**: 총 VOC · VOC 유형 · 긴급 유형 · 긴급 건수 (값은 숫자+단위). 총 VOC help에 이전 기간 날짜. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
 - **헤더**: "VOCAI"만. `.block-container` padding-top을 늘려 Streamlit 상단 바에 가리지 않게 한다.
-- **클러스터 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`.
+- **클러스터 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`. 열 이름 이번 기간 · 이전 기간 · 처리 시급도(×100). 처리 시급도 순 정렬, `height=(TABLE_VISIBLE_ROWS + 1) × TABLE_ROW_PX`. 표 위 제목 줄 `st.columns([4, 1], vertical_alignment="center")`: 왼쪽 섹션 제목, 오른쪽 끝 [🎫 티켓 발행](체크 없으면 `disabled`) — 버튼은 표를 그린 뒤 그 칸에 채운다(체크 결과가 필요). 제목 아래 `st.caption` 안내 문구, 표는 `width="stretch"`. 표 아래 비고 캡션(이전 기간 날짜 · 처리 시급도 뜻 · 심각도 1~5).
+- **일별 차트**: 범례 `orientation="h"` 차트 위, x축 제목 "날짜"(`title=dict(text="날짜", standoff=12)`) · `tickformat="%m/%d"`, 아래 margin 확보. 상위 `CHART_TOP_TYPES`개 + "기타"(회색).
 - **사이드바**: 현재 티켓(담당 파트·담당자·예상 완료일) · ①수집 ②클러스터 ③티켓 ④~⑦(timings 유무로 ✓) · 단계별 소요 시간.
 - **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 담당자·예상 완료일 포함.

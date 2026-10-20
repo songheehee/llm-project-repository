@@ -136,6 +136,26 @@ def has_api_key() -> bool:
     return False
 
 
+def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
+    """일별 누적 막대. 범례는 차트 위 가로, 날짜는 MM/DD, 아래 여백을 줘 눈금이 잘리지 않게 한다."""
+    order = daily.groupby("group")["count"].sum().sort_values(ascending=False).index.tolist()
+    if config.OTHER_LABEL in order:  # '기타'는 항상 마지막 · 회색
+        order = [g for g in order if g != config.OTHER_LABEL] + [config.OTHER_LABEL]
+    palette = px.colors.qualitative.Bold
+    colors = {g: palette[i % len(palette)] for i, g in enumerate(order)}
+    colors[config.OTHER_LABEL] = config.OTHER_COLOR
+    with st.container(key="card_chart"):
+        st.markdown(f"**{title}**")
+        fig = px.bar(daily, x="date", y="count", color="group", labels={"count": "건수", "group": ""},
+                     category_orders={"group": order}, color_discrete_map=colors)
+        fig.update_layout(barmode="stack", height=360, margin=dict(l=10, r=10, t=40, b=70),
+                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None),
+                          plot_bgcolor="#FFFFFF")
+        # x축 제목 "날짜"는 눈금(10/03) 아래에 간격(standoff)을 두고, 범례는 차트 위라 겹치지 않는다
+        fig.update_xaxes(title=dict(text="날짜", standoff=12), tickformat="%m/%d", dtick=86_400_000, tickangle=0)
+        st.plotly_chart(fig, width="stretch")
+
+
 def hover_text(text: str, width: int = 28) -> str:
     """Plotly 호버용: HTML 이스케이프 후 width 글자마다 줄바꿈."""
     text = html.escape(text)
@@ -347,62 +367,67 @@ with tab1:
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("총 VOC", f"{kpi['total']:,}건",
               delta=f"{kpi['change_pct']:+.1f}%" if kpi["change_pct"] is not None else None,
-              delta_color="inverse", help=f"직전 기간 {ps:%m/%d}~{pe:%m/%d} · {kpi['prev_total']}건 대비")
-    top = stage1.top_surge_cluster(s1["clusters"]) if s1 else None
-    if top:
-        k2.metric("최다 급증 유형", top.label, delta=top.trend, delta_arrow="off",
-                  delta_color="inverse" if top.trend.startswith("▲") else "off",
-                  help=f"{top.label} · 직전 {top.prev_count}건 → {top.count}건 (신규 유형은 배수 비교가 안 돼 제외)")
-        k3.metric("VOC 유형", f"{len(s1['clusters'])}개", help="클러스터 수")
-        k4.metric("긴급 처리 건수", f"{sum(c.priority == '긴급' for c in s1['clusters'])}개",
-                  help="우선순위가 '긴급'인 VOC 유형 수")
+              delta_color="inverse",
+              help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비 · 이전 기간 {kpi['prev_total']:,}건")
+    if s1:
+        urgent = [c for c in s1["clusters"] if c.priority == "긴급"]
+        k2.metric("VOC 유형", f"{len(s1['clusters'])}개", help="클러스터 수")
+        k3.metric("긴급 유형", f"{len(urgent)}개", help="우선순위가 '긴급'인 VOC 유형 수")
+        k4.metric("긴급 건수", f"{sum(c.count for c in urgent):,}건", help="긴급 유형에 속한 VOC 건수 합계")
     else:
-        for col, label in [(k2, "최다 급증 유형"), (k3, "VOC 유형"), (k4, "긴급 처리 건수")]:
+        for col, label in [(k2, "VOC 유형"), (k3, "긴급 유형"), (k4, "긴급 건수")]:
             col.metric(label, "–", help="클러스터 분석 후 표시")
 
     cur = data_utils.filter_period(df_all, start, end)
 
     if view == VIEW_RAW:
-        with st.container(key="card_chart"):
-            fig = px.bar(data_utils.daily_counts(cur, "channel"), x="date", y="count", color="group",
-                         title="일별 VOC 건수 (채널별 누적)", labels={"date": "날짜", "count": "건수", "group": ""})
-            fig.update_layout(barmode="stack", height=330, margin=dict(l=10, r=10, t=50, b=10),
-                              legend=dict(orientation="h", y=-0.2), plot_bgcolor="#FFFFFF")
-            st.plotly_chart(fig, width="stretch")
+        daily_bar_chart(data_utils.daily_counts(cur, "channel"), "일별 VOC 건수 (채널별 누적)")
         st.subheader("VOC 원문")
         st.dataframe(data_utils.voc_table(cur), hide_index=True, width="stretch", height=320)
     elif not s1:
         st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
     else:
-        st.subheader("클러스터")
-        clusters = s1["clusters"]
+        # 제목 줄: 왼쪽 섹션 제목 · 오른쪽 끝 발행 버튼 (버튼은 표의 체크 결과를 본 뒤 아래에서 채운다)
+        c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
+        c_title.subheader("클러스터")
+        st.caption("체크한 유형만 티켓 발행 · 담당 파트로 전달")
+        clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순
         table = pd.DataFrame([{
             "발행": False,
             "우선순위": f"{config.PRIORITY_BADGE[c.priority]} {c.priority}",
             "클러스터": c.label,
             "영역 · 제품": f"{c.category} · {c.product}",
-            "건수": c.count,
-            "직전": c.prev_count,
+            "이번 기간": c.count,
+            "이전 기간": c.prev_count,
             "추세": c.trend,
-            "점수": c.priority_score,
+            "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
             "심각도": c.severity,
         } for c in clusters])
         edited = st.data_editor(
             table, hide_index=True, width="stretch", key=f"editor_{start}_{end}",
+            height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
             column_config={
-                "발행": st.column_config.CheckboxColumn("발행", help="체크한 클러스터만 티켓 발행"),
-                "점수": st.column_config.NumberColumn(format="%.2f"),
+                "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
+                "이번 기간": st.column_config.NumberColumn(format="%d건"),
+                "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
+                "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
             },
             disabled=[c for c in table.columns if c != "발행"],
         )
+        any_checked = bool(edited["발행"].any())
+        issue_clicked = c_issue.button("🎫 티켓 발행", type="primary", width="stretch", disabled=not any_checked)
+        thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
+        st.caption(
+            f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d}). 날짜는 선택한 기간에 따라 자동으로 바뀝니다.  \n"
+            f"· 처리 시급도 = 건수 {config.W_COUNT:.0%} + 증가율 {config.W_SURGE:.0%} + 심각도 {config.W_SEVERITY:.0%}를 합친 점수 "
+            f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
+            "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
+        )
 
         cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
-        with st.container(key="card_chart"):
-            fig = px.bar(data_utils.daily_counts(cur, "cluster"), x="date", y="count", color="group",
-                         title="일별 VOC 건수 (클러스터별 누적)", labels={"date": "날짜", "count": "건수", "group": ""})
-            fig.update_layout(barmode="stack", height=330, margin=dict(l=10, r=10, t=50, b=10),
-                              legend=dict(orientation="h", y=-0.2), plot_bgcolor="#FFFFFF")
-            st.plotly_chart(fig, width="stretch")
+        chart_df = cur.assign(cluster=data_utils.top_groups(cur["cluster"], config.CHART_TOP_TYPES, config.OTHER_LABEL))
+        daily_bar_chart(data_utils.daily_counts(chart_df, "cluster"),
+                        f"일별 VOC 건수 (유형별 누적 · 상위 {config.CHART_TOP_TYPES}개 + 기타)")
 
         df_idx = df_all.set_index("voc_id")
         for c in clusters:
@@ -410,9 +435,7 @@ with tab1:
                 for vid in c.voc_ids[:config.SAMPLE_VOCS_PER_CLUSTER]:
                     st.text(f"{vid} · {df_idx.loc[vid, 'text']}")
 
-        c_info, c_issue = st.columns([4, 1.2], vertical_alignment="center")
-        c_info.caption("체크한 클러스터만 티켓으로 발행되어 담당 파트로 전달됩니다. (자동 전체 발행 없음)")
-        if c_issue.button("🎫 티켓 발행", type="primary", width="stretch"):
+        if issue_clicked:
             chosen = [c for c, flag in zip(clusters, edited["발행"]) if flag]
             issued = {(t.period, t.cluster_id) for t in ss["tickets"].values()}
             period_txt = f"{start}~{end}"

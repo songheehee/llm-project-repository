@@ -46,7 +46,7 @@ class Cluster(BaseModel):
     voc_ids: list[str]
     count: int
     prev_count: int
-    surge_ratio: float | None  # None = 신규
+    surge_ratio: float | None  # None = 새로 생김 (이전 기간 0건)
     trend: str
     priority_score: float
     priority: str
@@ -169,7 +169,7 @@ SEVERITY_RUBRIC = """심각도 기준 (불만 묶음의 '증상'으로 판단):
 # ════════════════════════════ ② 클러스터링 ════════════════════════════
 
 def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
-    """분석 기간 VOC 텍스트 전체를 보고 클러스터 라벨 5~7개를 제안받는다."""
+    """분석 기간 VOC 텍스트 전체를 보고 클러스터 라벨 MIN~MAX_CLUSTERS개를 제안받는다."""
     system = (
         "너는 웨어러블 제품의 고객 VOC를 분석하는 품질 분석가다. "
         f"{DATA_GUARD}\n"
@@ -177,6 +177,8 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
         "- 나누는 기준은 '증상 + 발생 상황' 두 가지뿐이다. 같은 증상을 다른 표현·다른 시점(아침, 충전 직후, 여행 중 등)으로 "
         "말한 VOC는 하나로 합친다 (예: '빨리 닳음', '충전해도 금방 꺼짐', '잔량이 뚝뚝 떨어짐'은 같은 묶음).\n"
         "- 증상이 비슷해도 발생 상황이 확실히 다르면(예: 특정 활동 중 vs 특정 연결 상태에서) 별도 묶음으로 나눈다.\n"
+        "  특히 뜨거워짐(발열)은 '운동 중'과 '폰 연결이 끊겼을 때'를 반드시 따로 묶는다 — "
+        "부서 정보대로 원인 코드와 담당 파트가 다르다(운동 중 발열 = 센서 파트, 연결 끊김 발열 = 동기화 파트).\n"
         "- 묶음 하나는 담당 파트에 개발 티켓 하나로 넘어간다. 같은 category 안의 묶음은 발생 상황이 다르지 않으면 "
         "하나로 합친다 (예: 글씨 크기·버튼 크기·메뉴 찾기 어려움은 모두 한 묶음).\n"
         f"- 묶음 수는 꼭 필요한 만큼만 만든다 (최소 {config.MIN_CLUSTERS}개).\n"
@@ -242,13 +244,13 @@ def assign_clusters(vocs: pd.DataFrame, clusters: list[ClusterProposal]) -> dict
 
 def trend_text(count: int, prev_count: int) -> tuple[float | None, str]:
     if prev_count == 0:
-        return None, "▲ 신규"
+        return None, "▲ 새로 생김"
     ratio = count / prev_count
     if ratio >= config.TREND_UP:
         return ratio, f"▲ {ratio:.1f}배"
     if ratio <= config.TREND_DOWN:
         return ratio, f"▼ {ratio:.1f}배"
-    return ratio, "– 보합"
+    return ratio, "– 변화 없음"
 
 
 def surge_term(ratio: float | None) -> float:
@@ -305,13 +307,41 @@ def cache_path(start: date, end: date):
     return config.OUTPUTS_DIR / f"clusters_{config.DATASET}_{start.isoformat()}_{end.isoformat()}.json"
 
 
+def min_cluster_size(n_vocs: int) -> int:
+    """작은 묶음 기준 건수 — 분석 기간 VOC 수에 비례 (데이터 건수에 따라 동적)."""
+    return max(config.MIN_CLUSTER_SIZE, round(n_vocs * config.MIN_CLUSTER_SHARE))
+
+
+def dissolve_small_clusters(cur: pd.DataFrame, both: pd.DataFrame, proposals: list[ClusterProposal],
+                            assignments: dict[str, str]) -> tuple[list[ClusterProposal], dict[str, str]]:
+    """분석 기간 건수가 기준 미만인 묶음을 가장 작은 것부터 하나씩 해체하고, 그 VOC만 남은 묶음 중 하나로 다시 분류한다.
+    한 증상이 작은 조각 여러 개로 갈라져도 조각끼리 합쳐져 살아남는다 (작은 묶음마다 LLM 1회 추가)."""
+    limit = min_cluster_size(len(cur))
+    proposals = list(proposals)
+    assignments = dict(assignments)
+    while len(proposals) > 1:
+        counts = cur["voc_id"].map(assignments).value_counts()
+        small = [p for p in proposals if counts.get(p.label, 0) < limit]
+        if not small:
+            break
+        victim = min(small, key=lambda p: counts.get(p.label, 0))
+        proposals.remove(victim)
+        moved = both[both["voc_id"].map(assignments) == victim.label]
+        if not moved.empty:
+            assignments.update(assign_clusters(moved, proposals))
+    return proposals, assignments
+
+
 def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
                use_cache: bool = True) -> tuple[list[Cluster], dict[str, str]]:
     """클러스터 목록과 {voc_id: 라벨}(분석+직전 기간)을 돌려준다. 같은 기간이면 캐시 사용."""
     path = cache_path(start, end)
     if use_cache and path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
-        return [Cluster(**c) for c in data["clusters"]], data["assignments"]
+        clusters = [Cluster(**c) for c in data["clusters"]]
+        for c in clusters:  # 예전 캐시의 추세 문구도 현재 표기로 맞춘다
+            c.trend = trend_text(c.count, c.prev_count)[1]
+        return clusters, data["assignments"]
 
     if df is None:
         df = data_utils.load_vocs()
@@ -322,7 +352,9 @@ def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
         return [], {}
 
     proposals = propose_clusters(cur["text"].tolist())
-    assignments = assign_clusters(pd.concat([cur, prev]), proposals)
+    both = pd.concat([cur, prev])
+    assignments = assign_clusters(both, proposals)
+    proposals, assignments = dissolve_small_clusters(cur, both, proposals, assignments)
     cur["cluster"] = cur["voc_id"].map(assignments)
     prev["cluster"] = prev["voc_id"].map(assignments)
     clusters = score_clusters(cur, prev, proposals)
@@ -469,14 +501,6 @@ def sample_texts(df: pd.DataFrame, cluster: Cluster, n: int) -> list[str]:
 def due_date_for(priority: str, issued_on: date) -> date:
     """예상 완료일 = 발행일 + 우선순위별 기한."""
     return issued_on + timedelta(days=config.DUE_DAYS[priority])
-
-
-def top_surge_cluster(clusters: list[Cluster]) -> Cluster | None:
-    """급증률이 가장 큰 클러스터. 신규(직전 0건)는 배수를 비교할 수 없어 제외하고, 신규뿐이면 그중 최다 건수."""
-    rated = [c for c in clusters if c.surge_ratio is not None]
-    if rated:
-        return max(rated, key=lambda c: (c.surge_ratio, c.count))
-    return max(clusters, key=lambda c: c.count, default=None)
 
 
 def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int,

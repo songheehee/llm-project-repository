@@ -1,14 +1,14 @@
 """
 VOC 1,000건 생성 (주제 13개).
 
-원본 vocs.csv의 형식과 말투를 그대로 따른다.
+초기 311건 샘플 데이터의 형식과 말투를 그대로 따른다.
   - 컬럼: voc_id, created_at, channel, text  (UTF-8, CRLF, 따옴표 없음)
   - text = [말머리] + 핵심 문장 + [맺음말]
   - 기간 2026-09-21 ~ 10-14. 10/3부터 운동 중 발열 급증, 연결 끊김 발열 등장, 배터리 증가
 주제는 원본 5개에 실제 워치 VOC에서 흔한 8개를 더했다.
 말투 세기(1~4)는 주제마다 분포를 두어 섞었다 — 맺음말 고르기에만 쓰고 CSV에는 넣지 않는다.
 
-  python generate_vocs_1000.py  ->  vocs_1000.csv, vocs_1000_labels.csv
+  python generate_vocs.py  ->  vocs.csv, vocs_labels.csv
 """
 import csv
 import math
@@ -271,15 +271,15 @@ def main():
         r["voc_id"] = f"V{i:04d}"
         assert "," not in r["text"] and '"' not in r["text"]
 
-    with open("vocs_1000.csv", "w", encoding="utf-8", newline="") as f:
+    with open("vocs.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
         w.writerow(["voc_id", "created_at", "channel", "text"])
         w.writerows([r["voc_id"], r["created_at"], r["channel"], r["text"]] for r in rows)
-    with open("vocs_1000_labels.csv", "w", encoding="utf-8", newline="") as f:
+    with open("vocs_labels.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
         w.writerow(["voc_id", "topic", "topic_name"])
         w.writerows([r["voc_id"], r["topic"], TOPICS[r["topic"]][0]] for r in rows)
-    print(f"{len(rows)} rows -> vocs_1000.csv, vocs_1000_labels.csv")
+    print(f"{len(rows)} rows -> vocs.csv, vocs_labels.csv")
 
 
 if __name__ == "__main__":
