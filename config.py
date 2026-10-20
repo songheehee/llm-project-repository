@@ -13,6 +13,8 @@ ANSWER_LABEL_COL = "topic_name"                  # 원본은 "true_label"
 DATASET = VOCS_CSV.stem                          # 캐시 파일 이름에 넣어 데이터셋끼리 섞이지 않게 한다
 REPOS_YAML = DATA_DIR / "repos.yaml"
 SAMPLE_REPOS_DIR = BASE_DIR / "sample_repos"
+MIRRORS_DIR = BASE_DIR / "mirrors"            # repos.yaml에 url이 있는 저장소의 로컬 미러 (clone → 분석 전마다 pull)
+GIT_SYNC_TIMEOUT_S = 60                      # clone · pull 제한 시간. 실패하면 sample_repos로 대체
 OUTPUTS_DIR = BASE_DIR / "outputs"
 
 # ── 기간 ─────────────────────────────────────────────

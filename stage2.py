@@ -1,9 +1,11 @@
 """④ RAG·레포 라우팅 · ⑤ 폴더 의심도 · ⑥ 라인 탐색·검증·커밋 근거 · ⑦ 영향 · LangGraph. (streamlit import 금지)
 
 sample_repos/ 는 읽기 전용: 파일 읽기와 git log · git blame · git show만 한다.
+repos.yaml에 url이 있는 저장소는 mirrors/<이름>에 clone · pull 한 미러를 분석하고, 실패하면 sample_repos를 쓴다.
 """
 
 import operator
+import os
 import re
 import subprocess
 import time
@@ -103,6 +105,7 @@ class LineRecDraftList(BaseModel):
 
 class Stage2State(TypedDict, total=False):
     ticket: Ticket
+    repo_sources: dict[str, str]   # {레포 이름: 원격 미러 / 로컬 sample_repos}
     repo_candidates: list[RepoCandidate]
     folder_scores: list[FolderScore]
     line_recs: list[LineRec]
@@ -120,8 +123,55 @@ def load_registry() -> dict[str, dict]:
     return {r["name"]: r for r in data["repos"]}
 
 
-def repo_dir(name: str) -> Path:
+# {레포 이름: 분석에 쓸 경로}. sync_repos()가 채우고, 비어 있으면 sample_repos 경로를 쓴다.
+_RESOLVED: dict[str, Path] = {}
+
+
+def local_path(name: str) -> Path:
     return config.BASE_DIR / load_registry()[name]["path"]
+
+
+def repo_dir(name: str) -> Path:
+    return _RESOLVED.get(name) or local_path(name)
+
+
+def sync_mirror(name: str, url: str) -> str:
+    """원격 저장소를 mirrors/<이름>에 처음엔 clone, 이후엔 pull 한다. 반환: 'clone' 또는 'pull'."""
+    dest = config.MIRRORS_DIR / name
+    if (dest / ".git").is_dir():
+        cmd, action = ["git", "-C", str(dest), "pull", "--ff-only", "--quiet"], "pull"
+    else:
+        config.MIRRORS_DIR.mkdir(exist_ok=True)
+        cmd, action = ["git", "clone", "--quiet", url, str(dest)], "clone"
+    subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", check=True,
+                   timeout=config.GIT_SYNC_TIMEOUT_S,
+                   env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"})  # 로그인 창으로 멈추지 않게
+    return action
+
+
+def sync_repos() -> dict[str, str]:
+    """분석 전에 레지스트리의 저장소 위치를 정한다: url이 있으면 원격 미러, 실패하거나 url이 없으면 sample_repos.
+    반환: {레포 이름: 화면 표기용 출처}."""
+    sources: dict[str, str] = {}
+    for name, info in load_registry().items():
+        url = info.get("url")
+        mirror = config.MIRRORS_DIR / name
+        if url:
+            try:
+                action = sync_mirror(name, url)
+                _RESOLVED[name] = mirror
+                sources[name] = f"원격 미러 ({action}) · {url}"
+                continue
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                if (mirror / ".git").is_dir():  # pull만 실패 → 이전에 받아 둔 미러를 쓴다
+                    _RESOLVED[name] = mirror
+                    sources[name] = f"원격 미러 (pull 실패, 이전 상태 사용: {type(e).__name__}) · {url}"
+                    continue
+                sources[name] = f"로컬 sample_repos (clone 실패: {type(e).__name__})"
+        else:
+            sources[name] = "로컬 sample_repos"
+        _RESOLVED[name] = local_path(name)
+    return sources
 
 
 def git(repo: Path, *args: str) -> str:
@@ -544,7 +594,8 @@ def timed(name: str, fn):
 
 
 def route_repos_node(state: Stage2State) -> dict:
-    return {"repo_candidates": route_repos(state["ticket"])}
+    sources = sync_repos()  # 분석 전마다 원격 미러를 최신으로 맞춘다
+    return {"repo_sources": sources, "repo_candidates": route_repos(state["ticket"])}
 
 
 def score_folders_node(state: Stage2State) -> dict:
@@ -574,7 +625,7 @@ def build_stage2_graph():
 
 
 def initial_state(ticket: Ticket) -> Stage2State:
-    return {"ticket": ticket, "repo_candidates": [], "folder_scores": [], "line_recs": [],
+    return {"ticket": ticket, "repo_sources": {}, "repo_candidates": [], "folder_scores": [], "line_recs": [],
             "impacts": [], "retry": 0, "errors": [], "timings": {}}
 
 

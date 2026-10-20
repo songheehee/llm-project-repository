@@ -32,6 +32,9 @@ def main() -> None:
         else:
             result = event[1]
 
+    print("\n[코드 출처]")
+    for name, src in result.get("repo_sources", {}).items():
+        print(f"  {name:<18} {src}")
     print("\n[④ 레포 후보]")
     for c in result["repo_candidates"]:
         print(f"  {c.name:<16} {c.score:.2f}  {c.reason}")

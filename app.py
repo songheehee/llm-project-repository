@@ -478,11 +478,13 @@ with tab2:
             with st.container(key="card_repos"):
                 st.markdown("#### 레포 후보")
                 cands = result.get("repo_candidates", [])
+                sources = result.get("repo_sources", {})
                 if not cands:
                     st.warning("점수 0.1 이상인 레포 후보가 없습니다.")
                 else:
                     st.dataframe(
-                        pd.DataFrame([{"레포": c.name, "점수": c.score, "이유": c.reason} for c in cands]),
+                        pd.DataFrame([{"레포": c.name, "점수": c.score, "코드 출처": sources.get(c.name, "–"),
+                                       "이유": c.reason} for c in cands]),
                         hide_index=True, width="stretch",
                         column_config={"점수": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")},
                     )

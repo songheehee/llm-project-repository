@@ -168,6 +168,7 @@ REPOS_YAML = """\
 # VOCAI 레포 레지스트리 — 이 목록 밖의 저장소는 분석하지 않는다 (교육용 가상 데이터)
 repos:
   - name: pulsefit-py
+    url: https://github.com/SeungHyunLim00/test_repo_VOCAI.git  # 원격 미러 우선, 실패하면 path
     path: sample_repos/pulsefit-py
     product: 워치 앱
     description: >-
