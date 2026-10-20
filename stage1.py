@@ -253,7 +253,7 @@ def trend_text(count: int, prev_count: int) -> tuple[float | None, str]:
         return ratio, f"▲ {ratio:.1f}배"
     if ratio <= config.TREND_DOWN:
         return ratio, f"▼ {ratio:.1f}배"
-    return ratio, "– 변화 없음"
+    return ratio, "–"  # 변화 없음
 
 
 def surge_term(ratio: float | None) -> float:

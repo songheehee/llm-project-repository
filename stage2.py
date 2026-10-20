@@ -83,7 +83,7 @@ class ClassItem(BaseModel):
 class FolderCard(BaseModel):
     path: str               # "sensor/"
     score: float            # 폴더 의심도
-    items: list[ClassItem]  # 상태 있는 클래스 먼저 → 이름순, 최대 FOLDER_MAP_MAX_CLASSES개
+    items: list[ClassItem]  # 상태 있는 클래스 먼저 → 이름순, 최대 FOLDER_CARD_MAX_CLASSES개
 
 
 # ── LLM 구조화 출력용 ──
@@ -276,7 +276,8 @@ def route_repos(ticket: Ticket) -> list[RepoCandidate]:
         "너는 사내 저장소 라우터다. 개발 티켓을 보고 원인 코드가 있을 저장소에 점수를 매긴다. "
         f"{DATA_GUARD}\n"
         "- 저장소 목록에 있는 이름만 쓴다. 목록의 모든 저장소에 대해 답한다.\n"
-        "- 사내 문서 근거와 담당 파트를 보고 판단하고, 이유에 근거를 한 줄로 쓴다."
+        "- 사내 문서 근거와 담당 파트를 보고 판단하고, 이유에 근거를 한 줄로 쓴다.\n"
+        "- 이유(화면에 그대로 보임)에서는 '레포지토리'라는 말만 쓴다. '레포', '저장소', 'repo'라고 쓰지 않는다."
     )
     user = f"[티켓]\n{ticket_brief(ticket)}\n\n[저장소 목록]\n{repo_text}\n\n[사내 문서 검색 결과]\n{docs}"
     res = call_structured(RepoScoreList, system, user)
@@ -617,7 +618,7 @@ def analyze_impact(state: Stage2State) -> dict:
     return {"impacts": impacts}
 
 
-# ════════════════════════════ 폴더 지도 (화면용, LLM 없음) ════════════════════════════
+# ════════════════════════════ 원인 후보 폴더 (화면용, LLM 없음) ════════════════════════════
 
 CLASS_RE = re.compile(r"^class (\w+)", flags=re.M)
 
@@ -643,8 +644,8 @@ def class_spans(lines: list[str]) -> list[tuple[str, int, int]]:
     return spans
 
 
-def build_folder_map(state: dict, repo_name: str) -> list[FolderCard]:
-    """선택한 레포의 폴더 지도. 이미 계산된 folder_scores · line_recs · impacts로 클래스 상태를 정한다.
+def build_folder_cards(state: dict, repo_name: str) -> list[FolderCard]:
+    """선택한 레포지토리의 원인 후보 폴더 카드. 이미 계산된 folder_scores · line_recs · impacts로 클래스 상태를 정한다.
     의심도 0 폴더, __init__.py, 테스트 파일, 클래스 없는 파일은 뺀다."""
     repo = repo_dir(repo_name)
     terms = state["ticket"].code_terms
@@ -682,7 +683,7 @@ def build_folder_map(state: dict, repo_name: str) -> list[FolderCard]:
         if not items:
             continue
         items.sort(key=lambda c: (rank[c.status], c.name))  # 상태 있는 클래스 먼저(일반이 마지막), 그다음 이름순
-        cards.append(FolderCard(path=f.path, score=f.score, items=items[:config.FOLDER_MAP_MAX_CLASSES]))
+        cards.append(FolderCard(path=f.path, score=f.score, items=items[:config.FOLDER_CARD_MAX_CLASSES]))
     return cards
 
 
@@ -778,30 +779,30 @@ def md_table(header: list[str], rows: list[list]) -> list[str]:
 
 
 def ticket_to_markdown(ticket: Ticket, result: dict | None) -> str:
-    """화면과 같은 순서: 티켓 정보(카드 항목) → 레포 후보 → 폴더 의심도 → 수정 위치·근거 → 함께 확인할 곳."""
+    """화면과 같은 순서: 티켓 정보(카드 항목) → 레포지토리 후보 → 폴더 의심도 → 수정 위치·근거 → 함께 확인할 곳."""
     result = result or {}
     card = ticket_card_fields(ticket)  # 티켓 카드와 같은 항목·순서
     md = [f"# {ticket.ticket_id} [{ticket.priority}] {ticket.problem}", "", "## 티켓 정보", ""]
     md += [f"- {k}: {v}" for k, v in card.items()] + [""]
     if result.get("repo_candidates"):
-        md += ["## 레포 후보", ""]
-        md += md_table(["저장소", "점수", "이유"], [[c.name, f"{c.score:.2f}", c.reason] for c in result["repo_candidates"]])
+        md += ["## 레포지토리 후보", ""]
+        md += md_table(["레포지토리", "점수", "이유"], [[c.name, f"{c.score:.2f}", c.reason] for c in result["repo_candidates"]])
         md.append("")
     if result.get("folder_scores"):
         md += ["## 폴더 의심도", ""]
-        md += md_table(["저장소", "폴더", "점수", "근거"],
+        md += md_table(["레포지토리", "폴더", "점수", "근거"],
                        [[f.repo, f.path, f"{f.score:.2f}", f.note] for f in result["folder_scores"]])
         md.append("")
     recs = [r for r in result.get("line_recs", []) if r.verified]
     for r in recs:
         md += ["## 수정 위치 (검증됨)", "",
-               f"- 저장소: {r.repo}", f"- 파일: `{r.path}`", f"- 수정 라인: **{fmt_line_ranges(r.ranges)}**",
+               f"- 레포지토리: {r.repo}", f"- 파일: `{r.path}`", f"- 수정 라인: **{fmt_line_ranges(r.ranges)}**",
                f"- 기준 커밋: `{r.commit_sha}`", "", "### 근거", ""]
         md += md_table(["항목", "내용"], [list(x) for x in evidence_rows(ticket, r)])
         md.append("")
     if result.get("impacts"):
         md += ["## 함께 확인할 곳", ""]
-        md += md_table(["저장소", "파일", "라인", "심볼", "관계"],
+        md += md_table(["레포지토리", "파일", "라인", "심볼", "관계"],
                        [[i.repo, i.path, i.line, i.symbol, i.relation] for i in result["impacts"]])
         md.append("")
     md.append("> VOCAI는 코드를 고치지 않습니다. 위치와 근거만 제시합니다.")

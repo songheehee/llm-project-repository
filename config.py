@@ -61,13 +61,15 @@ TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
 TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 개수
+CELL_MAX_CHARS = 40           # 표(st.dataframe) 셀 글자 수 상한 — 넘으면 화면용 복사본만 앞 N자 + '…' (행 클릭 시 표 아래 전체)
+APP_FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'  # 앱 전체 글꼴 — CSS·st.html 공통 (코드 뷰만 고정폭)
 
-# ── 2️⃣ 의심 위치 — 폴더 지도 ─────────────────────────
+# ── 2️⃣ 의심 위치 — 원인 후보 폴더 ─────────────────────────
 DEFAULT_DEPLOY_BRANCH = "main"  # repos.yaml에 branch가 없고 .git/HEAD도 못 읽을 때
-FOLDER_MAP_COLUMNS = 3          # 폴더 카드 한 줄 개수
-FOLDER_MAP_MAX_CLASSES = 5      # 폴더당 보여 줄 클래스 최대 수
+FOLDER_CARD_COLUMNS = 3          # 폴더 카드 한 줄 개수
+FOLDER_CARD_MAX_CLASSES = 5      # 폴더당 보여 줄 클래스 최대 수
 CLASS_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점", "일반"]  # 위에 있을수록 우선 적용·먼저 표시
-CLASS_STATUS_STYLE = {          # 폴더 지도 클래스 알약 모양 (CSS)
+CLASS_STATUS_STYLE = {          # 원인 후보 폴더 카드의 클래스 알약 모양 (CSS)
     "원인 후보": "background:#E8622C; color:#FFFFFF; font-weight:700; border:1px solid #E8622C;",
     "함께 확인": "background:#F9D3C7; color:#202124; font-weight:700; border:1px solid #E8622C;",
     "키워드 일치": "background:#FFB547; color:#202124; font-weight:700; border:1px solid #FFB547;",
@@ -134,7 +136,7 @@ CODE_CONTEXT_LINES = 5       # 코드 뷰 앞뒤 줄 수
 
 # ── 화면 표기 ────────────────────────────────────────
 NODE_LABELS = {
-    "route_repos": "④ 레포 라우팅",
+    "route_repos": "④ 레포지토리 라우팅",
     "score_folders": "⑤ 폴더 의심도",
     "search_lines": "⑥ 라인 탐색",
     "verify_lines": "⑥ 라인 검증",
