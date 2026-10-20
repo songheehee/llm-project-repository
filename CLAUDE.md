@@ -24,7 +24,7 @@ streamlit run app.py                   # 화면
 
 ```
 app.py                 # Streamlit 화면 — 탭 3개 + 사이드바. CSS 주입은 여기 한 곳
-config.py              # 경로 · 기간 · 가중치 · 임계값 · 모델명 상수
+config.py              # 경로 · 기간 · 가중치 · 임계값 · 모델명 상수 · 직급 코드 GRADES(CL1~CL4 ↔ 뜻)
 data_utils.py          # VOC 로드 · 기간 필터 · KPI/차트 집계. streamlit import 금지
 stage1.py              # ② 클러스터링 · 시급도 · ③ 티켓화 (+ Cluster, Ticket 모델). streamlit import 금지
 stage2.py              # ④ RAG·레포 라우팅 · ⑤ 폴더 의심도 · ⑥ 라인 탐색·검증·커밋 근거 · ⑦ 영향 · LangGraph. streamlit import 금지
@@ -32,7 +32,7 @@ try_stage1.py          # 터미널 확인용
 try_stage2.py          # 터미널 확인용
 requirements.txt
 .streamlit/config.toml # Step 6
-scripts/make_sample_data.py     # repos.yaml · users.yaml · rag/*.md 생성
+scripts/make_sample_data.py     # repos.yaml · users.yaml(USER_PARTS 이름 목록 + 직급 규칙) · rag/*.md 생성
 scripts/build_sample_repos.py   # pulsefit-* git 저장소 생성 (repos.yaml의 저장소들)
 data/                  # 입력 데이터 — 읽기 전용. VOC CSV는 config.VOCS_CSV (현재 vocs.csv, generate_vocs.py로 생성)
 sample_repos/          # 분석 대상 저장소 — 읽기 전용 (git 조회만)
@@ -73,7 +73,7 @@ LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. �
 | `data/repos.yaml`            | 저장소 레지스트리: name, path(`sample_repos/<name>`), url(있으면 원격 미러 우선), product, description, owner_parts, folder_roles |
 | `data/rag/products.md`       | 워치 헬스 앱 기능 ↔ 레포·폴더, 사내 용어(PPG, 폴링 주기 등)                                                                |
 | `data/rag/departments.md`    | 파트 ↔ 담당 영역·레포 (개인 이름 없음). **레포지토리 라우팅 RAG용으로만** 쓴다(유형 분석·티켓화 프롬프트에는 넣지 않음) |
-| `data/users.yaml`            | `config.USERS_YAML`, make_sample_data.py가 생성. 개발자 `{id, name, part}` — 파트마다 2~3명. 사람 목록은 이 파일 한 곳(사이드바 '현재 개발자') |
+| `data/users.yaml`            | `config.USERS_YAML`, make_sample_data.py가 생성. 개발자 `{id, name, part, grade}` — 파트마다 2~3명 + SCSA 13명(u29~u41, 모두 CL2). 그 외 파트는 CL1~CL4 섞음(파트마다 CL3 이상 1명 이상, `GRADE_PATTERNS` 고정 규칙). 파트 "신입" 없음. grade 뜻은 `config.GRADES`, 화면에는 표시하지 않음. 사람 목록은 이 파일 한 곳(사이드바 '현재 개발자') |
 
 현재 데이터(`vocs.csv`)의 정답 주제별 건수 (`vocs_labels.csv` 기준):
 
@@ -358,6 +358,6 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - **레포지토리 후보**(2️⃣ 의심 위치): 후보마다 `st.container(border=True)` 안에 `st.columns([1, 3])` 이름(굵게) + `st.progress(점수, text="0.98")`, 다음 줄 `st.markdown(이유)`("이유:" 없이 문장만, 본문 글씨), 코드 출처는 캡션. 블록 아래 `st.segmented_control(이름만, label_visibility="collapsed", required=True, key=f"repo_pick_{티켓}")`, 기본 1위. 버튼 이름 "코드 찾기". 화면 문구는 "레포지토리"로 통일(라우팅 프롬프트에도 지정).
 - **2️⃣·3️⃣ 내 티켓만**: 티켓 선택 목록·[코드 찾기]는 현재 개발자의 티켓만. 없으면 "내가 맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요". 결과는 `get_result(ticket)` = 세션 → 없으면 `stage2.load_result`(파일). 실행 직후 `stage2.save_result`.
 - **세션 결과 검사**: `stage2_result_ok(result)` — impacts·line_recs·repo_candidates·folder_scores가 지금 stage2 모델 클래스의 인스턴스이고 `Impact.repo`가 있어야 사용. 아니면 세션 결과를 버리고 파일 결과(또는 다시 실행)로.
-- **폴더 후보**(2️⃣): `stage2.build_folder_cards(state, repo)` — `folder_scores`(score > 0, 의심도 순) 폴더의 `.py`(`__init__.py`·테스트 제외)에서 `^class (\w+)`. 클래스 범위(class 줄 ~ 다음 최상위 문장 앞)가 검증된 추천 범위와 겹치면 원인 후보, 파일이 `impacts`에 있으면 함께 확인, 파일에 code_terms가 있으면 키워드 일치(폴더 role이 display_only면 감점 + note), 나머지 일반. 상태 순(`CLASS_STATUS_ORDER`) → 이름순, 최대 `FOLDER_CARD_MAX_CLASSES`(5). `stage2.repo_branch(name)` = repos.yaml `branch` → `.git/HEAD` 파일 → `DEFAULT_DEPLOY_BRANCH`. app의 `render_folder_cards`가 제목 줄 · 범례 · CSS grid(`FOLDER_CARD_COLUMNS`=3) HTML을 `st.html`로 출력(값은 전부 `html.escape`, 글꼴 `APP_FONT`, 감점 사유는 `title` 속성).
+- **폴더 후보**(2️⃣): `stage2.build_folder_cards(state, repo)` — `folder_scores`(score > 0, 의심도 순) 폴더의 `.py`(`__init__.py`·테스트 제외)에서 `^class (\w+)`. 클래스 범위(class 줄 ~ 다음 최상위 문장 앞)가 검증된 추천 범위와 겹치면 원인 후보, 파일이 `impacts`에 있으면 함께 확인, 파일에 code_terms가 있으면 키워드 일치(폴더 role이 display_only면 감점 + note), 나머지는 상태 없음(`CLASS_STATUS_NONE`="일반") → **카드에 넣지 않음**, 남는 클래스가 없는 폴더는 카드를 만들지 않음(거르기는 여기서만, app에는 없음). 상태 순(`CLASS_STATUS_ORDER` = 원인 후보·함께 확인·키워드 일치·감점) → 이름순, 최대 `FOLDER_CARD_MAX_CLASSES`(5). `stage2.repo_branch(name)` = repos.yaml `branch` → `.git/HEAD` 파일 → `DEFAULT_DEPLOY_BRANCH`. app의 `render_folder_cards`가 제목 줄 · 범례(`CLASS_STATUS_ORDER` 4종, 일반 없음) · CSS grid(`FOLDER_CARD_COLUMNS`=3) HTML을 `st.html`로 출력(값은 전부 `html.escape`, 글꼴 `APP_FONT`, 감점 사유는 `title` 속성).
 - **수정 라인**(3️⃣, 이모티콘 없음, 위→아래 · 전체 폭): 수정 위치 요약 `show_table`(레포지토리 · 파일 · 수정 라인 · 기준 커밋, confidence 높은 순) → 파일마다 `st.expander(f"{path} · {라인}", expanded=첫 파일만)` 안에 코드 뷰 → `container(key="card_evidence_…")`(흰 배경 카드, CSS로 td 흰 배경·`white-space:pre-line`) 안 `st.table(evidence_rows)` 근거(관련 커밋 바로 아래 마지막 수정자) → 함께 확인할 곳 `show_table`(레포지토리 · 파일 · 라인 · 심볼 · 관계, 티켓 전체 기준) → 다운로드 버튼.
 - **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 화면과 같은 순서·열(티켓 요약 표 → 상세 → 레포 → 폴더 → 수정 위치·근거 표 → 함께 확인할 곳 표).

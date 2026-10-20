@@ -85,7 +85,7 @@ class Impact(BaseModel):
 class ClassItem(BaseModel):
     name: str               # 클래스 이름 (정규식 ^class (\w+), 대상 코드는 import·실행하지 않음)
     file: str               # 레포 기준 파일 경로
-    status: str             # config.CLASS_STATUS_ORDER 중 하나: 원인 후보 / 함께 확인 / 키워드 일치 / 감점 / 일반
+    status: str             # config.CLASS_STATUS_ORDER 중 하나: 원인 후보 / 함께 확인 / 키워드 일치 / 감점 (일반은 걸러 냄)
     note: str = ""          # 감점 사유 등 (화면 title 속성)
 
 
@@ -875,11 +875,12 @@ def build_folder_cards(state: dict, repo_name: str) -> list[FolderCard]:
                 elif has_kw:
                     status = "키워드 일치"
                 else:
-                    status = "일반"
-                items.append(ClassItem(name=name, file=rel, status=status, note=note))
-        if not items:
+                    status = config.CLASS_STATUS_NONE
+                if status != config.CLASS_STATUS_NONE:  # 상태 없는 '일반' 클래스는 그리지 않는다
+                    items.append(ClassItem(name=name, file=rel, status=status, note=note))
+        if not items:  # 보여 줄 클래스가 없는 폴더는 카드 자체를 만들지 않는다
             continue
-        items.sort(key=lambda c: (rank[c.status], c.name))  # 상태 있는 클래스 먼저(일반이 마지막), 그다음 이름순
+        items.sort(key=lambda c: (rank[c.status], c.name))  # 원인 후보 → 함께 확인 → 키워드 일치 → 감점, 그다음 이름순
         cards.append(FolderCard(path=f.path, score=f.score, items=items[:config.FOLDER_CARD_MAX_CLASSES]))
     return cards
 

@@ -193,38 +193,34 @@ DEPARTMENTS_MD = """\
 """
 
 
-USERS_YAML = """\
-# 개발자 목록 (교육용 가상 인물) — 사람 목록은 이 파일 한 곳. 사이드바 '현재 개발자'로 고른다 (로그인 대신)
-users:
-  - {id: u01, name: 김서준, part: 센서 파트}
-  - {id: u02, name: 이수아, part: 센서 파트}
-  - {id: u03, name: 박도윤, part: 센서 파트}
-  - {id: u04, name: 최하린, part: 전력 파트}
-  - {id: u05, name: 정민재, part: 전력 파트}
-  - {id: u06, name: 강예은, part: UI 파트}
-  - {id: u07, name: 조현우, part: UI 파트}
-  - {id: u08, name: 윤채원, part: 운동 파트}
-  - {id: u09, name: 장우진, part: 운동 파트}
-  - {id: u10, name: 임서윤, part: 동기화 파트}
-  - {id: u11, name: 한지훈, part: 동기화 파트}
-  - {id: u12, name: 오다인, part: 동기화 파트}
-  - {id: u13, name: 신유준, part: 서버 파트}
-  - {id: u14, name: 권나연, part: 서버 파트}
-  - {id: u15, name: 황시윤, part: 헬스 파트}
-  - {id: u16, name: 송지안, part: 헬스 파트}
-  - {id: u17, name: 전하준, part: 알림 파트}
-  - {id: u18, name: 홍예린, part: 알림 파트}
-  - {id: u19, name: 고은우, part: 플랫폼 파트}
-  - {id: u20, name: 문소율, part: 플랫폼 파트}
-  - {id: u21, name: 양지호, part: 모바일 파트}
-  - {id: u22, name: 배서현, part: 모바일 파트}
-  - {id: u23, name: 백승민, part: 하드웨어 파트}
-  - {id: u24, name: 노하윤, part: 하드웨어 파트}
-  - {id: u25, name: 남태오, part: 기구 파트}
-  - {id: u26, name: 서지유, part: 기구 파트}
-  - {id: u27, name: 유건우, part: 웹 파트}
-  - {id: u28, name: 류가은, part: 웹 파트}
-"""
+# 개발자 목록 — 파트별 이름 (교육용 가상 인물). 사람 목록은 users.yaml 한 곳 (사이드바 '현재 개발자' — 로그인 대신)
+USER_PARTS = [
+    ("센서 파트", ["김서준", "이수아", "박도윤"]), ("전력 파트", ["최하린", "정민재"]), ("UI 파트", ["강예은", "조현우"]),
+    ("운동 파트", ["윤채원", "장우진"]), ("동기화 파트", ["임서윤", "한지훈", "오다인"]), ("서버 파트", ["신유준", "권나연"]),
+    ("헬스 파트", ["황시윤", "송지안"]), ("알림 파트", ["전하준", "홍예린"]), ("플랫폼 파트", ["고은우", "문소율"]),
+    ("모바일 파트", ["양지호", "배서현"]), ("하드웨어 파트", ["백승민", "노하윤"]), ("기구 파트", ["남태오", "서지유"]),
+    ("웹 파트", ["유건우", "류가은"]),
+    ("SCSA", ["강은성", "윤지현", "이온유", "이종협", "이지호", "이하나", "임승현", "정동은", "정회수", "조명현",
+              "천예은", "홍송희", "황지희"]),
+]
+SCSA_PART, SCSA_GRADE = "SCSA", "CL2"   # SCSA(대졸 신입 과정)는 모두 CL2
+# 파트 순서대로 번갈아 쓰는 직급 패턴 — 파트의 첫 사람은 항상 CL3 이상, CL1~CL4가 섞이도록
+GRADE_PATTERNS = [["CL4", "CL2", "CL1"], ["CL3", "CL1", "CL2"]]
+
+
+def users_yaml() -> str:
+    """users.yaml 내용 (id는 순서대로 u01…, 같은 입력이면 항상 같은 결과)."""
+    lines = ["# 개발자 목록 (교육용 가상 인물) — 사람 목록은 이 파일 한 곳. 사이드바 '현재 개발자'로 고른다 (로그인 대신)",
+             "# grade: CL1 사원급 · CL2 대리·선임급(대졸 신입 포함) · CL3 과장·차장급(책임급) · CL4 부장급(수석급) — config.GRADES",
+             "users:"]
+    n = 0
+    for i, (part, names) in enumerate(USER_PARTS):
+        for j, name in enumerate(names):
+            n += 1
+            grade = SCSA_GRADE if part == SCSA_PART else GRADE_PATTERNS[i % 2][j % 3]
+            lines.append(f"  - {{id: u{n:02d}, name: {name}, part: {part}, grade: {grade}}}")
+    return "\n".join(lines) + "\n"
+
 
 
 def main() -> None:
@@ -232,7 +228,7 @@ def main() -> None:
     config.REPOS_YAML.write_text(REPOS_YAML, encoding="utf-8")
     (config.RAG_DIR / "products.md").write_text(PRODUCTS_MD, encoding="utf-8")
     (config.RAG_DIR / "departments.md").write_text(DEPARTMENTS_MD, encoding="utf-8")
-    config.USERS_YAML.write_text(USERS_YAML, encoding="utf-8")
+    config.USERS_YAML.write_text(users_yaml(), encoding="utf-8")
     print("repos.yaml · users.yaml · rag/products.md · rag/departments.md 생성 완료 (VOC CSV는 따로 준비 — config.VOCS_CSV)")
 
 

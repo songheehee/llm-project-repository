@@ -55,6 +55,12 @@ PROBLEM_MAX_CHARS = 40        # 티켓 문제점(개발자 언어 한 줄) 최�
 REASON_MAX_CHARS = 60         # 수정 라인 추천 사유 최대 글자 수 (명사형 한 문장)
 FIRST_TICKET_NO = 1           # 티켓 번호 시작 (발행 순서대로 TKT-0001, TKT-0002 …)
 TICKET_ID_PREFIX = "TKT"      # 티켓은 VOC 하나가 아니라 VOC 유형 하나에 대한 것 — 개별 VOC ID(V0001…)와 구분
+GRADES = {                      # users.yaml grade 코드 ↔ 뜻 (이번 범위에서는 화면에 표시하지 않음)
+    "CL1": "사원급 (고졸 등)",
+    "CL2": "대리·선임급 (대졸 신입 포함)",
+    "CL3": "과장·차장급 (책임급)",
+    "CL4": "부장급 (수석급)",
+}
 TICKET_STATUS_OPEN = "진행 중"  # 이번 범위의 티켓 상태는 이 값 하나 (완료 처리 기능 없음)
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 
@@ -84,13 +90,13 @@ APP_FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'  # 앱 전체 글꼴
 DEFAULT_DEPLOY_BRANCH = "main"  # repos.yaml에 branch가 없고 .git/HEAD도 못 읽을 때
 FOLDER_CARD_COLUMNS = 3          # 폴더 카드 한 줄 개수
 FOLDER_CARD_MAX_CLASSES = 5      # 폴더당 보여 줄 클래스 최대 수
-CLASS_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점", "일반"]  # 위에 있을수록 우선 적용·먼저 표시
+CLASS_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점"]  # 폴더 카드에 그리는 상태 (위가 우선 적용·먼저 표시)
+CLASS_STATUS_NONE = "일반"      # 상태 없는 클래스 — build_folder_cards에서 걸러 내고 그리지 않는다
 CLASS_STATUS_STYLE = {          # 폴더 후보 카드의 클래스 알약 모양 (CSS)
     "원인 후보": "background:#E8622C; color:#FFFFFF; font-weight:700; border:1px solid #E8622C;",
     "함께 확인": "background:#F9D3C7; color:#202124; font-weight:700; border:1px solid #E8622C;",
     "키워드 일치": "background:#FFB547; color:#202124; font-weight:700; border:1px solid #FFB547;",
     "감점": "background:#FFFFFF; color:#D93025; border:1px dashed #D93025;",
-    "일반": "background:#F1F3F4; color:#3C4043; border:1px solid #F1F3F4;",
 }
 
 # ── VOC 유사도 · 의미 공간 (임베딩 · t-SNE 3D 투영) ───────────────
