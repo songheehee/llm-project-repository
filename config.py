@@ -31,7 +31,7 @@ LLM_MAX_RETRIES = 2  # 구조화 출력 실패 시 재시도 횟수
 # ── 클러스터링 ───────────────────────────────────────
 ASSIGN_BATCH_SIZE = 50
 MIN_CLUSTERS = 5
-MAX_CLUSTERS = 10
+MAX_CLUSTERS = 14
 OTHER_LABEL = "기타"
 MIN_CLUSTER_SIZE = 3          # 분석 기간 건수가 이보다 적은 클러스터는 '기타'로 돌린다
 SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
