@@ -148,23 +148,44 @@ def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
         st.plotly_chart(fig, width="stretch")
 
 
-def render_ticket_table() -> None:
-    """발행된 티켓: 표 한 개(우선순위 순, 5줄 고정 + 스크롤) + 티켓 상세 접기. 티켓이 없으면 숨긴다."""
+def text_column_config(df: pd.DataFrame, overrides: dict | None = None) -> dict:
+    """모든 표가 같은 열 너비 규칙을 쓴다: 긴 텍스트 열 TEXT_COL_WIDTH, 나머지(ID·날짜·숫자·우선순위) SHORT_COL_WIDTH.
+    너비를 넘는 글자는 표 기본 말줄임(…)으로 두고 셀을 클릭하면 전체가 보인다. 열 너비 합이 화면보다 크면 가로 스크롤.
+    overrides는 형식(NumberColumn 등)이 필요한 열 — 호출하는 쪽에서 width도 함께 준다."""
+    overrides = overrides or {}
+    cfg = {}
+    for col in df.columns:
+        if col in overrides:
+            cfg[col] = overrides[col]
+            continue
+        values = df[col]
+        is_text = values.dtype == object and values.astype(str).str.len().max() > config.LONG_TEXT_MIN_CHARS
+        if col in config.LONG_TEXT_COLUMNS or is_text:
+            cfg[col] = st.column_config.TextColumn(width=config.TEXT_COL_WIDTH)
+        else:
+            cfg[col] = st.column_config.Column(width=config.SHORT_COL_WIDTH)
+    return cfg
+
+
+def render_ticket_cards() -> None:
+    """발행된 티켓: 카드 한 줄 3장, 우선순위 순. 항목은 ID·우선순위·문제점·건수·담당 부서·담당자·발행일→예상 완료일뿐.
+    티켓이 없으면 숨긴다."""
     tickets = stage1.sort_tickets(ss["tickets"].values())
     if not tickets:
         return
     st.subheader("발행된 티켓")
-    st.dataframe(pd.DataFrame([stage1.ticket_summary_row(t) for t in tickets]), hide_index=True, width="stretch",
-                 height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
-                 column_config={"건수": st.column_config.NumberColumn(format="%d건"),
-                                "문제점": st.column_config.TextColumn(width="large")})
-    with st.expander("티켓 상세"):
-        for t in tickets:
-            st.markdown(f"**{t.ticket_id}** · {t.problem}")
-            st.markdown(f"발생 조건: {', '.join(t.conditions)}  \n기술 키워드: {', '.join(t.tech_keywords)}")
-            for v in t.sample_vocs:
-                st.text(f"대표 VOC · {v}")
-            st.divider()
+    n = config.TICKET_CARDS_PER_ROW
+    for i in range(0, len(tickets), n):
+        cols = st.columns(n)
+        for col, t in zip(cols, tickets[i:i + n]):
+            with col.container(border=True):
+                c_id, c_badge = st.columns([3, 1], vertical_alignment="center")
+                c_id.markdown(f"`{t.ticket_id}`")
+                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+                st.markdown(f"**{t.problem}**")
+                st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
+                st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
+                           f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
 
 
 def hover_text(text: str, width: int = 28) -> str:
@@ -258,21 +279,24 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
         st.plotly_chart(fig, width="stretch")
 
     st.markdown(f"**{p['voc_id']}** 와 가장 비슷한 VOC")
-    st.dataframe(pd.DataFrame([{
+    near = pd.DataFrame([{
         "순위": r, "VOC": cur.at[j, "voc_id"], "유사도": s, "LLM 클러스터": labels[j],
         "같은 LLM 클러스터": "✓" if labels[j] == labels[pick] else "⚠ 다름",
         "임베딩 클러스터": emb_labels[j], "원문": cur.at[j, "text"],
-    } for r, (j, s) in enumerate(neighbors, 1)]), hide_index=True, width="stretch",
-        column_config={"유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
+    } for r, (j, s) in enumerate(neighbors, 1)])
+    st.dataframe(near, hide_index=True, width="stretch", column_config=text_column_config(near, {
+        "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0,
+                                                width=config.SHORT_COL_WIDTH)}))
 
     odd = stage1.label_disagreements(vectors, labels, config.DISAGREE_K)
     with st.expander(f"임베딩 이웃과 LLM 라벨이 다른 VOC {len(odd)}건 (경계·오분류 후보)"):
         if odd:
-            st.dataframe(pd.DataFrame([{
+            odd_df = pd.DataFrame([{
                 "VOC": cur.at[o["idx"], "voc_id"], "LLM 라벨": o["label"],
                 "이웃 다수 라벨": f"{o['neighbor_label']} ({o['agree']}/{config.DISAGREE_K})",
                 "원문": cur.at[o["idx"], "text"],
-            } for o in odd]), hide_index=True, width="stretch")
+            } for o in odd])
+            st.dataframe(odd_df, hide_index=True, width="stretch", column_config=text_column_config(odd_df))
         else:
             st.caption("모든 VOC가 이웃 다수와 같은 클러스터입니다.")
 
@@ -303,12 +327,13 @@ def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[s
     c2.metric("두 분류 일치 ARI", fmt(both["ari"]), help="라벨 이름과 무관하게 같은 VOC끼리 묶였는지 (1 = 완전 일치, 0 = 무작위 수준)")
     c3.metric("두 분류 일치 NMI", fmt(both["nmi"]), help="한 분류를 알면 다른 분류를 얼마나 알 수 있는지 (0~1)")
 
-    st.dataframe(pd.DataFrame([
+    metrics_df = pd.DataFrame([
         {"지표": "실루엣 ↑", "LLM": fmt(m_llm["silhouette"]), "임베딩": fmt(m_emb["silhouette"])},
         {"지표": "Davies-Bouldin ↓", "LLM": fmt(m_llm["davies_bouldin"]), "임베딩": fmt(m_emb["davies_bouldin"])},
         {"지표": "kNN 일관성 ↑", "LLM": fmt(m_llm["knn_consistency"]), "임베딩": fmt(m_emb["knn_consistency"])},
         {"지표": "기타 비율 ↓", "LLM": f"{m_llm['other_ratio']:.1%}", "임베딩": f"{m_emb['other_ratio']:.1%}"},
-    ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP)), hide_index=True, width="stretch")
+    ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP))
+    st.dataframe(metrics_df, hide_index=True, width="stretch", column_config=text_column_config(metrics_df))
 
     if sil_by_k:
         with st.expander(f"임베딩 분류의 k 선택 — k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} 중 실루엣 최대"):
@@ -383,11 +408,12 @@ with tab1:
     if view == VIEW_RAW:
         daily_bar_chart(data_utils.daily_counts(cur, "channel"), "일별 VOC 건수 (채널별 누적)")
         st.subheader("VOC 원문")
-        st.dataframe(data_utils.voc_table(cur), hide_index=True, width="stretch", height=320)
+        raw = data_utils.voc_table(cur)
+        st.dataframe(raw, hide_index=True, width="stretch", column_config=text_column_config(raw),
+                     height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
     elif not s1:
         st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
     else:
-        render_ticket_table()
         # 제목 줄: 왼쪽 섹션 제목 · 오른쪽 끝 발행 버튼 (버튼은 표의 체크 결과를 본 뒤 아래에서 채운다)
         c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
         c_title.subheader("클러스터")
@@ -407,12 +433,13 @@ with tab1:
         edited = st.data_editor(
             table, hide_index=True, width="stretch", key=f"editor_{start}_{end}",
             height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
-            column_config={
-                "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
-                "이번 기간": st.column_config.NumberColumn(format="%d건"),
-                "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
-                "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
-            },
+            column_config=text_column_config(table, {
+                "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행", width=config.SHORT_COL_WIDTH),
+                "이번 기간": st.column_config.NumberColumn(format="%d건", width=config.SHORT_COL_WIDTH),
+                "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}",
+                                                         width=config.SHORT_COL_WIDTH),
+                "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리", width=config.SHORT_COL_WIDTH),
+            }),
             disabled=[c for c in table.columns if c != "발행"],
         )
         any_checked = bool(edited["발행"].any())
@@ -424,6 +451,7 @@ with tab1:
             f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
             "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
         )
+        render_ticket_cards()  # 순서: 요약 카드 → 클러스터 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
 
         cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
         chart_df = cur.assign(cluster=data_utils.top_groups(cur["cluster"], config.CHART_TOP_TYPES, config.OTHER_LABEL))
@@ -454,7 +482,7 @@ with tab1:
                         ss["next_ticket_no"] += 1
                         ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
                 ss["ticket_secs"] = round(time.perf_counter() - t0, 1)
-                st.rerun()  # 발행된 티켓 표(클러스터 위)에 바로 보이도록
+                st.rerun()  # 발행된 티켓 카드(이 버튼보다 위에 그려짐)에 바로 보이도록
 
         render_voc_map(cur, clusters)
 
@@ -573,8 +601,9 @@ with tab3:
             st.markdown("#### 함께 확인할 곳")
             impacts = result.get("impacts", [])
             if impacts:
-                st.dataframe(pd.DataFrame([{"저장소": i.repo, "파일": i.path, "라인": i.line, "심볼": i.symbol,
-                                            "관계": i.relation} for i in impacts]), hide_index=True, width="stretch")
+                imp = pd.DataFrame([{"저장소": i.repo, "파일": i.path, "라인": i.line, "심볼": i.symbol,
+                                     "관계": i.relation} for i in impacts])
+                st.dataframe(imp, hide_index=True, width="stretch", column_config=text_column_config(imp))
             else:
                 st.caption("같은 저장소의 다른 파일에서 참조하는 곳이 없습니다.")
         st.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
@@ -613,4 +642,4 @@ with st.sidebar:
     if time_df.empty:
         st.caption("아직 실행 기록이 없습니다.")
     else:
-        st.dataframe(time_df, hide_index=True, width="stretch")
+        st.dataframe(time_df, hide_index=True, width="stretch", column_config=text_column_config(time_df))

@@ -234,11 +234,11 @@ class Ticket(BaseModel):    # stage1
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름 — 근거 표 '관련 VOC'에 사용
-    sample_vocs: list[str]      # 대표 VOC 원문 TICKET_DETAIL_VOCS(2)건 — 티켓 상세
-    voc_ids: list[str]
+    voc_ids: list[str]          # 이 티켓에 묶인 개별 VOC ID (V0001 …)
 
-# stage1.ticket_summary_row(t): 발행된 티켓 표·Markdown 공통 열
-#   티켓 ID · 우선순위 · 문제점 · 담당 부서 · 담당자 · 건수 · 추세 · 발행일 · 예상 완료일 (sort_tickets: 우선순위 순)
+# ticket_id = f"{TICKET_ID_PREFIX}-{번호:04d}" → TKT-0001, TKT-0002 … (VOC 유형 하나에 대한 티켓, 번호는 FIRST_TICKET_NO=1부터)
+# stage1.ticket_card_fields(t): 티켓 카드·Markdown 공통 항목
+#   티켓 ID · 우선순위 · 문제점 · 건수 · 담당 부서 · 담당자 · 발행일 · 예상 완료일 (sort_tickets: 우선순위 순)
 
 # stage2: RepoCandidate(name, score, reason) · FolderScore(repo, path, score, keyword, recent, role, note)
 #         Evidence(kind: "voc"|"commit"|"keyword", detail, ref) · LineRec(repo, path, ranges: list[tuple[int,int]],
@@ -305,7 +305,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - 그 외 유형의 이름·건수·보통/낮음 구분은 실행마다 달라도 된다
 
 **코드 쪽 (티켓 이후)**
-- 티켓 VOC-0412: 운동 중 센서 과다 동작(발열) · **센서 파트** · 담당자 **김서준** · 예상 완료일 **발행일 + 3일**
+- 티켓 TKT-0001: 운동 중 센서 과다 동작(발열) · **센서 파트** · 담당자 **김서준** · 예상 완료일 **발행일 + 3일**
 - 레포 1위 `pulsefit-py` · 폴더 1위 `sensor/` · `ui/`는 감점 note가 붙고 1·2위가 아님 (점수 수치는 화면 예시와 달라도 됨)
 - 수정 라인 `sensor/heart_rate.py` **L17, L45–52** · 커밋 근거 **2026-10-02** "측정 주기 단축" (L17에만 붙음)
 - 영향 `workout/session.py:23` `start_continuous()` 호출
@@ -316,7 +316,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 
 - **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc_id 없이 텍스트만)를 주고 `MIN_CLUSTERS`~`MAX_CLUSTERS`개 라벨을 받는다(발열은 '운동 중'과 '연결 끊김'을 반드시 따로). `assign_clusters`는 분석+이전 기간 VOC를 50건씩 `[{voc_id, text}]`로 넘겨 `{voc_id: label}`을 받는다.
   `dissolve_small_clusters`: 분석 기간 건수가 `max(MIN_CLUSTER_SIZE, 분석 기간 VOC 수 × MIN_CLUSTER_SHARE(2%))` 미만인 묶음을 **가장 작은 것부터 하나씩** 해체하고 그 VOC만 남은 묶음 중 하나로 다시 분류한다(같은 증상이 작은 조각으로 갈라지는 것 방지, 기준은 데이터 건수에 따라 동적). 결과는 `outputs/clusters_{데이터셋}_{시작}_{끝}.json`에 캐시해 같은 기간이면 LLM을 다시 부르지 않는다.
-- **티켓 ID**: 발행 순서대로 VOC-0412, VOC-0413 … (`st.session_state["next_ticket_no"]`). 우선순위 높은 순으로 발행.
+- **티켓 ID**: 발행 순서대로 TKT-0001, TKT-0002 … (`st.session_state["next_ticket_no"]`는 1부터). 우선순위 높은 순으로 발행. 개별 VOC ID(V0001…)는 그대로 `voc_ids`에.
 - **RAG**: `data/rag/*.md` → `RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)` → `Chroma.from_documents(docs, OpenAIEmbeddings(...))`(persist_directory 없음). stage2에서는 `functools.lru_cache`로 한 번만 만든다.
 - **git 호출**: `subprocess.run(["git", "-C", repo_path, "-c", "core.quotepath=false", ...], capture_output=True, text=True, encoding="utf-8", check=True)`.
   - 최근 변경: `git log --since=YYYY-MM-DD --until=분석시작일 --name-only --format=%H|%ad|%s --date=short`
@@ -332,7 +332,9 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - **클러스터 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`. 열 이름 이번 기간 · 이전 기간 · 처리 시급도(×100). 처리 시급도 순 정렬, `height=(TABLE_VISIBLE_ROWS + 1) × TABLE_ROW_PX`. 표 위 제목 줄 `st.columns([4, 1], vertical_alignment="center")`: 왼쪽 섹션 제목, 오른쪽 끝 [🎫 티켓 발행](체크 없으면 `disabled`) — 버튼은 표를 그린 뒤 그 칸에 채운다(체크 결과가 필요). 제목 아래 `st.caption` 안내 문구, 표는 `width="stretch"`. 표 아래 비고 캡션(이전 기간 날짜 · 처리 시급도 뜻 · 심각도 1~5).
 - **일별 차트**: 범례 `orientation="h"` 차트 위, x축 제목 "날짜"(`title=dict(text="날짜", standoff=20)`) · `tickformat="%m/%d"`, 아래 margin 90px. 상위 `CHART_TOP_TYPES`개 + "기타"(회색).
 - **사이드바**: 현재 티켓(담당 파트·담당자·예상 완료일) · ①수집 ②클러스터 ③티켓 ④~⑦(timings 유무로 ✓) · 단계별 소요 시간.
-- **발행된 티켓 표**(1️⃣, 클러스터 섹션 위): `st.dataframe(ticket_summary_row…)` hide_index, 우선순위 순, 5줄 고정 + 스크롤, 티켓 없으면 숨김. 아래 `st.expander("티켓 상세")`(발생 조건 · 기술 키워드 · 대표 VOC 2건). 발행 직후 `st.rerun()`으로 표에 바로 반영.
+- **발행된 티켓 카드**(1️⃣, 클러스터 표·비고 아래): `render_ticket_cards()` — `st.columns(TICKET_CARDS_PER_ROW=3)` × `st.container(border=True)`, 우선순위 순, 티켓 없으면 숨김. 카드: ID(왼쪽) · 우선순위 배지(오른쪽) / 문제점(굵게) / 건수 · 담당 부서 · 담당자 / 발행일 → 예상 완료일. 발행 직후 `st.rerun()`으로 바로 반영.
+- **표 열 너비**(모든 `st.dataframe`·`st.data_editor`): `text_column_config(df, overrides)` 하나로 — 긴 텍스트 열(`LONG_TEXT_COLUMNS` 또는 최대 길이 > `LONG_TEXT_MIN_CHARS`) `TextColumn(width=TEXT_COL_WIDTH=480)`, 나머지(ID·날짜·숫자·우선순위) `width=SHORT_COL_WIDTH=100`. 표는 `width="stretch"`, 열 너비 합이 크면 가로 스크롤, 넘치는 글자는 기본 말줄임(…)·셀 클릭 시 전체. 형식이 필요한 열(NumberColumn 등)은 overrides로 주되 width도 함께.
+- **VOC 원문 표**(원본 VOC 보기): 높이 = (`RAW_TABLE_ROWS`(10) + 1) × `TABLE_ROW_PX`. 클러스터 표는 `TABLE_VISIBLE_ROWS`(5) 그대로.
 - **레포 후보**(2️⃣): 후보마다 `st.columns([2, 5, 1])` 이름(굵게) · `st.progress` · 점수 + 다음 줄 `st.caption(이유 전체)`.
 - **수정 라인**(3️⃣, 이모티콘 없음, 위→아래 · 전체 폭): `st.container(border=True)` 요약(저장소 · 파일 · 수정 라인 · 기준 커밋) → 코드 뷰 → `st.table(evidence_rows)` 근거 → 함께 확인할 곳 `st.dataframe`(저장소 · 파일 · 라인 · 심볼 · 관계) → 다운로드 버튼.
 - **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 화면과 같은 순서·열(티켓 요약 표 → 상세 → 레포 → 폴더 → 수정 위치·근거 표 → 함께 확인할 곳 표).
