@@ -4,6 +4,9 @@ sample_repos/ 는 읽기 전용: 파일 읽기와 git log · git blame · git sh
 repos.yaml에 url이 있는 저장소는 mirrors/<이름>에 clone · pull 한 미러를 분석하고, 실패하면 sample_repos를 쓴다.
 """
 
+import ast
+import hashlib
+import json
 import operator
 import os
 import re
@@ -14,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Iterator, Literal, TypedDict
 
+import numpy as np
 import yaml
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -44,6 +48,10 @@ class FolderScore(BaseModel):
     recent: float           # 0 / 0.5 / 1
     role: str | None = None
     note: str = ""
+    semantic: float = 0.0       # 0~1 함수 의미(LLM 요약) 유사도, 레포 내 폴더끼리 정규화 — 점수식에 들어감
+    semantic_code: float = 0.0  # 0~1 코드 원문 임베딩 유사도 — 비교용 (점수식에 안 들어감)
+    top_unit: str = ""          # 티켓과 의미가 가장 가까운 함수 "파일 · 함수"
+    top_summary: str = ""       # 그 함수의 LLM 동작 요약
 
 
 class Evidence(BaseModel):
@@ -83,6 +91,15 @@ class RepoScore(BaseModel):
 
 class RepoScoreList(BaseModel):
     repos: list[RepoScore]
+
+
+class UnitSummary(BaseModel):
+    id: int = Field(description="코드 조각 번호 그대로")
+    summary: str = Field(description="이 코드가 실제로 하는 동작 한 문장 (한국어)")
+
+
+class UnitSummaryList(BaseModel):
+    items: list[UnitSummary]
 
 
 class LineRange(BaseModel):
@@ -267,7 +284,154 @@ def route_repos(ticket: Ticket) -> list[RepoCandidate]:
     return ranked[:config.REPO_MAX_CANDIDATES]
 
 
-# ════════════════════════════ ⑤ 폴더 의심도 (LLM 없음) ════════════════════════════
+# ════════════════════════════ ⑤ 폴더 의심도 ════════════════════════════
+# 키워드(문자열 빈도) + 함수 의미(LLM 요약 임베딩 유사도) + 최근 변경(git log) × 역할보정.
+# 함수 의미는 변수명·주석이 부실해도 로직을 보고 판단하려고 넣었다. 저장소 파일은 텍스트로 읽기만 한다(import·실행 없음).
+
+class CodeUnit(BaseModel):
+    path: str      # 레포 기준 파일 경로
+    name: str      # "HeartRateMonitor._loop" / "<module>" (함수 밖 상수·설정)
+    start: int
+    end: int
+    code: str
+
+    @property
+    def key(self) -> str:
+        return f"{self.path}::{self.name}"
+
+
+def code_units(repo: Path, rel: str) -> list[CodeUnit]:
+    """파일을 함수(메서드 포함) 단위로 자른다. 함수 밖 코드(상수 등)는 '<module>' 조각 하나로 모은다."""
+    text = (repo / rel).read_text(encoding="utf-8")
+    lines = text.splitlines()
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:  # 파싱 못 하면 파일 전체를 한 조각으로
+        return [CodeUnit(path=rel, name="<module>", start=1, end=len(lines), code=text)] if text.strip() else []
+
+    def unit(node, name: str) -> CodeUnit:
+        return CodeUnit(path=rel, name=name, start=node.lineno, end=node.end_lineno,
+                        code="\n".join(lines[node.lineno - 1:node.end_lineno]))
+
+    units, covered = [], set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            units.append(unit(node, node.name))
+        elif isinstance(node, ast.ClassDef):
+            units += [unit(m, f"{node.name}.{m.name}") for m in node.body
+                      if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        else:
+            continue
+        covered.update(range(node.lineno, node.end_lineno + 1))
+    rest = [(n, l) for n, l in enumerate(lines, start=1)
+            if n not in covered and l.strip() and not l.lstrip().startswith(("import ", "from ", "#"))]
+    if rest:
+        units.insert(0, CodeUnit(path=rel, name="<module>", start=rest[0][0], end=rest[-1][0],
+                                 code="\n".join(l for _, l in rest)))
+    return units
+
+
+def summarize_units(units: list[CodeUnit], context: dict[str, str]) -> dict[str, str]:
+    """함수마다 '실제로 무슨 동작을 하는지' 한 문장 (LLM). context = {파일: 그 파일의 함수 밖 상수 코드}.
+    반환: {unit.key: 요약}."""
+    system = (
+        "너는 코드 리뷰어다. 코드 조각마다 실제로 하는 동작을 한국어 한 문장으로 요약한다. "
+        f"{DATA_GUARD}\n"
+        "- 이름·주석이 아니라 코드 로직(호출, 반복, 대기, 값 계산, 하드웨어 켜고 끄기, 저장, 화면 출력)을 보고 쓴다. "
+        "이름이 temp·x처럼 의미 없어도 로직으로 판단한다.\n"
+        "- [파일 상수]는 그 함수가 쓰는 값의 정의다. 함수가 상수를 쓰면 이름 대신 실제 값으로 풀어 쓴다 "
+        "(예: 'INTERVAL만큼 대기' → '0.05초마다 대기').\n"
+        "- 어떤 장치·데이터를 다루는지(센서, 배터리, 블루투스, 화면 등)와 반복 주기·대기 시간·재시도 값을 밝힌다.\n"
+        "- 문구나 화면을 보여 주기만 하는 코드는 '표시만 함'을 밝힌다.\n"
+        "- 수정 방법·평가는 쓰지 않는다. 모든 id에 답한다."
+    )
+
+    def block(n: int, u: CodeUnit) -> str:
+        ctx = context.get(u.path, "") if u.name != "<module>" else ""
+        head = f"[id={n}] {u.path} · {u.name}\n"
+        if ctx:
+            head += f"[파일 상수]\n{ctx[:config.CODE_UNIT_MAX_CHARS // 2]}\n[코드]\n"
+        return head + u.code[:config.CODE_UNIT_MAX_CHARS]
+
+    out: dict[str, str] = {}
+    for i in range(0, len(units), config.SUMMARY_BATCH_SIZE):
+        batch = units[i:i + config.SUMMARY_BATCH_SIZE]
+        user = "\n\n".join(block(n, u) for n, u in enumerate(batch))
+
+        def all_ids(res: UnitSummaryList, n=len(batch)):
+            missing = set(range(n)) - {it.id for it in res.items}
+            if missing:
+                raise ValueError(f"요약 빠짐: id {sorted(missing)}")
+
+        res = call_structured(UnitSummaryList, system, user, all_ids)
+        out.update({batch[it.id].key: it.summary for it in res.items if 0 <= it.id < len(batch)})
+    return out
+
+
+def unit_vectors(repo_name: str) -> tuple[list[CodeUnit], list[str], np.ndarray, np.ndarray]:
+    """레포의 모든 함수 조각 → (조각, 요약, 요약 벡터, 코드 원문 벡터). 단위 벡터.
+    outputs/에 (파일::함수, 코드+파일 상수 해시)로 캐시해 바뀐 함수만 다시 요약·임베딩한다.
+    상수만 바뀐 커밋(예: 측정 주기 1.0 → 0.05)도 그 상수를 쓰는 함수 요약을 새로 만든다."""
+    repo = repo_dir(repo_name)
+    units = [u for rel in py_files(repo) for u in code_units(repo, rel)]
+    context = {u.path: u.code for u in units if u.name == "<module>"}
+    path = config.OUTPUTS_DIR / config.CODE_UNITS_TEMPLATE.format(repo=repo_name, model=config.CODE_EMBEDDING_MODEL)
+    cache: dict[str, dict] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    digest = {u.key: hashlib.sha1((context.get(u.path, "") + "\n" + u.code).encode("utf-8")).hexdigest()[:12]
+              for u in units}
+    stale = [u for u in units if cache.get(u.key, {}).get("hash") != digest[u.key]]
+    if stale:
+        summaries = summarize_units(stale, context)
+        embedder = OpenAIEmbeddings(model=config.CODE_EMBEDDING_MODEL)
+        texts_sum = [summaries.get(u.key, u.name) for u in stale]
+        texts_code = [f"{u.path} {u.name}\n{u.code[:config.CODE_UNIT_MAX_CHARS]}" for u in stale]
+        vecs = embedder.embed_documents(texts_sum + texts_code)
+        for n, u in enumerate(stale):
+            cache[u.key] = {"hash": digest[u.key], "summary": texts_sum[n],
+                            "v_summary": vecs[n], "v_code": vecs[len(stale) + n]}
+        config.OUTPUTS_DIR.mkdir(exist_ok=True)
+        path.write_text(json.dumps({k: cache[k] for k in digest}, ensure_ascii=False), encoding="utf-8")
+
+    def unit_norm(rows) -> np.ndarray:
+        arr = np.array(rows, dtype=np.float32).reshape(len(rows), -1)
+        return arr / np.maximum(np.linalg.norm(arr, axis=1, keepdims=True), 1e-9)
+
+    if not units:
+        return [], [], np.zeros((0, 1), np.float32), np.zeros((0, 1), np.float32)
+    return (units, [cache[u.key]["summary"] for u in units],
+            unit_norm([cache[u.key]["v_summary"] for u in units]), unit_norm([cache[u.key]["v_code"] for u in units]))
+
+
+def semantic_query(ticket: Ticket) -> str:
+    """티켓의 '원인' 쪽 문장. 괄호 속 고객 증상(발열·뜨거움)은 빼서 증상 단어가 많은 표시 코드로 끌려가지 않게 한다."""
+    cause = re.sub(r"\([^)]*\)", "", ticket.problem).strip()
+    return f"{cause}. 의심 원인: {', '.join(ticket.tech_keywords)}. 발생 조건: {', '.join(ticket.conditions)}"
+
+
+@lru_cache(maxsize=32)
+def _query_vector(text: str) -> tuple[float, ...]:
+    v = np.array(OpenAIEmbeddings(model=config.CODE_EMBEDDING_MODEL).embed_query(text), dtype=np.float32)
+    return tuple(v / np.linalg.norm(v))
+
+
+def unit_similarities(repo_name: str, ticket: Ticket) -> list[dict]:
+    """함수 조각마다 티켓과의 코사인 유사도. [{unit, summary, sim, sim_code}]"""
+    units, summaries, v_sum, v_code = unit_vectors(repo_name)
+    if not units:
+        return []
+    q = np.array(_query_vector(semantic_query(ticket)), dtype=np.float32)
+    s_sum, s_code = v_sum @ q, v_code @ q
+    return [{"unit": u, "summary": summaries[i], "sim": float(s_sum[i]), "sim_code": float(s_code[i])}
+            for i, u in enumerate(units)]
+
+
+def minmax(values: dict[str, float]) -> dict[str, float]:
+    """폴더(또는 파일)끼리 0~1로 정규화. 모두 같으면 1."""
+    if not values:
+        return {}
+    lo, hi = min(values.values()), max(values.values())
+    return {k: (v - lo) / (hi - lo) if hi > lo else 1.0 for k, v in values.items()}
+
 
 def recent_changes(repo: Path, start: date) -> dict[str, date]:
     """분석 시작일 전 30일 안 커밋: {파일 경로: 가장 최근 커밋 날짜}."""
@@ -287,7 +451,7 @@ def recent_changes(repo: Path, start: date) -> dict[str, date]:
 
 
 def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_START) -> list[FolderScore]:
-    """1단계 폴더마다 (0.6×키워드 + 0.4×최근변경) × 역할보정."""
+    """1단계 폴더마다 (0.3×키워드 + 0.3×함수 의미 + 0.4×최근변경) × 역할보정."""
     repo = repo_dir(repo_name)
     roles = load_registry()[repo_name].get("folder_roles") or {}
     folders = sorted(p.name + "/" for p in repo.iterdir()
@@ -296,6 +460,14 @@ def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_
                    for rel in py_files(repo, f)) for f in folders}
     max_hits = max(hits.values(), default=0) or 1
     changes = recent_changes(repo, start)
+
+    # 폴더의 의미 점수 = 그 폴더에서 티켓과 가장 비슷한 함수의 유사도 (레포 안 폴더끼리 0~1 정규화)
+    sims = unit_similarities(repo_name, ticket)
+    best = {f: max((s for s in sims if s["unit"].path.startswith(f)), key=lambda s: s["sim"], default=None)
+            for f in folders}
+    sem = minmax({f: b["sim"] for f, b in best.items() if b})
+    sem_code = minmax({f: max(s["sim_code"] for s in sims if s["unit"].path.startswith(f))
+                       for f, b in best.items() if b})
 
     scores = []
     for f in folders:
@@ -306,17 +478,23 @@ def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_
             days = (start - last).days
             recent = config.RECENT_SCORE_STRONG if days <= config.RECENT_DAYS_STRONG else config.RECENT_SCORE_WEAK
         keyword = hits[f] / max_hits
+        semantic = sem.get(f, 0.0)
         role = roles.get(f)
         factor = config.ROLE_FACTORS.get(role, 1.0)
         notes = [f"키워드 {hits[f]}회"]
+        b = best.get(f)
+        if b:
+            notes.append(f"의미 {semantic:.2f} ({Path(b['unit'].path).name} · {b['unit'].name})")
         if last:
             notes.append(f"{last:%m/%d} 변경")
         if role in config.ROLE_NOTES:
             notes.append(config.ROLE_NOTES[role])
         scores.append(FolderScore(
             repo=repo_name, path=f, keyword=round(keyword, 2), recent=recent, role=role,
-            score=round((config.W_KEYWORD * keyword + config.W_RECENT * recent) * factor, 2),
-            note=" · ".join(notes),
+            score=round((config.W_KEYWORD * keyword + config.W_SEMANTIC * semantic
+                         + config.W_RECENT * recent) * factor, 2),
+            note=" · ".join(notes), semantic=round(semantic, 2), semantic_code=round(sem_code.get(f, 0.0), 2),
+            top_unit=f"{b['unit'].path} · {b['unit'].name}" if b else "", top_summary=b["summary"] if b else "",
         ))
     return sorted(scores, key=lambda s: -s.score)
 
@@ -324,13 +502,18 @@ def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_
 # ════════════════════════════ ⑥ 라인 탐색 · 검증 · 커밋 근거 ════════════════════════════
 
 def pick_files(state: Stage2State) -> tuple[str, list[str]]:
-    """상위 레포의 의심도 상위 폴더 2개에서 code_terms 히트가 많은 .py 3개."""
+    """상위 레포의 의심도 상위 폴더 2개에서 (키워드 + 함수 의미) 점수가 높은 .py 3개."""
     repo_name = state["repo_candidates"][0].name
     repo = repo_dir(repo_name)
-    terms = state["ticket"].code_terms
+    ticket = state["ticket"]
     folders = [f.path for f in state["folder_scores"] if f.repo == repo_name][:config.TOP_FOLDERS_FOR_LINES]
     files = [rel for f in folders for rel in py_files(repo, f)]
-    ranked = sorted(files, key=lambda rel: -count_terms((repo / rel).read_text(encoding="utf-8"), terms))
+    hits = {rel: count_terms((repo / rel).read_text(encoding="utf-8"), ticket.code_terms) for rel in files}
+    max_hits = max(hits.values(), default=0) or 1
+    sims = unit_similarities(repo_name, ticket)  # 캐시된 벡터 사용
+    sem = minmax({rel: max((s["sim"] for s in sims if s["unit"].path == rel), default=0.0) for rel in files})
+    score = {rel: config.W_KEYWORD * hits[rel] / max_hits + config.W_SEMANTIC * sem.get(rel, 0.0) for rel in files}
+    ranked = sorted(files, key=lambda rel: -score[rel])
     return repo_name, ranked[:config.TOP_FILES_FOR_LINES]
 
 
@@ -700,8 +883,9 @@ def ticket_to_markdown(ticket: Ticket, result: dict | None) -> str:
         md.append("")
     if result.get("folder_scores"):
         md += ["## 폴더 의심도", ""]
-        md += md_table(["저장소", "폴더", "점수", "근거"],
-                       [[f.repo, f.path, f"{f.score:.2f}", f.note] for f in result["folder_scores"]])
+        md += md_table(["저장소", "폴더", "점수", "키워드", "함수 의미", "코드 원문(비교)", "최근 변경", "근거"],
+                       [[f.repo, f.path, f"{f.score:.2f}", f"{f.keyword:.2f}", f"{f.semantic:.2f}",
+                         f"{f.semantic_code:.2f}", f"{f.recent:g}", f.note] for f in result["folder_scores"]])
         md.append("")
     recs = [r for r in result.get("line_recs", []) if r.verified]
     for r in recs:

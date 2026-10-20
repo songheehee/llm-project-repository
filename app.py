@@ -518,6 +518,15 @@ with tab2:
                         st.plotly_chart(fig, width="stretch")
                         for f in folders:
                             st.caption(("⚠ " if f.role else "") + f"{f.path} — {f.note}")
+                        with st.expander("점수 구성 · 키워드 vs 함수 의미 비교"):
+                            st.caption(f"점수 = ({config.W_KEYWORD}×키워드 + {config.W_SEMANTIC}×함수 의미 + "
+                                       f"{config.W_RECENT}×최근 변경) × 역할보정. 함수 의미 = LLM이 함수 동작을 요약한 문장과 "
+                                       "티켓 원인 문장의 임베딩 유사도. 코드 원문 = 함수 코드를 그대로 임베딩한 유사도(비교용, 점수에 안 들어감).")
+                            st.dataframe(pd.DataFrame([{
+                                "폴더": f.path, "점수": f.score, "키워드": f.keyword, "함수 의미": f.semantic,
+                                "코드 원문(비교)": f.semantic_code, "최근 변경": f.recent,
+                                "가장 비슷한 함수": f.top_unit, "함수 동작 요약 (LLM)": f.top_summary,
+                            } for f in folders]), hide_index=True, width="stretch")
                     else:
                         st.caption("폴더 점수가 없습니다.")
 

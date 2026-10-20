@@ -100,8 +100,15 @@ RAG_CHUNK_OVERLAP = 50
 RAG_TOP_K = 3
 
 # ── 폴더 의심도 ──────────────────────────────────────
-W_KEYWORD = 0.6
+W_KEYWORD = 0.3
+W_SEMANTIC = 0.3          # 함수 의미(LLM 요약 임베딩) ↔ 티켓 유사도
 W_RECENT = 0.4
+# 함수 의미 점수: 함수마다 LLM이 '실제 동작'을 한 줄로 요약 → 임베딩 → 티켓 원인 문장과 코사인 유사도.
+# 코드 원문 임베딩 점수도 같이 계산해 비교용으로만 보여 준다 (점수식에는 넣지 않음).
+CODE_EMBEDDING_MODEL = "text-embedding-3-large"
+CODE_UNITS_TEMPLATE = "code_units_{repo}_{model}.json"  # outputs/ 안 {파일::함수: {hash, summary, 벡터}} 캐시
+SUMMARY_BATCH_SIZE = 20       # 함수 요약 LLM 1회에 넣는 함수 수
+CODE_UNIT_MAX_CHARS = 2000    # 함수 하나를 요약·임베딩할 때 넣는 최대 글자 수
 RECENT_DAYS_STRONG = 14   # 이 안에 커밋 → 1.0
 RECENT_DAYS_WEAK = 30     # 이 안에 커밋 → 0.5
 RECENT_SCORE_STRONG = 1.0
