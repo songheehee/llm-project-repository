@@ -361,60 +361,36 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     show_table(near, key="tbl_near", column_config={
         "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
 
-    odd = stage1.label_disagreements(vectors, labels, config.DISAGREE_K)
-    with st.expander(f"임베딩 이웃과 LLM 라벨이 다른 VOC {len(odd)}건 (경계·오분류 후보)"):
-        if odd:
-            odd_df = pd.DataFrame([{
-                "VOC": cur.at[o["idx"], "voc_id"], "LLM 라벨": o["label"],
-                "이웃 다수 라벨": f"{o['neighbor_label']} ({o['agree']}/{config.DISAGREE_K})",
-                "원문": cur.at[o["idx"], "text"],
-            } for o in odd])
-            show_table(odd_df, key="tbl_odd")
-        else:
-            st.caption("모든 VOC가 이웃 다수와 같은 클러스터입니다.")
-
     render_cluster_comparison(vectors, labels, emb_labels, sil_by_k)
 
 
-METRIC_HELP = {  # CELL_MAX_CHARS(40)자 이내 — 잘리지 않으므로 이 표에는 행 선택(체크박스)이 없다
-    "실루엣 ↑": "자기 묶음과 가깝고 다른 묶음과 먼 정도 (-1~1)",
-    "Davies-Bouldin ↓": "묶음끼리 겹치는 정도 (0~, 낮을수록 잘 분리)",
-    "kNN 일관성 ↑": f"가까운 VOC {config.DISAGREE_K}개 중 같은 라벨 비율 (0~1)",
-    "기타 비율 ↓": "어느 묶음에도 못 들어간 VOC 비율",
-}
-
-
 def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[str], sil_by_k: dict) -> None:
-    """LLM 분류 vs 임베딩 분류: 내부 지표 · 두 분류 일치도 · k별 실루엣."""
+    """LLM 분류 vs 임베딩 분류: 클러스터 수 · 실루엣(LLM · 임베딩) · k별 실루엣."""
     st.markdown("#### LLM 분류 vs 임베딩 분류")
     k = config.DISAGREE_K
     m_llm = stage1.clustering_metrics(vectors, llm_labels, k)
     m_emb = stage1.clustering_metrics(vectors, emb_labels, k)
-    both = stage1.agreement_metrics(llm_labels, emb_labels)
 
     def fmt(v, digits=3):
         return "–" if v is None else f"{v:.{digits}f}"
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     c1.metric("클러스터 수 (LLM · 임베딩)", f"{m_llm['n_clusters']} · {m_emb['n_clusters']}")
-    c2.metric("두 분류 일치 ARI", fmt(both["ari"]), help="라벨 이름과 무관하게 같은 VOC끼리 묶였는지 (1 = 완전 일치, 0 = 무작위 수준)")
-    c3.metric("두 분류 일치 NMI", fmt(both["nmi"]), help="한 분류를 알면 다른 분류를 얼마나 알 수 있는지 (0~1)")
-
-    metrics_df = pd.DataFrame([
-        {"지표": "실루엣 ↑", "LLM": fmt(m_llm["silhouette"]), "임베딩": fmt(m_emb["silhouette"])},
-        {"지표": "Davies-Bouldin ↓", "LLM": fmt(m_llm["davies_bouldin"]), "임베딩": fmt(m_emb["davies_bouldin"])},
-        {"지표": "kNN 일관성 ↑", "LLM": fmt(m_llm["knn_consistency"]), "임베딩": fmt(m_emb["knn_consistency"])},
-        {"지표": "기타 비율 ↓", "LLM": f"{m_llm['other_ratio']:.1%}", "임베딩": f"{m_emb['other_ratio']:.1%}"},
-    ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP))
-    show_table(metrics_df, key="tbl_metrics")
+    c2.metric("실루엣 (LLM · 임베딩)", f"{fmt(m_llm['silhouette'])} · {fmt(m_emb['silhouette'])}",
+              help="자기 묶음과 가깝고 다른 묶음과 먼 정도 (-1~1, 높을수록 좋음)")
 
     if sil_by_k:
-        with st.expander(f"임베딩 분류의 k 선택 — k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} 중 실루엣 최대"):
+        with st.expander(f"실루엣 — 임베딩 분류 k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} vs LLM 분류"):
             sil = pd.DataFrame({"k": list(sil_by_k), "실루엣": list(sil_by_k.values())})
             fig_k = px.line(sil, x="k", y="실루엣", markers=True)
+            fig_k.update_traces(name="임베딩 (k별)", showlegend=True)
             best = sil.loc[sil["실루엣"].idxmax()]
-            fig_k.add_scatter(x=[best["k"]], y=[best["실루엣"]], mode="markers", name=f"선택 k={int(best['k'])}",
+            fig_k.add_scatter(x=[best["k"]], y=[best["실루엣"]], mode="markers", name=f"임베딩 선택 k={int(best['k'])}",
                               marker=dict(size=12, color="#D93025"))
+            if m_llm["silhouette"] is not None:  # LLM 분류는 k가 하나 → 가로 기준선
+                fig_k.add_hline(y=m_llm["silhouette"], line_dash="dash", line_color="#1428A0",
+                                annotation_text=f"LLM 분류 {m_llm['silhouette']:.3f} (k={m_llm['n_clusters']})",
+                                annotation_position="top left")
             fig_k.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="#FFFFFF")
             st.plotly_chart(fig_k, width="stretch")
 
