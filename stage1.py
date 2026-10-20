@@ -5,7 +5,7 @@
 - score_clusters  : 건수 · 급증률 · 추세 · 우선순위 (pandas, LLM 없음)
 - run_stage1      : 위 3개 실행 + outputs/clusters_{시작}_{끝}.json 캐시
 - ticketize       : 클러스터 → 개발자 티켓 (LLM)
-- embed_vocs · project_3d · similar_vocs · label_disagreements : VOC 유사도 지도 (임베딩, 티켓 분류에는 안 씀)
+- embed_vocs · project_3d · similar_vocs · label_disagreements : VOC 유사도 · 의미 공간 (임베딩, 티켓 분류에는 안 씀)
 - cluster_embeddings · embedding_cluster_names : 임베딩만으로 묶는 비교용 클러스터링 (LLM 없음)
 - clustering_metrics · agreement_metrics : LLM vs 임베딩 분류 품질 지표
 """
@@ -373,7 +373,7 @@ def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
     return clusters, assignments
 
 
-# ════════════════════════════ VOC 유사도 지도 ════════════════════════════
+# ════════════════════════════ VOC 유사도 (의미 공간) ════════════════════════════
 # 클러스터 라벨은 LLM이 정한다. 임베딩은 "어떤 VOC끼리 비슷한가"를 보여 주고
 # LLM 라벨과 이웃이 어긋나는 VOC를 찾는 검증용으로만 쓴다.
 

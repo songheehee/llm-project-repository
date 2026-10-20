@@ -61,6 +61,12 @@ TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
 TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 개수
+# ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
+RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
+CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이전 기간 VOC 수 (LLM 호출 수가 건수에 비례)
+TABLE_MAX_ROWS = 1000         # VOC 원문 표에 넘기는 최대 행 수 (최신순)
+WEEKLY_CHART_MIN_DAYS = 90    # 선택 기간이 이 일수를 넘으면 주별로 묶어 그린다
+SIMILARITY_MAX_POINTS = 2000  # VOC 유사도(의미 공간)에 그리는 최대 VOC 수 — 넘으면 무작위 표본(PROJECTION_SEED)
 CELL_MAX_CHARS = 40           # 표(st.dataframe) 셀 글자 수 상한 — 넘으면 화면용 복사본만 앞 N자 + '…' (행 클릭 시 표 아래 전체)
 APP_FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'  # 앱 전체 글꼴 — CSS·st.html 공통 (코드 뷰만 고정폭)
 
@@ -77,14 +83,14 @@ CLASS_STATUS_STYLE = {          # 폴더 후보 카드의 클래스 알약 모�
     "일반": "background:#F1F3F4; color:#3C4043; border:1px solid #F1F3F4;",
 }
 
-# ── VOC 유사도 지도 (임베딩 · t-SNE 3D 투영) ───────────────
-VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 지도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)
+# ── VOC 유사도 · 의미 공간 (임베딩 · t-SNE 3D 투영) ───────────────
+VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 유사도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)
 VOC_EMBEDDINGS_TEMPLATE = "voc_embeddings_{dataset}_{model}.json"  # outputs/ 안 {voc_id: 벡터} 캐시 (데이터셋·모델별)
 EMBED_BATCH_SIZE = 100
 PROJECTION_SEED = 42
 TSNE_PERPLEXITY = 30
 SIMILAR_TOP_K = 5             # 선택한 VOC와 가장 비슷한 VOC 수
-MAP_POINT_SIZE = 2.5          # 지도 VOC 점 크기
+MAP_POINT_SIZE = 2.5          # 의미 공간 VOC 점 크기
 MAP_HIGHLIGHT_SIZE = 6        # 기준·유사 VOC 강조 점 크기
 DISAGREE_K = 7                # 라벨 불일치 판정에 쓰는 이웃 수 (다수결)
 KMEANS_N_INIT = 10            # 임베딩 클러스터링: k마다 KMeans 초기화 횟수 (k는 MIN~MAX_CLUSTERS 중 실루엣 최대)

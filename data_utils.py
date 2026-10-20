@@ -37,11 +37,14 @@ def compute_kpis(cur: pd.DataFrame, prev: pd.DataFrame) -> dict:
     return {"total": total, "prev_total": prev_total, "change_pct": change_pct}
 
 
-def daily_counts(df: pd.DataFrame, group_col: str = "channel") -> pd.DataFrame:
-    """일별 · 그룹별 건수 (long 형식: date, group, count)."""
+def daily_counts(df: pd.DataFrame, group_col: str = "channel", weekly: bool = False) -> pd.DataFrame:
+    """일별(또는 주별) · 그룹별 건수 (long 형식: date, group, count). 주별이면 date = 그 주 월요일."""
     if df.empty:
         return pd.DataFrame(columns=["date", "group", "count"])
-    out = df.groupby(["date", group_col]).size().reset_index(name="count")
+    key = df["date"]
+    if weekly:
+        key = pd.to_datetime(df["date"]).dt.to_period("W-SUN").dt.start_time.dt.date
+    out = df.assign(date=key).groupby(["date", group_col]).size().reset_index(name="count")
     out = out.rename(columns={group_col: "group"})
     if group_col == "channel":
         out["group"] = out["group"].map(CHANNEL_LABELS).fillna(out["group"])
