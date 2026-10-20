@@ -41,7 +41,9 @@ CSS = """
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
 /* 현재 개발자의 티켓 카드: primaryColor 테두리 */
 [class*="st-key-card_mine"] {border:2px solid #1428A0 !important;}
-.vocai-status {display:inline-block; background:#E8EAF6; color:#1428A0; border-radius:6px; padding:1px 8px; font-size:0.8rem; font-weight:700; margin-left:4px;}
+/* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
+[class*="st-key-tprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0;}
+[class*="st-key-tline_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
 </style>
 """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
@@ -50,7 +52,7 @@ FONT_CSS = (f"<style>html, body, .stApp, .vocai-header {{font-family: {config.AP
 st.markdown(CSS + FONT_CSS, unsafe_allow_html=True)
 
 VIEW_RAW = "📄 원본 VOC"
-VIEW_CLUSTER = "🧩 클러스터 분석 결과"
+VIEW_CLUSTER = "🧩 유형 분석 결과"
 VIEW_OPTIONS = [VIEW_RAW, VIEW_CLUSTER]
 PERIOD_RECENT, PERIOD_CUSTOM, PERIOD_ALL = "최근 2주", "직접 선택", "전체 기간"
 PERIOD_MODES = [PERIOD_RECENT, PERIOD_CUSTOM, PERIOD_ALL]
@@ -120,9 +122,7 @@ ss.setdefault("stage1", {})          # {(start, end): {"clusters", "assignments"
 ss["tickets"], ss["next_ticket_no"] = stage1.load_tickets()
 ss.setdefault("stage2", {})          # {ticket_id: 최종 state} — outputs/stage2/{ticket_id}.json에도 저장
 ss.setdefault("current_ticket", None)
-ss.setdefault("publish_checks", set())  # 클러스터 표에서 체크한(발행 안 된) cluster_id
-ss.setdefault("editor_nonce", 0)        # 발행된 행 체크를 되돌릴 때 data_editor를 새로 그리기 위한 번호
-ss.setdefault("confirm_issue", None)    # 추천 파트와 다른 파트로 발행할 때 확인 대기 {cluster_ids, period}
+ss.setdefault("editor_nonce", 0)        # 발행 후 유형 표(data_editor)를 체크 없이 새로 그리기 위한 번호
 ss.setdefault("voc_view", VIEW_RAW)
 ss.setdefault("period_mode", PERIOD_RECENT)   # 처음 열면 '최근 2주'(오늘 포함)
 ss.setdefault("custom_dates", (config.ANALYSIS_START, config.ANALYSIS_END))  # 1️⃣ 탭 보기 전환 (segmented_control key)
@@ -199,9 +199,9 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
 
 
 def render_ticket_cards() -> None:
-    """발행된 티켓(모든 개발자에게 전체 표시): 카드 한 줄 3장, 우선순위 순.
-    항목: ID·우선순위·상태 / 문제점 / 건수·담당 부서·담당자 / 발행일→예상 완료일. 현재 개발자의 티켓은 테두리 강조 + "내 티켓".
-    티켓이 없으면 숨긴다."""
+    """발행된 티켓(모든 개발자에게 전체 표시): 카드 한 줄 3장, 우선순위 순, 높이 모두 같음(TICKET_CARD_HEIGHT).
+    항목: ID · 우선순위 배지 / 문제점(최대 2줄) / 건수·담당 부서·담당자 / 발행일→예상 완료일.
+    현재 개발자의 티켓은 글자 없이 테두리만 primaryColor로 강조. 티켓이 없으면 숨긴다."""
     tickets = stage1.sort_tickets(ss["tickets"].values())
     if not tickets:
         return
@@ -212,14 +212,15 @@ def render_ticket_cards() -> None:
         for col, t in zip(cols, tickets[i:i + n]):
             mine = t.assignee_id == me["id"]
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
-            with col.container(key=card_key):  # 흰 배경 · 테두리 · 모서리 12px (CSS), 내 티켓은 primaryColor 테두리
-                c_id, c_badge = st.columns([2, 2], vertical_alignment="center")
-                c_id.markdown(f"**{t.ticket_id}**" + ("  · 내 티켓" if mine else ""))
-                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}'
-                                 f'<span class="vocai-status">{html.escape(t.status)}</span></div>',
-                                 unsafe_allow_html=True)
-                st.markdown(f"**{t.problem}**")
-                st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
+            # 흰 배경 · 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓은 primaryColor 테두리
+            with col.container(border=True, height=config.TICKET_CARD_HEIGHT, key=card_key):
+                c_id, c_badge = st.columns([2, 1], vertical_alignment="center")
+                c_id.markdown(f"**{t.ticket_id}**")
+                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+                with st.container(key=f"tprob_{t.ticket_id}"):   # 문제점: 최대 2줄, 넘치면 … (CSS line-clamp)
+                    st.markdown(f"**{t.problem}**")
+                with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
+                    st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
                 st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
                            f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
 
@@ -277,7 +278,7 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
         cur = cur.sample(n=config.SIMILARITY_MAX_POINTS, random_state=config.PROJECTION_SEED)
     cur = cur.sort_values("voc_id").reset_index(drop=True)
     voc_ids = tuple(cur["voc_id"])
-    with st.spinner("VOC 임베딩 · t-SNE 투영 · 임베딩 클러스터링 중…"):
+    with st.spinner("VOC 임베딩 · t-SNE 투영 · 임베딩 분류 중…"):
         vectors, coords = cached_voc_map(voc_ids)
         emb_labels, sil_by_k = cached_embed_clusters(voc_ids)
     cur = cur.assign(x=coords[:, 0], y=coords[:, 1], z=coords[:, 2], emb=emb_labels)
@@ -368,7 +369,7 @@ def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[s
         return "–" if v is None else f"{v:.{digits}f}"
 
     c1, c2 = st.columns(2)
-    c1.metric("클러스터 수 (LLM · 임베딩)", f"{m_llm['n_clusters']} · {m_emb['n_clusters']}")
+    c1.metric("유형 수 (LLM · 임베딩)", f"{m_llm['n_clusters']} · {m_emb['n_clusters']}")
     c2.metric("실루엣 (LLM · 임베딩)", f"{fmt(m_llm['silhouette'])} · {fmt(m_emb['silhouette'])}",
               help="자기 묶음과 가깝고 다른 묶음과 먼 정도 (-1~1, 높을수록 좋음)")
 
@@ -403,12 +404,17 @@ USER_BY_ID = {u["id"]: u for u in USERS}
 ss.setdefault("current_user_id", USERS[0]["id"])
 
 
+def user_label(u: dict) -> str:
+    """현재 개발자 표시 형식 — 화면 어디서나 "김서준 (센서 파트)"."""
+    return f"{u['name']} ({u['part']})"
+
+
 def pick_ticket(ticket_id: str) -> None:
     ss["current_ticket"] = ticket_id
 
 
 with st.sidebar:
-    user_labels = {f"{u['name']} · {u['part']}": u["id"] for u in USERS}
+    user_labels = {user_label(u): u["id"] for u in USERS}
     id_to_label = {v: k for k, v in user_labels.items()}
     picked_user = st.selectbox("현재 개발자", list(user_labels),
                                index=list(user_labels).index(id_to_label[ss["current_user_id"]]))
@@ -437,7 +443,7 @@ tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 의심 위치",
 with tab1:
     # 기간 방식: 최근 2주(기본, 오늘 포함) · 직접 선택 · 전체 기간(조회 전용)
     # 세 경우 모두 같은 줄 구성: 날짜 위젯은 항상 같은 자리(직접 선택일 때만 활성) → 방식을 바꿔도 화면이 움직이지 않는다
-    c_mode, c_date, c_btn = st.columns([2.2, 3.2, 1.2], vertical_alignment="bottom")
+    c_mode, c_date, _ = st.columns([3, 2, 3], vertical_alignment="bottom")  # 방식 · 날짜 · 빈칸
     mode = c_mode.segmented_control("기간", PERIOD_MODES, key="period_mode", required=True)
     today = date.today()
     date_max = max(max_d, today)
@@ -473,17 +479,17 @@ with tab1:
     else:
         block_reason = ""
 
-    # 누르면 보기도 '클러스터 분석 결과'로 바꾼다 (콜백은 위젯이 그려지기 전에 실행됨)
-    run_clicked = c_btn.button("🔍 클러스터 분석", type="primary", width="stretch", disabled=bool(block_reason),
+    # 보기 전환 줄: 왼쪽 보기 전환 · 오른쪽 분석 버튼 (누르면 보기도 '유형 분석 결과'로 — 콜백은 위젯보다 먼저 실행)
+    c_view, c_btn = st.columns([4, 1], vertical_alignment="center")
+    run_clicked = c_btn.button("🔍 유형 분석", type="primary", width="stretch", disabled=bool(block_reason),
                                help=block_reason or None, on_click=lambda: ss.update(voc_view=VIEW_CLUSTER))
+    view = c_view.segmented_control("보기", VIEW_OPTIONS, key="voc_view", required=True,
+                                    label_visibility="collapsed")
     if block_reason and not cur.empty:
         st.caption(block_reason)
 
-    view = st.segmented_control("보기", VIEW_OPTIONS, key="voc_view", required=True,
-                                label_visibility="collapsed")
-
     if run_clicked and has_api_key():
-        with st.spinner("VOC를 클러스터로 묶는 중… (같은 기간은 캐시 사용)"):
+        with st.spinner("VOC를 유형으로 묶는 중… (같은 기간은 캐시 사용)"):
             cached_llm()
             t0 = time.perf_counter()
             clusters, assignments = stage1.run_stage1(start, end, df_all)
@@ -508,12 +514,12 @@ with tab1:
                       help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비 · 이전 기간 {kpi['prev_total']:,}건")
         if s1:
             urgent = [c for c in s1["clusters"] if c.priority == "긴급"]
-            k2.metric("VOC 유형", f"{len(s1['clusters'])}개", help="클러스터 수")
+            k2.metric("VOC 유형", f"{len(s1['clusters'])}개", help="유형 수 (발행 여부와 상관없이 전체)")
             k3.metric("긴급 유형", f"{len(urgent)}개", help="우선순위가 '긴급'인 VOC 유형 수")
             k4.metric("긴급 건수", f"{sum(c.count for c in urgent):,}건", help="긴급 유형에 속한 VOC 건수 합계")
         else:
             for col, label in [(k2, "VOC 유형"), (k3, "긴급 유형"), (k4, "긴급 건수")]:
-                col.metric(label, "–", help="클러스터 분석 후 표시")
+                col.metric(label, "–", help="유형 분석 후 표시")
 
         if view == VIEW_RAW:
             daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
@@ -527,71 +533,53 @@ with tab1:
         elif full_period:
             st.info("전체 기간은 조회만 가능합니다. 분석하려면 기간을 줄여 주세요")
         elif not s1:
-            st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
+            st.info("🔍 유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
         else:
             period_txt = f"{start}~{end}"
-            issued = {t.cluster_id: t for t in ss["tickets"].values() if t.period == period_txt}  # 발행 여부 = cluster_id
-            if ss.get("pending_toast"):
-                st.toast(ss.pop("pending_toast"))
+            # 이미 발행된 유형(누가 발행했든, 같은 기간의 cluster_id)은 표에서 빼고 아래 티켓 카드에서만 보인다
+            issued = {t.cluster_id for t in ss["tickets"].values() if t.period == period_txt}
             # 제목 줄: 왼쪽 섹션 제목 · 오른쪽 끝 발행 버튼 (버튼은 표의 체크 결과를 본 뒤 아래에서 채운다)
             c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
-            c_title.subheader("클러스터")
-            st.caption(f"체크한 유형만 티켓 발행 · 담당자는 현재 개발자({me['name']}) · 이미 발행된 유형은 다시 발행할 수 없음")
-            # 발행 안 된 유형 먼저(처리 시급도 높은 순), 발행된 유형은 아래로
-            clusters = sorted(s1["clusters"], key=lambda c: (c.cluster_id in issued, -c.priority_score))
-            checked_before = {cid for per, cid in ss["publish_checks"] if per == period_txt}
-
-            def status_text(c) -> str:
-                t = issued.get(c.cluster_id)
-                return f"{t.status} · {t.ticket_id} · {t.assignee}" if t else "–"
-
+            c_title.subheader("VOC 유형")
+            st.caption("체크한 유형만 티켓 발행")
+            clusters = sorted((c for c in s1["clusters"] if c.cluster_id not in issued),
+                              key=lambda c: -c.priority_score)  # 처리 시급도 높은 순
             table = pd.DataFrame([{
-                "발행": c.cluster_id in checked_before,
+                "발행": False,
                 "우선순위": f"{config.PRIORITY_BADGE[c.priority]} {c.priority}",
-                "클러스터": c.label,
+                "유형": c.label,
                 "영역 · 제품": f"{c.category} · {c.product}",
-                "추천 파트": stage1.recommended_part_for(c),
                 "이번 기간": c.count,
                 "이전 기간": c.prev_count,
                 "추세": c.trend,
                 "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
                 "심각도": c.severity,
-                "상태": status_text(c),
-            } for c in clusters])
-            edited = st.data_editor(
-                table, hide_index=True, width="stretch", key=f"editor_{start}_{end}_{ss['editor_nonce']}",
-                height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
-                column_config={
-                    "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행 (이미 발행된 유형은 제외)"),
-                    "추천 파트": st.column_config.TextColumn(help="유형의 카테고리를 departments.md 파트에 맞춘 것"),
-                    "이번 기간": st.column_config.NumberColumn(format="%d건"),
-                    "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
-                    "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
-                    "상태": st.column_config.TextColumn(help="발행 전 – / 발행됨: 진행 중 · 티켓 · 담당자"),
-                },
-                disabled=[c for c in table.columns if c != "발행"],
-            )
-            checked = {c.cluster_id for c, flag in zip(clusters, edited["발행"]) if flag}
-            others = {x for x in ss["publish_checks"] if x[0] != period_txt}
-            blocked = [cid for cid in checked if cid in issued]
-            if blocked:  # data_editor는 행별로 체크를 잠글 수 없다 → 체크를 되돌리고(표를 새로 그림) 알림
-                t = issued[blocked[0]]
-                ss["pending_toast"] = f"이미 발행된 유형입니다 ({t.ticket_id} · {t.assignee})"
-                ss["publish_checks"] = others | {(period_txt, cid) for cid in checked if cid not in issued}
-                ss["editor_nonce"] += 1
-                st.rerun()
-            ss["publish_checks"] = others | {(period_txt, cid) for cid in checked}
-            to_issue = [c for c in clusters if c.cluster_id in checked]  # 발행 안 된 유형만
+            } for c in clusters], columns=["발행", "우선순위", "유형", "영역 · 제품", "이번 기간", "이전 기간",
+                                         "추세", "처리 시급도", "심각도"])
+            if clusters:
+                edited = st.data_editor(
+                    table, hide_index=True, width="stretch", key=f"editor_{start}_{end}_{ss['editor_nonce']}",
+                    height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
+                    column_config={
+                        "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
+                        "이번 기간": st.column_config.NumberColumn(format="%d건"),
+                        "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
+                        "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
+                    },
+                    disabled=[c for c in table.columns if c != "발행"],
+                )
+                to_issue = [c for c, flag in zip(clusters, edited["발행"]) if flag]
+            else:
+                st.caption("이 기간의 유형은 모두 티켓으로 발행되었습니다.")
+                to_issue = []
             issue_clicked = c_issue.button("🎫 티켓 발행", type="primary", width="stretch", disabled=not to_issue)
 
-            def issue_tickets(chosen) -> None:
-                """현재 개발자(me)를 담당자로 발행 → outputs/tickets.json 저장. 그사이 다른 개발자가 발행한 유형은 건너뛴다."""
+            if issue_clicked and has_api_key():
+                # 현재 개발자(me)를 담당자로 바로 발행 → outputs/tickets.json. 그사이 다른 개발자가 발행한 유형은 건너뛴다
                 tickets, next_no = stage1.load_tickets()
                 taken = {t.cluster_id for t in tickets.values() if t.period == period_txt}
-                chosen = sorted((c for c in chosen if c.cluster_id not in taken),
+                chosen = sorted((c for c in to_issue if c.cluster_id not in taken),
                                 key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
-                if not chosen or not has_api_key():
-                    return
                 with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):
                     for c in chosen:
                         samples = stage1.sample_texts(df_all, c, config.TICKET_SAMPLE_VOCS)
@@ -600,29 +588,8 @@ with tab1:
                         next_no += 1
                         stage1.save_tickets(tickets, next_no)
                         ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
-                ss["publish_checks"] = others
-                ss["editor_nonce"] += 1
-                ss["confirm_issue"] = None
-                st.rerun()  # 발행된 티켓 카드·상태 열에 바로 보이도록
-
-            if issue_clicked:
-                mismatch = [c for c in to_issue if stage1.recommended_part_for(c) not in ("–", me["part"])]
-                if mismatch:  # 추천 파트와 달라도 발행할 수 있지만 먼저 확인
-                    ss["confirm_issue"] = {"period": period_txt, "ids": [c.cluster_id for c in to_issue]}
-                else:
-                    issue_tickets(to_issue)
-            confirm = ss.get("confirm_issue")
-            if confirm and confirm["period"] == period_txt:
-                pending = [c for c in clusters if c.cluster_id in confirm["ids"] and c.cluster_id not in issued]
-                parts = sorted({stage1.recommended_part_for(c) for c in pending} - {"–", me["part"]})
-                st.warning(f"추천 파트는 {', '.join(parts)}입니다. 그래도 발행할까요? "
-                           f"(현재 개발자: {me['name']} · {me['part']})")
-                c_ok, c_cancel, _ = st.columns([1, 1, 6])
-                if c_ok.button("발행", type="primary", key="confirm_issue_ok"):
-                    issue_tickets(pending)
-                if c_cancel.button("취소", key="confirm_issue_cancel"):
-                    ss["confirm_issue"] = None
-                    st.rerun()
+                ss["editor_nonce"] += 1  # 표를 체크 없이 새로 그린다 (발행된 유형은 표에서 빠진다)
+                st.rerun()
             thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
             st.caption(
                 f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d}). 날짜는 선택한 기간에 따라 자동으로 바뀝니다.  \n"
@@ -630,7 +597,7 @@ with tab1:
                 f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
                 "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
             )
-            render_ticket_cards()  # 순서: 요약 카드 → 클러스터 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
+            render_ticket_cards()  # 순서: 요약 카드 → 유형 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
 
             cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
             # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다

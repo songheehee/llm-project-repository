@@ -67,6 +67,7 @@ TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
 TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 개수
+TICKET_CARD_HEIGHT = 220      # 티켓 카드 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 날짜 줄이 스크롤 없이 들어가는 높이
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
 RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
 CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이전 기간 VOC 수 (LLM 호출 수가 건수에 비례)

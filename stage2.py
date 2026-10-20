@@ -278,14 +278,14 @@ def ticket_brief(t: Ticket) -> str:
         f"발생 조건: {', '.join(t.conditions)}\n"
         f"기술 키워드: {', '.join(t.tech_keywords)}\n"
         f"코드 검색어: {', '.join(t.code_terms)}\n"
-        f"추천 파트: {t.recommended_part} · 제품: {t.product} · VOC {t.count}건 ({t.trend})"
+        f"제품: {t.product} · VOC {t.count}건 ({t.trend})"  # 파트는 넣지 않는다 — 담당자 파트는 원인 위치와 무관
     )
 
 
 def route_repos(ticket: Ticket) -> list[RepoCandidate]:
     """RAG 근거 + 레지스트리로 저장소마다 점수를 매긴다. 레지스트리 밖 이름은 버린다."""
     registry = load_registry()
-    docs = search_docs(f"{ticket.problem} {' '.join(ticket.tech_keywords)} {ticket.recommended_part}")
+    docs = search_docs(f"{ticket.problem} {' '.join(ticket.conditions)} {' '.join(ticket.tech_keywords)}")
     repo_text = "\n".join(
         f"- {r['name']} ({r['product']}): {r['description']} / 담당: {', '.join(r['owner_parts'])}"
         for r in registry.values()

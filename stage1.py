@@ -67,7 +67,6 @@ class Ticket(BaseModel):
     assignee_id: str            # 발행한(=담당) 개발자 id — 사이드바 '현재 개발자'가 "내가 맡겠다"로 발행
     assignee: str               # 담당 개발자 이름 (users.yaml)
     owner_part: str             # 담당 개발자의 파트 (users.yaml)
-    recommended_part: str       # LLM이 departments.md를 보고 추천한 파트 (담당 파트와 다를 수 있음)
     status: str = config.TICKET_STATUS_OPEN  # "진행 중" (완료 처리 기능 없음)
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
@@ -79,7 +78,7 @@ class Ticket(BaseModel):
 
 class ClusterProposal(BaseModel):
     label: str = Field(description="고객 불만 묶음 이름. 짧은 한국어 명사구 (예: '충전 단자 접촉 불량')")
-    category: str = Field(description="담당 영역. 주어진 영역 목록 중 하나")
+    category: str = Field(description="기능 영역. 짧은 한국어 명사 (예: 센서, 배터리, 화면, 연결, 거리)")
     product: str = Field(description="제품. 주어진 제품 목록 중 하나")
     severity: int = Field(ge=1, le=5, description="심각도 1~5 (기준표를 따른다)")
     description: str = Field(description="이 묶음에 들어갈 VOC의 판별 기준 한 문장")
@@ -105,7 +104,6 @@ class TicketDraft(BaseModel):
     tech_keywords: list[str] = Field(description="의심되는 기술 원인 용어 3~6개, 한국어")
     code_terms: list[str] = Field(
         description="코드 검색용 영문 소문자 식별자 조각 4~8개. 변수·함수·모듈 이름에 들어갈 법한 단어")
-    recommended_part: str = Field(description="추천 파트 이름. 부서 정보의 파트 이름 중 하나 그대로")
 
 
 # ════════════════════════════ LLM 공통 ════════════════════════════
@@ -134,28 +132,9 @@ def call_structured(schema: Type[T], system: str, user: str, validate=None) -> T
 
 # ════════════════════════════ 참조 데이터 ════════════════════════════
 
-def read_departments_md() -> str:
-    return (config.RAG_DIR / "departments.md").read_text(encoding="utf-8")
-
-
-def part_names() -> list[str]:
-    """departments.md의 '## OO 파트' 제목 목록."""
-    return re.findall(r"^##\s+(.+파트)\s*$", read_departments_md(), flags=re.M)
-
-
-def recommended_part_for(cluster: "Cluster") -> str:
-    """클러스터 표의 '추천 파트': 유형의 카테고리를 departments.md 파트 이름에 맞춘 것 (발행 전에도 보임, LLM 없음)."""
-    part = f"{cluster.category} 파트"
-    return part if part in part_names() else "–"
-
-
 def product_names() -> list[str]:
     data = yaml.safe_load(config.REPOS_YAML.read_text(encoding="utf-8"))
     return list(dict.fromkeys(r["product"] for r in data["repos"]))
-
-
-def category_names() -> list[str]:
-    return [p.removesuffix(" 파트").strip() for p in part_names()]
 
 
 SEVERITY_RUBRIC = """심각도 기준 (불만 묶음의 '증상'으로 판단):
@@ -178,20 +157,17 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
         "- 나누는 기준은 '증상 + 발생 상황' 두 가지뿐이다. 같은 증상을 다른 표현·다른 시점(아침, 충전 직후, 여행 중 등)으로 "
         "말한 VOC는 하나로 합친다 (예: '빨리 닳음', '충전해도 금방 꺼짐', '잔량이 뚝뚝 떨어짐'은 같은 묶음).\n"
         "- 증상이 비슷해도 발생 상황이 확실히 다르면(예: 특정 활동 중 vs 특정 연결 상태에서) 별도 묶음으로 나눈다.\n"
-        "  특히 뜨거워짐(발열)은 '운동 중'과 '폰 연결이 끊겼을 때'를 반드시 따로 묶는다 — "
-        "부서 정보대로 원인 코드와 담당 파트가 다르다(운동 중 발열 = 센서 파트, 연결 끊김 발열 = 동기화 파트).\n"
-        "- 묶음 하나는 담당 파트에 개발 티켓 하나로 넘어간다. 같은 category 안의 묶음은 발생 상황이 다르지 않으면 "
+        "  특히 뜨거워짐(발열)은 '운동 중'과 '폰 연결이 끊겼을 때'를 반드시 따로 묶는다 — 원인 코드가 다르다.\n"
+        "- 묶음 하나는 개발 티켓 하나로 넘어간다. 같은 기능 영역 안의 묶음은 발생 상황이 다르지 않으면 "
         "하나로 합친다 (예: 글씨 크기·버튼 크기·메뉴 찾기 어려움은 모두 한 묶음).\n"
         f"- 묶음 수는 꼭 필요한 만큼만 만든다 (최소 {config.MIN_CLUSTERS}개).\n"
         "- 라벨은 그 묶음의 VOC 전체를 아우르는 짧은 한국어 명사구로 쓴다. 세부 증상별로 쪼개지 않는다.\n"
         "  라벨 수준 예(다른 제품): '충전 불량', '앱 사용성', '측정값 오차', '주행 중 소음' — "
         "'글씨 크기'·'버튼 크기'·'메뉴 위치'처럼 하위 증상 단위로 나누지 않는다.\n"
         "- 같은 핵심 증상(예: 뜨거워짐)을 말하면서 부가 표현(알림 반복 등)만 다른 VOC는 핵심 증상 묶음에 넣는다.\n"
-        f"- category는 다음 중 하나: {', '.join(category_names())}. "
-        "아래 부서 정보의 '이런 VOC가 오면'과 발생 상황을 기준으로 고른다.\n"
+        "- category는 그 묶음의 기능 영역을 짧은 한국어 명사로 쓴다 (예: 센서, 배터리, 화면, 연결, 거리).\n"
         f"- product는 다음 중 하나: {', '.join(product_names())}\n\n"
-        f"{SEVERITY_RUBRIC}\n\n"
-        f"부서 정보:\n{read_departments_md()}"
+        f"{SEVERITY_RUBRIC}"
     )
     user = "VOC 목록:\n" + "\n".join(f"- {t}" for t in texts)
 
@@ -506,9 +482,8 @@ def due_date_for(priority: str, issued_on: date) -> date:
 
 def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int, assignee: dict,
               issued_on: date | None = None) -> Ticket:
-    """고객 언어 클러스터를 개발자 언어 티켓으로 바꾼다. 추천 파트는 LLM이 departments.md 파트 중 하나로 고른다.
-    담당자는 발행한 개발자(assignee = users.yaml 항목 {id, name, part}), 예상 완료일은 config.DUE_DAYS — LLM이 아님."""
-    parts = part_names()
+    """고객 언어 유형을 개발자 언어 티켓으로 바꾼다. LLM은 문제점·조건·키워드·검색어만 쓴다(파트는 정하지 않음).
+    담당자·담당 부서는 발행한 개발자(assignee = users.yaml 항목 {id, name, part}), 예상 완료일은 config.DUE_DAYS — LLM이 아님."""
     system = (
         "너는 고객 VOC를 개발 티켓으로 옮기는 테크 리드다. "
         f"{DATA_GUARD}\n"
@@ -519,10 +494,7 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         "- tech_keywords: 원인으로 의심되는 기술 용어 (예: 샘플링 주기, 폴링 간격, 재시도 루프)\n"
         "- code_terms: 코드에서 그 원인을 찾을 때 쓸 영문 소문자 단어 "
         "(예: poll, interval, sensor, retry, loop). 한국어·공백 금지. "
-        "고객 증상 단어(heat, temperature, hot, warning 등)는 넣지 않고 원인이 될 동작·설정 쪽 단어만 넣는다\n"
-        f"- recommended_part: 다음 중 하나 그대로 → {', '.join(parts)}. "
-        "부서 정보의 '이런 VOC가 오면'과 발생 조건을 보고, 원인 코드를 고칠 파트를 고른다.\n\n"
-        f"부서 정보:\n{read_departments_md()}\n\n"
+        "고객 증상 단어(heat, temperature, hot, warning 등)는 넣지 않고 원인이 될 동작·설정 쪽 단어만 넣는다\n\n"
         f"제품 정보·사내 용어:\n{(config.RAG_DIR / 'products.md').read_text(encoding='utf-8')}"
     )
     user = (
@@ -531,19 +503,14 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         "대표 VOC:\n" + "\n".join(f"- {t}" for t in sample_vocs)
     )
 
-    def validate(d: TicketDraft):
-        if d.recommended_part not in parts:
-            raise ValueError(f"알 수 없는 파트: {d.recommended_part}")
-
     def validate_short(d: TicketDraft):
-        validate(d)
         if len(d.problem.strip()) > config.PROBLEM_MAX_CHARS:
             raise ValueError(f"문제점이 {config.PROBLEM_MAX_CHARS}자를 넘음")
 
     try:
         draft = call_structured(TicketDraft, system, user, validate_short)
-    except RuntimeError:  # 길이 조건만 계속 못 맞추면 길이 검사 없이 받는다 (파트 검사는 유지)
-        draft = call_structured(TicketDraft, system, user, validate)
+    except RuntimeError:  # 길이 조건만 계속 못 맞추면 길이 검사 없이 받는다
+        draft = call_structured(TicketDraft, system, user)
     code_terms = [t for t in (re.sub(r"[^a-z0-9_]", "", s.lower()) for s in draft.code_terms) if t]
     issued_on = issued_on or date.today()
     return Ticket(
@@ -552,7 +519,7 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         count=cluster.count, trend=cluster.trend, conditions=draft.conditions,
         tech_keywords=draft.tech_keywords, code_terms=list(dict.fromkeys(code_terms)),
         assignee_id=assignee["id"], assignee=assignee["name"], owner_part=assignee["part"],
-        recommended_part=draft.recommended_part, status=config.TICKET_STATUS_OPEN,
+        status=config.TICKET_STATUS_OPEN,
         issued_on=issued_on.isoformat(), due_date=due_date_for(cluster.priority, issued_on).isoformat(),
         cluster_label=cluster.label, voc_ids=cluster.voc_ids,
     )
