@@ -71,6 +71,7 @@ class LineRec(BaseModel):
     evidence: list[Evidence] = []
     verified: bool = False
     commit_sha: str = ""
+    last_authors: list[str] = []     # 마지막 수정자 — 범위마다 git blame author · author-time 중 가장 최근 (LLM 아님)
 
 
 class Impact(BaseModel):
@@ -677,7 +678,7 @@ def after_verify(state: Stage2State) -> str:
 
 
 def parse_blame(porcelain: str) -> dict[int, dict]:
-    """{최종 줄 번호: {sha, date, summary}}."""
+    """{최종 줄 번호: {sha, date, summary, author, author_date}}."""
     commits: dict[str, dict] = {}
     result: dict[int, dict] = {}
     sha = None
@@ -692,6 +693,11 @@ def parse_blame(porcelain: str) -> dict[int, dict]:
             commits[sha]["date"] = datetime.fromtimestamp(int(line.split()[1])).date()
         elif sha and line.startswith("summary "):
             commits[sha]["summary"] = line[len("summary "):]
+        elif sha and line.startswith("author "):
+            commits[sha]["author"] = line[len("author "):]
+        elif sha and line.startswith("author-time "):
+            commits[sha]["author_time"] = int(line.split()[1])
+            commits[sha]["author_date"] = datetime.fromtimestamp(int(line.split()[1])).date()
     return result
 
 
@@ -713,10 +719,18 @@ def add_commit_evidence(state: Stage2State, start: date = config.ANALYSIS_START)
         evidence = list(rec.evidence)
         by_sha: dict[str, list[int]] = {}
         info: dict[str, dict] = {}
+        authors: list[str] = []
         for s, e in rec.ranges:
-            for n, c in parse_blame(git(repo, "blame", "-L", f"{s},{e}", "--porcelain", rec.path)).items():
+            blamed = parse_blame(git(repo, "blame", "-L", f"{s},{e}", "--porcelain", rec.path))
+            for n, c in blamed.items():
                 by_sha.setdefault(c["sha"], []).append(n)
                 info[c["sha"]] = c
+            # 마지막 수정자: 이 범위에서 author-time이 가장 최근인 커밋의 author
+            dated = [c for c in blamed.values() if c.get("author") and c.get("author_time")]
+            if dated:
+                c = max(dated, key=lambda x: x["author_time"])
+                rng = f"L{s}" if s == e else f"L{s}–{e}"
+                authors.append(f"{rng} · {c['author']} · {c['author_date']:%Y-%m-%d}")
         for sha, nums in by_sha.items():
             c = info[sha]
             days = (start - c["date"]).days
@@ -727,7 +741,7 @@ def add_commit_evidence(state: Stage2State, start: date = config.ANALYSIS_START)
                 detail += f": {pair})" if pair else ")"
                 evidence.append(Evidence(kind="commit", ref=sha[:7], detail=detail))
         last = git(repo, "log", "-1", "--format=%h", "--", rec.path).strip()
-        out.append(rec.model_copy(update={"evidence": evidence, "commit_sha": last}))
+        out.append(rec.model_copy(update={"evidence": evidence, "commit_sha": last, "last_authors": authors}))
     return {"line_recs": out}
 
 
@@ -801,7 +815,7 @@ def analyze_impact(state: Stage2State) -> dict:
     return {"impacts": impacts}
 
 
-# ════════════════════════════ 원인 후보 폴더 (화면용, LLM 없음) ════════════════════════════
+# ════════════════════════════ 폴더 후보 (화면용, LLM 없음) ════════════════════════════
 
 CLASS_RE = re.compile(r"^class (\w+)", flags=re.M)
 
@@ -828,7 +842,7 @@ def class_spans(lines: list[str]) -> list[tuple[str, int, int]]:
 
 
 def build_folder_cards(state: dict, repo_name: str) -> list[FolderCard]:
-    """선택한 레포지토리의 원인 후보 폴더 카드. 이미 계산된 folder_scores · line_recs · impacts로 클래스 상태를 정한다.
+    """선택한 레포지토리의 폴더 후보 카드. 이미 계산된 folder_scores · line_recs · impacts로 클래스 상태를 정한다.
     의심도 0 폴더, __init__.py, 테스트 파일, 클래스 없는 파일은 뺀다."""
     repo = repo_dir(repo_name)
     terms = state["ticket"].code_terms
@@ -941,6 +955,18 @@ def fmt_line_ranges(ranges) -> str:
     return ", ".join(f"L{s}" if s == e else f"L{s}–{e}" for s, e in ranges)
 
 
+def last_author_text(rec: LineRec) -> str:
+    """범위가 하나면 "김민준 · 2026-10-02", 여러 개면 범위마다 한 줄 "L17 · 김민준 · 2026-10-02". 없으면 "확인 불가"."""
+    if not rec.last_authors:
+        return "확인 불가"
+    if len(rec.ranges) == 1:
+        return rec.last_authors[0].split(" · ", 1)[1]
+    return NEWLINE.join(rec.last_authors)
+
+
+NEWLINE = chr(10)
+
+
 def evidence_rows(ticket: Ticket, rec: LineRec) -> list[tuple[str, str]]:
     """수정 라인 근거 표 (항목, 내용) — 화면과 Markdown이 같은 내용을 쓴다. 커밋은 git 결과에서만."""
     keywords = [e.detail for e in rec.evidence if e.kind == "keyword"]
@@ -950,13 +976,14 @@ def evidence_rows(ticket: Ticket, rec: LineRec) -> list[tuple[str, str]]:
         ("발생 조건", ", ".join(ticket.conditions) or "–"),
         ("매칭 키워드", ", ".join(keywords) or "–"),
         ("관련 커밋", " / ".join(commits) or "해당 기간 변경 없음"),
+        ("마지막 수정자", last_author_text(rec)),
         ("추천 사유", rec.reason),
     ]
 
 
 def md_table(header: list[str], rows: list[list]) -> list[str]:
     def cell(v) -> str:
-        return str(v).replace("|", "\\|").replace("\n", " ")
+        return str(v).replace("|", "\\|").replace("\n", "<br>")  # 범위별 여러 줄(마지막 수정자 등)
     return ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|",
             *["| " + " | ".join(cell(v) for v in r) + " |" for r in rows]]
 

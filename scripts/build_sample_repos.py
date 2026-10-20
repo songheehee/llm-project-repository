@@ -38,18 +38,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 
-AUTHORS = {
-    "sensor": ("김센서", "sensor@pulsefit.example"),
-    "power": ("박전력", "power@pulsefit.example"),
-    "ui": ("이화면", "ui@pulsefit.example"),
-    "sync": ("최동기", "sync@pulsefit.example"),
-    "health": ("정수면", "health@pulsefit.example"),
-    "notify": ("한알림", "notify@pulsefit.example"),
-    "mobile": ("서모바", "mobile@pulsefit.example"),
-    "server": ("오서버", "server@pulsefit.example"),
-    "hw": ("장펌웨", "firmware@pulsefit.example"),
-    "web": ("강웹", "web@pulsefit.example"),
-    "init": ("PulseFit Bot", "bot@pulsefit.example"),
+AUTHORS = {  # 커밋마다 다른 가상 인물 (git blame '마지막 수정자' 확인용)
+    "init": ("박서연", "seoyeon.park@pulsefit.example"),        # A: 2026-08-01 초기 커밋 (모든 저장소)
+    "sensor": ("김민준", "minjun.kim@pulsefit.example"),        # B: 2026-10-02 측정 주기 단축
+    "health": ("윤지호", "jiho.yoon@pulsefit.example"),
+    "sync": ("정하늘", "haneul.jung@pulsefit.example"),
+    "sync_reconnect": ("임건우", "geonwoo.lim@pulsefit.example"),
+    "hw": ("장하은", "haeun.jang@pulsefit.example"),
+    "hw_thermal": ("문시우", "siwoo.moon@pulsefit.example"),
+    "notify": ("한예린", "yerin.han@pulsefit.example"),
+    "web": ("강민서", "minseo.kang@pulsefit.example"),
+    "i18n": ("배소윤", "soyun.bae@pulsefit.example"),
+    "server": ("오태윤", "taeyun.oh@pulsefit.example"),
+    "power": ("이도현", "dohyun.lee@pulsefit.example"),
+    "ui": ("최지우", "jiwoo.choi@pulsefit.example"),
 }
 
 # ════════════════════════════ pulsefit-py ════════════════════════════
@@ -1773,9 +1775,9 @@ CHANGES = [
      {"relay/notification_forwarder.py": FORWARDER_FINAL}, "알림 묶음 전송으로 무선 전력 절감"),
     ("2026-09-18T09:20:00+09:00", "pulsefit-web", "web",
      {"cms/banners.py": BANNERS_FINAL}, "추석 할인 배너 추가"),
-    ("2026-09-22T16:00:00+09:00", "pulsefit-firmware", "hw",
+    ("2026-09-22T16:00:00+09:00", "pulsefit-firmware", "hw_thermal",
      {"thermal/monitor.py": THERMAL_FINAL}, "피부 온도 측정 주기 60초 → 30초"),
-    ("2026-09-30T11:30:00+09:00", "pulsefit-py", "ui",
+    ("2026-09-30T11:30:00+09:00", "pulsefit-py", "i18n",
      {"i18n/strings_ko.py": STRINGS_KO_FINAL}, "발열 안내 문구 번역 추가"),
     ("2026-10-01T10:00:00+09:00", "pulsefit-server", "server",
      {"jobs/weekly_report.py": WEEKLY_REPORT_FINAL}, "주간 리포트 메일 제목 변경"),
@@ -1783,7 +1785,7 @@ CHANGES = [
      {"power/battery.py": BATTERY_FINAL}, "화면 켜짐 유지 시간 5초 → 8초로 변경"),
     ("2026-09-28T11:05:00+09:00", "pulsefit-py", "ui",
      {"ui/warnings.py": WARNINGS_FINAL}, "발열 경고 문구 추가"),
-    ("2026-09-28T16:40:00+09:00", "pulsefit-sync", "sync",
+    ("2026-09-28T16:40:00+09:00", "pulsefit-sync", "sync_reconnect",
      {"bluetooth/reconnect.py": RECONNECT_FINAL}, "재연결 속도 개선: 재시도 대기 제거"),
     ("2026-10-02T18:30:00+09:00", "pulsefit-py", "sensor",
      {"sensor/heart_rate.py": HEART_RATE_FINAL}, "운동 중 심박 정확도 개선: 측정 주기 단축"),

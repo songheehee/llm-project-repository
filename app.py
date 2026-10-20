@@ -36,9 +36,12 @@ CSS = """
 [data-testid="stMetricDelta"], [data-testid="stMetricDelta"] > div {
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 [data-testid="stMetricValue"] {font-size:1.9rem;}
+/* 근거 표: 흰 배경, 마지막 수정자처럼 범위별 여러 줄은 줄바꿈 그대로 */
+[class*="st-key-card_evidence"] table, [class*="st-key-card_evidence"] th, [class*="st-key-card_evidence"] td {background:#FFFFFF;}
+[class*="st-key-card_evidence"] td {white-space:pre-line;}
 </style>
 """
-# 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 원인 후보 폴더 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
+# 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
 FONT_CSS = (f"<style>html, body, .stApp, .vocai-header {{font-family: {config.APP_FONT};}} "
             ".vocai-code pre {font-family: ui-monospace, Consolas, 'Courier New', monospace;}</style>")
 st.markdown(CSS + FONT_CSS, unsafe_allow_html=True)
@@ -152,7 +155,7 @@ def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
 
 
 def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
-    """원인 후보 폴더: 제목 줄 · 범례 · 폴더 카드 그리드(한 줄 3장). HTML은 st.html로, 모든 값은 html.escape.
+    """폴더 후보: 제목 줄 · 범례 · 폴더 카드 그리드(한 줄 3장). HTML은 st.html로, 모든 값은 html.escape.
     글꼴은 본문과 같은 config.APP_FONT (고정폭 없음)."""
     esc = html.escape
     pill = "display:block; border-radius:8px; padding:3px 10px; margin:4px 0; font-size:13px;"
@@ -216,7 +219,7 @@ def shorten(text, n: int = config.CELL_MAX_CHARS):
 
 def show_table(df: pd.DataFrame, key: str, **kwargs) -> None:
     """모든 st.dataframe 표가 쓰는 규칙: 화면용 복사본만 CELL_MAX_CHARS로 자른다(원본 df는 그대로).
-    잘린 셀이 있으면 행 선택을 켜고, 고른 행의 잘리지 않은 원문을 표 바로 아래 테두리 상자에 보여 준다."""
+    행 선택(체크박스)은 실제로 '…'가 붙은 열이 있는 표에만 켜고, 고른 행의 잘리지 않은 원문을 표 바로 아래 테두리 상자에 보여 준다."""
     view = df.copy()
     cut_cols = [c for c in view.columns
                 if view[c].map(lambda v: isinstance(v, str) and len(v) > config.CELL_MAX_CHARS).any()]
@@ -229,7 +232,6 @@ def show_table(df: pd.DataFrame, key: str, **kwargs) -> None:
                          on_select="rerun", selection_mode="single-row", **kwargs)
     rows = event.selection.rows if event else []
     if not rows:
-        st.caption("행을 클릭하면 '…'로 줄인 글자 전체가 표 아래에 보입니다.")
         return
     row = df.iloc[rows[0]]
     with st.container(border=True):
@@ -352,11 +354,11 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     render_cluster_comparison(vectors, labels, emb_labels, sil_by_k)
 
 
-METRIC_HELP = {
-    "실루엣 ↑": "자기 묶음과는 가깝고 다른 묶음과는 먼 정도 (-1~1). 임베딩 분류는 이 값을 최대화하도록 k를 골랐으므로 유리하다.",
-    "Davies-Bouldin ↓": "묶음끼리 겹치는 정도 (0~, 낮을수록 잘 분리).",
-    "kNN 일관성 ↑": f"가장 비슷한 VOC {config.DISAGREE_K}개 중 같은 라벨 비율 평균 (0~1).",
-    "기타 비율 ↓": "어느 묶음에도 못 들어가 티켓으로 넘어가지 못하는 VOC 비율.",
+METRIC_HELP = {  # CELL_MAX_CHARS(40)자 이내 — 잘리지 않으므로 이 표에는 행 선택(체크박스)이 없다
+    "실루엣 ↑": "자기 묶음과 가깝고 다른 묶음과 먼 정도 (-1~1)",
+    "Davies-Bouldin ↓": "묶음끼리 겹치는 정도 (0~, 낮을수록 잘 분리)",
+    "kNN 일관성 ↑": f"가까운 VOC {config.DISAGREE_K}개 중 같은 라벨 비율 (0~1)",
+    "기타 비율 ↓": "어느 묶음에도 못 들어간 VOC 비율",
 }
 
 
@@ -578,9 +580,9 @@ with tab2:
                                               key=f"repo_pick_{sel}")
                 repo_name = picked if picked in names else names[0]
 
-                st.markdown("#### 폴더 지도")
-                render_folder_map(stage2.build_folder_map(result, cand.name), cand.name,
-                                  stage2.repo_branch(cand.name), ticket.cluster_label)
+                st.markdown("#### 폴더 후보")
+                render_folder_cards(stage2.build_folder_cards(result, repo_name), repo_name,
+                                    stage2.repo_branch(repo_name), ticket.cluster_label)
 
 # ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
 
@@ -628,7 +630,8 @@ with tab3:
             for idx, r in enumerate(recs):
                 with st.expander(f"{r.path} · {stage2.fmt_line_ranges(r.ranges)}", expanded=(idx == 0)):
                     render_code(stage2.read_lines(stage2.repo_dir(r.repo), r.path), r.ranges)
-                    st.table(pd.DataFrame(stage2.evidence_rows(ticket, r), columns=["항목", "내용"]).set_index("항목"))
+                    with st.container(key=f"card_evidence_{idx}"):  # 흰 배경 카드 안 근거 표
+                        st.table(pd.DataFrame(stage2.evidence_rows(ticket, r), columns=["항목", "내용"]).set_index("항목"))
             st.markdown("#### 함께 확인할 곳")
             impacts = result.get("impacts", [])  # 티켓 전체 기준 (파일별로 나누지 않음)
             if impacts:
