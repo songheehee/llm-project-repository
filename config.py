@@ -55,8 +55,10 @@ TICKET_ID_PREFIX = "TKT"      # 티켓은 VOC 하나가 아니라 VOC 유형 하
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 
 # ── 1️⃣ 대시보드 표시 ─────────────────────────────────
-CHART_TOP_TYPES = 5           # 일별 차트: 건수 상위 N개 유형만 색으로 나누고 나머지는 '기타'
+CHART_TOP_TYPES = 5           # 일별 차트: 건수 상위 N개 유형만 색으로 나누고 나머지 유형은 '기타', LLM 미분류는 '미분류'
 OTHER_COLOR = "#BDC1C6"       # 차트 '기타' 색
+UNASSIGNED_LABEL = "미분류"    # 차트 표시명: LLM이 어느 유형에도 넣지 못한 VOC (분류 결과의 '기타')
+UNASSIGNED_COLOR = "#80868B"  # 차트 '미분류' 색 — '기타'보다 진한 회색
 TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많으면 표 안에서 스크롤
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더

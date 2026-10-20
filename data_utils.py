@@ -48,10 +48,11 @@ def daily_counts(df: pd.DataFrame, group_col: str = "channel") -> pd.DataFrame:
     return out.sort_values("date")
 
 
-def top_groups(values: pd.Series, n: int, other: str) -> pd.Series:
-    """건수 상위 n개 값만 남기고 나머지는 other로 묶는다 (차트 색 수 제한용)."""
-    top = [v for v in values.value_counts().index if v != other][:n]
-    return values.where(values.isin(top), other)
+def top_groups(values: pd.Series, n: int, other: str, keep: tuple[str, ...] = ()) -> pd.Series:
+    """건수 상위 n개 값만 남기고 나머지는 other로 묶는다 (차트 색 수 제한용).
+    keep 값은 상위 계산에서 빼고 묶지도 않는다 (예: '미분류')."""
+    top = [v for v in values.value_counts().index if v != other and v not in keep][:n]
+    return values.where(values.isin(top) | values.isin(keep), other)
 
 
 def voc_table(df: pd.DataFrame) -> pd.DataFrame:

@@ -137,11 +137,12 @@ def has_api_key() -> bool:
 def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
     """일별 누적 막대. 범례는 차트 위 가로, 날짜는 MM/DD, 아래 여백을 줘 눈금이 잘리지 않게 한다."""
     order = daily.groupby("group")["count"].sum().sort_values(ascending=False).index.tolist()
-    if config.OTHER_LABEL in order:  # '기타'는 항상 마지막 · 회색
-        order = [g for g in order if g != config.OTHER_LABEL] + [config.OTHER_LABEL]
+    tail = [g for g in (config.OTHER_LABEL, config.UNASSIGNED_LABEL) if g in order]  # '기타' → '미분류'는 항상 마지막 · 회색
+    order = [g for g in order if g not in tail] + tail
     palette = px.colors.qualitative.Bold
     colors = {g: palette[i % len(palette)] for i, g in enumerate(order)}
     colors[config.OTHER_LABEL] = config.OTHER_COLOR
+    colors[config.UNASSIGNED_LABEL] = config.UNASSIGNED_COLOR
     with st.container(key="card_chart"):
         st.markdown(f"**{title}**")
         fig = px.bar(daily, x="date", y="count", color="group", labels={"count": "건수", "group": ""},
@@ -503,9 +504,14 @@ with tab1:
         render_ticket_cards()  # 순서: 요약 카드 → 클러스터 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
 
         cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
-        chart_df = cur.assign(cluster=data_utils.top_groups(cur["cluster"], config.CHART_TOP_TYPES, config.OTHER_LABEL))
+        # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다
+        unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
+        chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
+                                                            keep=(config.UNASSIGNED_LABEL,)))
         daily_bar_chart(data_utils.daily_counts(chart_df, "cluster"),
-                        f"일별 VOC 건수 (유형별 누적 · 상위 {config.CHART_TOP_TYPES}개 + 기타)")
+                        f"일별 VOC 건수 (유형별 누적 · 상위 {config.CHART_TOP_TYPES}개 + 기타 · 미분류)")
+        st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
+                   f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
 
         df_idx = df_all.set_index("voc_id")
         for c in clusters:
