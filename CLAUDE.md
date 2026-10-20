@@ -64,21 +64,21 @@ LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. �
 
 | 파일                      | 내용                                                                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `data/vocs.csv`           | voc_id(V0001~), created_at(ISO), channel(review/call_center), text, rating(1~5)                                                       |
+| `data/vocs.csv`           | voc_id(V0001~), created_at(ISO), channel(review/call_center), text                                                                    |
 | `data/answer_labels.csv`  | voc_id, true_label — **정답 확인 전용**. 앱·LLM에 절대 넣지 않는다 (try_stage1에서 일치율 출력만)                                     |
 | `data/repos.yaml`         | 저장소 3개: name, path(`sample_repos/<name>`), product, description, owner_parts, folder_roles                                        |
 | `data/rag/products.md`    | 워치 헬스 앱 기능 ↔ 레포·폴더, 사내 용어(PPG, 폴링 주기 등)                                                                           |
-| `data/rag/departments.md` | 파트 ↔ 담당 영역·레포: 센서(sensor/) · 전력(power/) · UI(ui/) · 운동(workout/) · 동기화(sync/, pulsefit-sync) · 서버(pulsefit-server) |
+| `data/rag/departments.md` | 파트 ↔ 담당 영역·레포·담당자(`- 담당자: 이름`, 가상 1명): 센서(sensor/, 김서준) · 전력(power/) · UI(ui/) · 운동(workout/) · 동기화(sync/, pulsefit-sync) · 서버(pulsefit-server) |
 
-VOC 생성 규칙 (클러스터별 건수 · 평점):
+VOC 생성 규칙 (클러스터별 건수):
 
-| 정답 클러스터     | 분석 기간 | 직전 기간 | rating | 문장 예 (고객 말투, 코드 용어 금지)                                  |
-| ----------------- | --------- | --------- | ------ | -------------------------------------------------------------------- |
-| 운동 중 기기 발열 | 91        | 10        | 1      | "업데이트하고 러닝하면 손목이 뜨거워요"                              |
-| 배터리 급소모     | 58        | 36        | 2      | "하루도 못 가고 배터리가 바닥나요"                                   |
-| 연결 끊김 시 발열 | 24        | 0         | 1      | "폰이랑 연결이 끊기면 시계가 따뜻해져요" (반드시 '연결 끊김'을 언급) |
-| 화면 사용성       | 29        | 29        | 3      | "메뉴 버튼이 너무 작아요"                                            |
-| GPS 거리 오차     | 17        | 17        | 3      | "달린 거리가 실제보다 짧게 나와요"                                   |
+| 정답 클러스터     | 분석 기간 | 직전 기간 | 문장 예 (고객 말투, 코드 용어 금지)                                  |
+| ----------------- | --------- | --------- | -------------------------------------------------------------------- |
+| 운동 중 기기 발열 | 91        | 10        | "업데이트하고 러닝하면 손목이 뜨거워요"                              |
+| 배터리 급소모     | 58        | 36        | "하루도 못 가고 배터리가 바닥나요"                                   |
+| 연결 끊김 시 발열 | 24        | 0         | "폰이랑 연결이 끊기면 시계가 따뜻해져요" (반드시 '연결 끊김'을 언급) |
+| 화면 사용성       | 29        | 29        | "메뉴 버튼이 너무 작아요"                                            |
+| GPS 거리 오차     | 17        | 17        | "달린 거리가 실제보다 짧게 나와요"                                   |
 
 - 클러스터마다 문장 템플릿 12개 이상 + 어미·상황 변형으로 섞는다. 클러스터끼리 표현이 겹치지 않게 한다.
 - 날짜: 클러스터 안 i번째 VOC는 기간 시작일 + (i % 12)일, 시각은 무작위.
@@ -225,6 +225,8 @@ class Ticket(BaseModel):    # stage1
     tech_keywords: list[str]    # 한국어 기술 용어: 샘플링 주기, 폴링 간격 …
     code_terms: list[str]       # 코드 검색용 영문 소문자 조각: poll, interval, heart_rate, sensor, continuous …
     owner_part: str             # departments.md의 파트 중 하나
+    assignee: str               # owner_part의 담당자 — departments.md에서 찾아 넣음 (LLM이 만들지 않음)
+    due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     voc_ids: list[str]
 
 # stage2: RepoCandidate(name, score, reason) · FolderScore(repo, path, score, keyword, recent, role, note)
@@ -261,10 +263,13 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
   - 최근변경: 분석 시작일 전 14일 안 커밋 1 / 30일 안 0.5 / 없음 0
   - 역할보정: `display_only` ×0.5 + note "표시 전용 폴더 → 감점"
 - 레포 후보: 점수 < 0.1 제외, 최대 3개
+- 예상 완료일 = 발행일 + `DUE_DAYS`: 긴급 3일 · 높음 7일 · 보통 14일 · 낮음 30일
+- 최다 급증 유형 = 급증률(surge_ratio)이 가장 큰 클러스터. 신규(직전 0건)는 배수 비교가 안 돼 제외
 
 ## 정답 (화면·터미널 숫자 확인용)
 
-- 분석 기간 총 VOC **219건** (직전 92건, **+138.0%**) · 리뷰 148 / 고객센터 71 (**리뷰 67.6%**) · 평균 평점 **1.68**
+- 분석 기간 총 VOC **219건** (직전 92건, **+138.0%**)
+- 요약 카드 4개: 총 VOC **219건(+138.0%)** · 최다 급증 유형 **운동 중 기기 발열(▲ 9.1배)** · VOC 유형 **5개** · 긴급 처리 건수 **1개** (분석 전에는 2~4번 "–")
 - 클러스터 5개 (LLM 분류라 건수 ±2 허용, **우선순위 라벨은 반드시 일치**):
 
 | 클러스터          | 건수 | 추세    | 점수 | 우선순위 |
@@ -275,7 +280,7 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 | 화면 사용성       | 29   | – 보합  | 0.26 | 보통     |
 | GPS 거리 오차     | 17   | – 보합  | 0.22 | 낮음     |
 
-- 티켓 VOC-0412: 운동 중 센서 과다 동작(발열) · **센서 파트**
+- 티켓 VOC-0412: 운동 중 센서 과다 동작(발열) · **센서 파트** · 담당자 **김서준** · 예상 완료일 **발행일 + 3일**
 - 레포 1위 `pulsefit-py` · 폴더 1위 `sensor/` · `ui/`는 감점 note가 붙고 1·2위가 아님 (점수 수치는 화면 예시와 달라도 됨)
 - 수정 라인 `sensor/heart_rate.py` **L17, L45–52** · 커밋 근거 **2026-10-02** "측정 주기 단축" (L17에만 붙음)
 - 영향 `workout/session.py:23` `start_continuous()` 호출
@@ -295,6 +300,9 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 - **analyze_impact**: 심볼 = 추천 줄의 대문자 상수 + 추천 줄을 감싼 `def` 이름(위로 올라가며 찾음). 그 이름이 `_`로 시작하면 같은 파일에서 `self.<이름>`을 쓰는 공개 메서드로 바꾼다(`_loop` → `start_continuous`). 같은 레포의 다른 `.py`에서 `\b심볼\b` 검색 → Impact(path, line, symbol, relation=f"{symbol}() 호출").
 - **진행 표시**: `for update in graph.stream(state, stream_mode="updates")` → 키가 노드명. `stream_stage2`가 `("node", 노드명, 소요초)`를 내고 마지막에 `("done", 최종 state)`. 최종 state는 업데이트를 누적해 만든다. 화면 표기: route_repos=④ 레포 라우팅, score_folders=⑤ 폴더 의심도, search_lines·verify_lines·add_commit_evidence=⑥ 라인 탐색·검증·커밋 근거, analyze_impact=⑦ 영향 범위.
 - **코드 뷰**: 추천 범위 앞뒤 5줄만 잘라 `HtmlFormatter(linenos="table", linenostart=시작줄, hl_lines=[...], noclasses=True)`. `hl_lines`는 **잘라낸 조각 기준 1부터** 번호다(절대 줄 번호 아님).
+- **1️⃣ 보기 전환**: `st.segmented_control(["📄 원본 VOC", "🧩 클러스터 분석 결과"], key="voc_view", required=True)`. [🔍 클러스터 분석]의 `on_click`에서 `voc_view`를 결과 보기로 바꾼다. 결과는 `st.session_state["stage1"]`에서 읽어 전환해도 LLM을 다시 부르지 않는다.
+- **요약 카드**: 총 VOC · 최다 급증 유형 · VOC 유형 · 긴급 처리 건수. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
+- **헤더**: "VOCAI"만. `.block-container` padding-top을 늘려 Streamlit 상단 바에 가리지 않게 한다.
 - **클러스터 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`.
-- **사이드바**: 현재 티켓 · ①수집 ②클러스터 ③티켓 ④~⑦(timings 유무로 ✓) · 단계별 소요 시간.
-- **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`.
+- **사이드바**: 현재 티켓(담당 파트·담당자·예상 완료일) · ①수집 ②클러스터 ③티켓 ④~⑦(timings 유무로 ✓) · 단계별 소요 시간.
+- **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 담당자·예상 완료일 포함.

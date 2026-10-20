@@ -14,7 +14,7 @@ import json
 import math
 import re
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from typing import Type, TypeVar
 
@@ -65,6 +65,8 @@ class Ticket(BaseModel):
     tech_keywords: list[str]
     code_terms: list[str]
     owner_part: str
+    assignee: str               # departments.md의 owner_part 담당자 (LLM이 만들지 않음)
+    due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     voc_ids: list[str]
 
 
@@ -133,6 +135,17 @@ def read_departments_md() -> str:
 def part_names() -> list[str]:
     """departments.md의 '## OO 파트' 제목 목록."""
     return re.findall(r"^##\s+(.+파트)\s*$", read_departments_md(), flags=re.M)
+
+
+def part_assignees() -> dict[str, str]:
+    """departments.md의 {파트 이름: 담당자} — 각 '## OO 파트' 아래 '- 담당자: 이름' 줄."""
+    result = {}
+    for section in re.split(r"^(?=##\s)", read_departments_md(), flags=re.M):
+        part = re.match(r"^##\s+(.+파트)\s*$", section, flags=re.M)
+        person = re.search(r"^-\s*담당자:\s*(.+?)\s*$", section, flags=re.M)
+        if part and person:
+            result[part.group(1)] = person.group(1)
+    return result
 
 
 def product_names() -> list[str]:
@@ -453,8 +466,23 @@ def sample_texts(df: pd.DataFrame, cluster: Cluster, n: int) -> list[str]:
     return [texts[int(i * step)] for i in range(n)]
 
 
-def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int) -> Ticket:
-    """고객 언어 클러스터를 개발자 언어 티켓으로 바꾼다. 담당 파트는 departments.md의 파트 중 하나."""
+def due_date_for(priority: str, issued_on: date) -> date:
+    """예상 완료일 = 발행일 + 우선순위별 기한."""
+    return issued_on + timedelta(days=config.DUE_DAYS[priority])
+
+
+def top_surge_cluster(clusters: list[Cluster]) -> Cluster | None:
+    """급증률이 가장 큰 클러스터. 신규(직전 0건)는 배수를 비교할 수 없어 제외하고, 신규뿐이면 그중 최다 건수."""
+    rated = [c for c in clusters if c.surge_ratio is not None]
+    if rated:
+        return max(rated, key=lambda c: (c.surge_ratio, c.count))
+    return max(clusters, key=lambda c: c.count, default=None)
+
+
+def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int,
+              issued_on: date | None = None) -> Ticket:
+    """고객 언어 클러스터를 개발자 언어 티켓으로 바꾼다. 담당 파트는 departments.md의 파트 중 하나.
+    담당자·예상 완료일은 LLM이 아니라 departments.md와 config.DUE_DAYS로 채운다."""
     parts = part_names()
     system = (
         "너는 고객 VOC를 개발 티켓으로 옮기는 테크 리드다. "
@@ -482,10 +510,12 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
 
     draft = call_structured(TicketDraft, system, user, validate)
     code_terms = [t for t in (re.sub(r"[^a-z0-9_]", "", s.lower()) for s in draft.code_terms) if t]
+    issued_on = issued_on or date.today()
     return Ticket(
         ticket_id=f"VOC-{ticket_no:04d}", cluster_id=cluster.cluster_id, period=period,
         product=cluster.product, priority=cluster.priority, problem=draft.problem,
         count=cluster.count, trend=cluster.trend, conditions=draft.conditions,
         tech_keywords=draft.tech_keywords, code_terms=list(dict.fromkeys(code_terms)),
-        owner_part=draft.owner_part, voc_ids=cluster.voc_ids,
+        owner_part=draft.owner_part, assignee=part_assignees().get(draft.owner_part, "미지정"),
+        due_date=due_date_for(cluster.priority, issued_on).isoformat(), voc_ids=cluster.voc_ids,
     )

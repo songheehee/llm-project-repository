@@ -17,7 +17,6 @@ import config  # noqa: E402
 
 WORKOUT_HEAT = {
     "label": "운동 중 기기 발열",
-    "rating": 1,
     "n_analysis": 91,
     "n_prev": 10,
     "cores": [
@@ -42,7 +41,6 @@ WORKOUT_HEAT = {
 
 BATTERY = {
     "label": "배터리 급소모",
-    "rating": 2,
     "n_analysis": 58,
     "n_prev": 36,
     "cores": [
@@ -66,7 +64,6 @@ BATTERY = {
 
 DISCONNECT_HEAT = {
     "label": "연결 끊김 시 발열",
-    "rating": 1,
     "n_analysis": 24,
     "n_prev": 0,
     "cores": [
@@ -89,7 +86,6 @@ DISCONNECT_HEAT = {
 
 SCREEN_UX = {
     "label": "화면 사용성",
-    "rating": 3,
     "n_analysis": 29,
     "n_prev": 29,
     "cores": [
@@ -113,7 +109,6 @@ SCREEN_UX = {
 
 GPS_DISTANCE = {
     "label": "GPS 거리 오차",
-    "rating": 3,
     "n_analysis": 17,
     "n_prev": 17,
     "cores": [
@@ -161,7 +156,6 @@ def make_vocs(rng: random.Random) -> list[dict]:
                     "created_at": ts.isoformat(),
                     "channel": "call_center" if i % 3 == 2 else "review",
                     "text": make_text(spec, rng, i),
-                    "rating": spec["rating"],
                     "true_label": spec["label"],
                 })
     rows.sort(key=lambda r: r["created_at"])
@@ -285,66 +279,79 @@ DEPARTMENTS_MD = """\
 # 개발 파트 안내 (사내 문서 · 교육용 가상 데이터)
 
 ## 센서 파트
+- 담당자: 김서준
 - 담당: 심박 센서(PPG) 드라이버, 측정 주기(폴링 주기), 연속 측정, 신호 필터
 - 저장소·폴더: `pulsefit-py` / `sensor/`
 - 이런 VOC가 오면: 운동 중 발열, 심박 수치 이상, 센서 과다 동작
 
 ## 전력 파트
+- 담당자: 박지민
 - 담당: 배터리 잔량 계산, 화면 켜짐 유지 시간, 절전 모드
 - 저장소·폴더: `pulsefit-py` / `power/`
 - 이런 VOC가 오면: 배터리 급소모 (충전이 안 되는 문제는 하드웨어 파트)
 
 ## UI 파트
+- 담당자: 이하은
 - 담당: 화면 구성, 메뉴·버튼 배치, 경고 문구 표시 (표시만 하고 하드웨어는 제어하지 않음)
 - 저장소·폴더: `pulsefit-py` / `ui/`
 - 이런 VOC가 오면: 버튼·글씨 크기, 메뉴 찾기 어려움
 
 ## 운동 파트
+- 담당자: 정우진
 - 담당: 운동 세션 관리, 거리 계산, GPS 보정
 - 저장소·폴더: `pulsefit-py` / `workout/`
 - 이런 VOC가 오면: 거리 오차, 운동 기록 누락
 
 ## 동기화 파트
+- 담당자: 최유나
 - 담당: 워치-폰 블루투스 연결, 연결 끊김 시 재연결 재시도, 데이터 전송
 - 저장소·폴더: `pulsefit-py` / `sync/`, `pulsefit-sync` 전체
 - 이런 VOC가 오면: 연결 끊김, 연결 끊김 상태의 발열·배터리 소모, 동기화 실패
 
 ## 서버 파트
+- 담당자: 한도윤
 - 담당: 운동 기록 저장 API, 통계 API, 데이터베이스
 - 저장소·폴더: `pulsefit-server` 전체
 - 이런 VOC가 오면: 앱에서 통계가 안 보임, 기록이 서버에 안 올라감, 같은 기록이 두 번 저장됨
 
 ## 헬스 파트
+- 담당자: 윤서아
 - 담당: 걸음 수·층수 계산, 수면 감지·수면 단계·수면 점수
 - 저장소·폴더: `pulsefit-py` / `activity/`, `sleep/`
 - 이런 VOC가 오면: 걸음 수 부정확, 수면 시간·단계 오류, 낮잠 미인식
 
 ## 알림 파트
+- 담당자: 강민호
 - 담당: 폰 알림을 워치로 전달, 워치 알림 배너·진동 요청, 방해 금지 모드
 - 저장소·폴더: `pulsefit-sync` / `relay/`, `pulsefit-py` / `notify/`
 - 이런 VOC가 오면: 알림 지연·누락·중복, 방해 금지 중 진동
 
 ## 플랫폼 파트
+- 담당자: 조예린
 - 담당: 앱 실행 관리, 워치독 재부팅, 메모리 부족 시 앱 종료
 - 저장소·폴더: `pulsefit-py` / `system/`
 - 이런 VOC가 오면: 앱 멈춤·강제 종료, 화면 멈춤, 혼자 재부팅
 
 ## 모바일 파트
+- 담당자: 임지호
 - 담당: 폰 앱 화면, 폰 교체 시 기록 가져오기, 워치·폰 걸음 수 합치기, 프로필(체중) 입력
 - 저장소·폴더: `pulsefit-mobile` 전체
 - 이런 VOC가 오면: 폰 앱에 기록이 안 보임, 워치와 폰 숫자가 다름, 폰에서 입력한 값이 워치에 반영 안 됨
 
 ## 하드웨어 파트
+- 담당자: 오세훈
 - 담당: 충전 접점 감지·충전 전류, 진동 모터 세기, GPS 칩 시작(위치 잡는 시간), 착용 감지, 온도 측정
 - 저장소·폴더: `pulsefit-firmware` 전체
 - 이런 VOC가 오면: 충전 불량·느린 충전, 진동이 약함, GPS 잡는 데 오래 걸림
 - 참고: 온도 측정(thermal/)은 값을 읽어 알려 주기만 한다. 운동 중 발열은 센서 파트, 연결 끊김 발열은 동기화 파트
 
 ## 기구 파트
+- 담당자: 신아름
 - 담당: 스트랩·케이스·버클 등 외형 설계 (코드 저장소 없음)
 - 이런 VOC가 오면: 착용감, 스트랩 피부 트러블, 스트랩 고리·교체 버튼
 
 ## 웹 파트
+- 담당자: 문태오
 - 담당: 브랜드 사이트, 온라인 스토어(장바구니·쿠폰·배너)
 - 저장소·폴더: `pulsefit-web` 전체
 - 이런 VOC가 오면: 구매·결제·쿠폰 문의 (기기 사용 VOC는 해당 없음)
@@ -364,8 +371,9 @@ def main() -> None:
     config.RAG_DIR.mkdir(parents=True, exist_ok=True)
 
     rows = make_vocs(rng)
-    write_csv(config.VOCS_CSV, rows, ["voc_id", "created_at", "channel", "text", "rating"])
-    write_csv(config.ANSWER_CSV, rows, ["voc_id", "true_label"])
+    # 원본 311건 파일에 직접 쓴다 (config.VOCS_CSV는 다른 데이터셋을 가리킬 수 있음)
+    write_csv(config.DATA_DIR / "vocs.csv", rows, ["voc_id", "created_at", "channel", "text"])
+    write_csv(config.DATA_DIR / "answer_labels.csv", rows, ["voc_id", "true_label"])
     config.REPOS_YAML.write_text(REPOS_YAML, encoding="utf-8")
     (config.RAG_DIR / "products.md").write_text(PRODUCTS_MD, encoding="utf-8")
     (config.RAG_DIR / "departments.md").write_text(DEPARTMENTS_MD, encoding="utf-8")

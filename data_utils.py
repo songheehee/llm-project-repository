@@ -10,7 +10,7 @@ CHANNEL_LABELS = {"review": "리뷰", "call_center": "고객센터"}
 
 
 def load_vocs() -> pd.DataFrame:
-    """data/vocs.csv를 읽어 created_at·date 열을 날짜형으로 만든다."""
+    """config.VOCS_CSV를 읽어 created_at·date 열을 날짜형으로 만든다."""
     df = pd.read_csv(config.VOCS_CSV, encoding="utf-8")
     df["created_at"] = pd.to_datetime(df["created_at"])
     df["date"] = df["created_at"].dt.date
@@ -30,21 +30,11 @@ def filter_period(df: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
 
 
 def compute_kpis(cur: pd.DataFrame, prev: pd.DataFrame) -> dict:
-    """KPI 4개: 총 건수 · 직전 대비 증감률 · 채널 비율 · 평균 평점."""
+    """총 건수 · 직전 기간 건수 · 직전 대비 증감률. (유형별 KPI는 클러스터 분석 후 화면에서 계산)"""
     total = len(cur)
     prev_total = len(prev)
     change_pct = (total - prev_total) / prev_total * 100 if prev_total else None
-    review = int((cur["channel"] == "review").sum())
-    call = int((cur["channel"] == "call_center").sum())
-    return {
-        "total": total,
-        "prev_total": prev_total,
-        "change_pct": change_pct,
-        "review": review,
-        "call_center": call,
-        "review_pct": review / total * 100 if total else 0.0,
-        "avg_rating": float(cur["rating"].mean()) if total else 0.0,
-    }
+    return {"total": total, "prev_total": prev_total, "change_pct": change_pct}
 
 
 def daily_counts(df: pd.DataFrame, group_col: str = "channel") -> pd.DataFrame:
@@ -61,7 +51,7 @@ def daily_counts(df: pd.DataFrame, group_col: str = "channel") -> pd.DataFrame:
 def voc_table(df: pd.DataFrame) -> pd.DataFrame:
     """화면용 VOC 원문 표 (최신순)."""
     out = df.sort_values("created_at", ascending=False)[
-        ["voc_id", "created_at", "channel", "rating", "text"]
+        ["voc_id", "created_at", "channel", "text"]
     ].copy()
     out["channel"] = out["channel"].map(CHANNEL_LABELS).fillna(out["channel"])
     return out

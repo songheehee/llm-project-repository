@@ -22,16 +22,20 @@ st.set_page_config(page_title="VOCAI", page_icon="🔎", layout="wide")
 
 CSS = """
 <style>
-.block-container {padding-top: 1.6rem;}
-.vocai-header {display:flex; align-items:center; gap:14px; flex-wrap:wrap;
-  background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 20px; margin-bottom:10px;}
+.block-container {padding-top: 4.5rem;}  /* Streamlit 상단 바에 헤더가 가리지 않게 */
+.vocai-header {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 20px; margin-bottom:10px;}
 .vocai-title {font-size:1.5rem; font-weight:800; color:#1428A0;}
-.vocai-sub {color:#5F6368; font-size:0.95rem;}
-.vocai-chip {background:#EEF1FB; color:#1428A0; border-radius:999px; padding:2px 10px; font-size:0.8rem; font-weight:600;}
-.vocai-period {margin-left:auto; color:#3C4043; font-size:0.9rem;}
 .vocai-badge {display:inline-block; color:#FFFFFF; border-radius:6px; padding:1px 8px; font-size:0.8rem; font-weight:700;}
 [class*="st-key-card"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 16px;}
-[data-testid="stMetric"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 16px;}
+/* 요약 카드: 모두 같은 높이, 글자가 길면 한 줄 말줄임(…) */
+[data-testid="stMetric"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 16px;
+  height:124px; box-sizing:border-box; overflow:hidden;}
+[data-testid="stMetric"] * {min-width:0;}
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p,
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] > div,
+[data-testid="stMetricDelta"], [data-testid="stMetricDelta"] > div {
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+[data-testid="stMetricValue"] {font-size:1.9rem;}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -43,6 +47,9 @@ STEP_NODES = {
     "⑥ 라인 탐색·검증·커밋 근거": ["search_lines", "verify_lines", "add_commit_evidence"],
     "⑦ 영향 범위": ["analyze_impact"],
 }
+VIEW_RAW = "📄 원본 VOC"
+VIEW_CLUSTER = "🧩 클러스터 분석 결과"
+VIEW_OPTIONS = [VIEW_RAW, VIEW_CLUSTER]
 NEXT_NODE = {
     "route_repos": "score_folders", "score_folders": "search_lines", "search_lines": "verify_lines",
     "verify_lines": "add_commit_evidence", "add_commit_evidence": "analyze_impact",
@@ -109,6 +116,7 @@ ss.setdefault("ticket_secs", None)
 ss.setdefault("next_ticket_no", config.FIRST_TICKET_NO)
 ss.setdefault("stage2", {})          # {ticket_id: 최종 state}
 ss.setdefault("current_ticket", None)
+ss.setdefault("voc_view", VIEW_RAW)  # 1️⃣ 탭 보기 전환 (segmented_control key)
 
 
 def badge(priority: str) -> str:
@@ -299,15 +307,7 @@ df_all = cached_vocs()
 min_d, max_d = df_all["date"].min(), df_all["date"].max()
 period = ss.get("period", (config.ANALYSIS_START, config.ANALYSIS_END))
 
-st.markdown(
-    f"""<div class="vocai-header">
-      <span class="vocai-title">🔎 VOCAI</span>
-      <span class="vocai-sub">고객의 목소리 → 고칠 곳</span>
-      <span class="vocai-chip">교육용 가상 데이터</span>
-      <span class="vocai-period">분석 기간 {period[0]:%m/%d} ~ {period[1]:%m/%d}</span>
-    </div>""",
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="vocai-header"><span class="vocai-title">VOCAI</span></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 레포 지도", "3️⃣ 수정 라인"])
 
@@ -325,7 +325,12 @@ with tab1:
         ss["period"] = (start, end)
         st.rerun()
     key = (start, end)
-    run_clicked = c_btn.button("🔍 클러스터 분석", type="primary", width="stretch")
+    # 누르면 보기도 '클러스터 분석 결과'로 바꾼다 (콜백은 위젯이 그려지기 전에 실행됨)
+    run_clicked = c_btn.button("🔍 클러스터 분석", type="primary", width="stretch",
+                               on_click=lambda: ss.update(voc_view=VIEW_CLUSTER))
+
+    view = st.segmented_control("보기", VIEW_OPTIONS, key="voc_view", required=True,
+                                label_visibility="collapsed")
 
     if run_clicked and has_api_key():
         with st.spinner("VOC를 클러스터로 묶는 중… (같은 기간은 캐시 사용)"):
@@ -335,41 +340,39 @@ with tab1:
             ss["stage1"][key] = {"clusters": clusters, "assignments": assignments,
                                  "secs": round(time.perf_counter() - t0, 1)}
 
-    s1 = ss["stage1"].get(key)
+    s1 = ss["stage1"].get(key)  # 분석 결과는 세션에 남아 보기를 바꿔도 LLM을 다시 부르지 않는다
     kpi = cached_kpis(start, end)
     ps, pe = data_utils.prev_period(start, end)
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("총 VOC", f"{kpi['total']:,}건",
-              delta=f"{kpi['total'] - kpi['prev_total']:+,}건", delta_color="inverse")
-    k2.metric("직전 기간 대비", f"{kpi['change_pct']:+.1f}%" if kpi["change_pct"] is not None else "–",
-              help=f"직전 기간 {ps:%m/%d}~{pe:%m/%d} · {kpi['prev_total']}건")
-    k3.metric("리뷰 · 고객센터", f"{kpi['review_pct']:.1f}% 리뷰",
-              help=f"리뷰 {kpi['review']}건 / 고객센터 {kpi['call_center']}건")
-    k4.metric("평균 평점", f"{kpi['avg_rating']:.2f}")
-    if s1:
-        k5, k6, _, _ = st.columns(4)
-        k5.metric("클러스터 수", f"{len(s1['clusters'])}개")
-        k6.metric("긴급 클러스터", f"{sum(c.priority == '긴급' for c in s1['clusters'])}개")
+              delta=f"{kpi['change_pct']:+.1f}%" if kpi["change_pct"] is not None else None,
+              delta_color="inverse", help=f"직전 기간 {ps:%m/%d}~{pe:%m/%d} · {kpi['prev_total']}건 대비")
+    top = stage1.top_surge_cluster(s1["clusters"]) if s1 else None
+    if top:
+        k2.metric("최다 급증 유형", top.label, delta=top.trend, delta_arrow="off",
+                  delta_color="inverse" if top.trend.startswith("▲") else "off",
+                  help=f"{top.label} · 직전 {top.prev_count}건 → {top.count}건 (신규 유형은 배수 비교가 안 돼 제외)")
+        k3.metric("VOC 유형", f"{len(s1['clusters'])}개", help="클러스터 수")
+        k4.metric("긴급 처리 건수", f"{sum(c.priority == '긴급' for c in s1['clusters'])}개",
+                  help="우선순위가 '긴급'인 VOC 유형 수")
+    else:
+        for col, label in [(k2, "최다 급증 유형"), (k3, "VOC 유형"), (k4, "긴급 처리 건수")]:
+            col.metric(label, "–", help="클러스터 분석 후 표시")
 
     cur = data_utils.filter_period(df_all, start, end)
-    with st.container(key="card_chart"):
-        if s1:
-            cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
-            daily = data_utils.daily_counts(cur, "cluster")
-            title = "일별 VOC 건수 (클러스터별 누적)"
-        else:
-            daily = data_utils.daily_counts(cur, "channel")
-            title = "일별 VOC 건수 (채널별 누적)"
-        fig = px.bar(daily, x="date", y="count", color="group", title=title,
-                     labels={"date": "날짜", "count": "건수", "group": ""})
-        fig.update_layout(barmode="stack", height=330, margin=dict(l=10, r=10, t=50, b=10),
-                          legend=dict(orientation="h", y=-0.2), plot_bgcolor="#FFFFFF")
-        st.plotly_chart(fig, width="stretch")
 
-    if not s1:
+    if view == VIEW_RAW:
+        with st.container(key="card_chart"):
+            fig = px.bar(data_utils.daily_counts(cur, "channel"), x="date", y="count", color="group",
+                         title="일별 VOC 건수 (채널별 누적)", labels={"date": "날짜", "count": "건수", "group": ""})
+            fig.update_layout(barmode="stack", height=330, margin=dict(l=10, r=10, t=50, b=10),
+                              legend=dict(orientation="h", y=-0.2), plot_bgcolor="#FFFFFF")
+            st.plotly_chart(fig, width="stretch")
         st.subheader("VOC 원문")
         st.dataframe(data_utils.voc_table(cur), hide_index=True, width="stretch", height=320)
+    elif not s1:
+        st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
     else:
         st.subheader("클러스터")
         clusters = s1["clusters"]
@@ -392,6 +395,14 @@ with tab1:
             },
             disabled=[c for c in table.columns if c != "발행"],
         )
+
+        cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
+        with st.container(key="card_chart"):
+            fig = px.bar(data_utils.daily_counts(cur, "cluster"), x="date", y="count", color="group",
+                         title="일별 VOC 건수 (클러스터별 누적)", labels={"date": "날짜", "count": "건수", "group": ""})
+            fig.update_layout(barmode="stack", height=330, margin=dict(l=10, r=10, t=50, b=10),
+                              legend=dict(orientation="h", y=-0.2), plot_bgcolor="#FFFFFF")
+            st.plotly_chart(fig, width="stretch")
 
         df_idx = df_all.set_index("voc_id")
         for c in clusters:
@@ -420,14 +431,15 @@ with tab1:
                         ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
                 ss["ticket_secs"] = round(time.perf_counter() - t0, 1)
 
-        render_voc_map(cur, clusters)
+        for t in ss["tickets"].values():
+            with st.container(key=f"card_ticket_{t.ticket_id}"):
+                st.markdown(f"{badge(t.priority)} &nbsp;**{t.ticket_id}**", unsafe_allow_html=True)
+                st.markdown(f"**{t.problem}**")
+                st.caption(f"{t.count}건 {t.trend} · {t.owner_part} · 담당자 {t.assignee} · "
+                           f"예상 완료일 {t.due_date} · {t.product} · {t.period}")
+                st.markdown(f"발생 조건: {', '.join(t.conditions)}  \n기술 키워드: {', '.join(t.tech_keywords)}")
 
-    for t in ss["tickets"].values():
-        with st.container(key=f"card_ticket_{t.ticket_id}"):
-            st.markdown(f"{badge(t.priority)} &nbsp;**{t.ticket_id}**", unsafe_allow_html=True)
-            st.markdown(f"**{t.problem}**")
-            st.caption(f"{t.count}건 {t.trend} · {t.owner_part} · {t.product} · {t.period}")
-            st.markdown(f"발생 조건: {', '.join(t.conditions)}  \n기술 키워드: {', '.join(t.tech_keywords)}")
+        render_voc_map(cur, clusters)
 
 # ════════════════════════════ 탭 2: 레포 지도 ════════════════════════════
 
@@ -565,6 +577,7 @@ with st.sidebar:
     if cur_ticket:
         st.markdown(f"{badge(cur_ticket.priority)} **{cur_ticket.ticket_id}**", unsafe_allow_html=True)
         st.caption(cur_ticket.problem)
+        st.caption(f"👤 {cur_ticket.owner_part} · {cur_ticket.assignee}  \n📅 예상 완료일 {cur_ticket.due_date}")
     else:
         st.caption("없음")
 

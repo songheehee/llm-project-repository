@@ -2,11 +2,11 @@
 VOC 1,000건 생성 (주제 13개).
 
 원본 vocs.csv의 형식과 말투를 그대로 따른다.
-  - 컬럼: voc_id, created_at, channel, text, rating  (UTF-8, CRLF, 따옴표 없음)
+  - 컬럼: voc_id, created_at, channel, text  (UTF-8, CRLF, 따옴표 없음)
   - text = [말머리] + 핵심 문장 + [맺음말]
   - 기간 2026-09-21 ~ 10-14. 10/3부터 운동 중 발열 급증, 연결 끊김 발열 등장, 배터리 증가
 주제는 원본 5개에 실제 워치 VOC에서 흔한 8개를 더했다.
-별점은 주제마다 분포를 두어 섞었다 (예: 운동 중 발열은 대부분 1점, 일부 2점).
+말투 세기(1~4)는 주제마다 분포를 두어 섞었다 — 맺음말 고르기에만 쓰고 CSV에는 넣지 않는다.
 
   python generate_vocs_1000.py  ->  vocs_1000.csv, vocs_1000_labels.csv
 """
@@ -21,7 +21,7 @@ START, END = date(2026, 9, 21), date(2026, 10, 14)
 SPIKE = date(2026, 10, 3)
 CALL_CENTER_RATE = 0.32
 
-# 주제: (한글 이름, 급증 전 하루 평균, 10/3 이후 하루 평균, 별점 분포)
+# 주제: (한글 이름, 급증 전 하루 평균, 10/3 이후 하루 평균, 말투 세기 분포 — 1 강한 불만 ~ 4 대체로 만족)
 TOPICS = {
     "heat_work":    ("운동 중 기기 발열",       1.0, 20.0, {1: .85, 2: .15}),
     "heat_disc":    ("연결 끊김 시 발열",       0.0,  5.0, {1: .70, 2: .30}),
@@ -204,7 +204,7 @@ SUFFIXES = {
     "app_crash": ["너무 답답해요.", "빨리 고쳐 주세요.", "이거 정상인가요?", "운동할 맛이 안 나요."],
 }
 SIZE_WORDS = ("작아", "글씨", "글자")
-# 별점 4점(대체로 만족)에는 순한 맺음말만 붙인다
+# 말투 세기 4(대체로 만족)에는 순한 맺음말만 붙인다
 MILD_SUFFIXES = ["그것만 빼면 만족해요.", "나머지는 다 좋아요.", "개선되면 좋겠어요.", "아쉬워요."]
 
 
@@ -236,7 +236,7 @@ def daily_counts(rng):
     return counts
 
 
-def make_text(rng, topic, rating):
+def make_text(rng, topic, tone):
     core = rng.choice(CORES[topic])
     if topic in MODIFIER and rng.random() < MODIFIER[topic][1]:
         core = MODIFIER[topic][0] + core
@@ -245,7 +245,7 @@ def make_text(rng, topic, rating):
         parts.append(rng.choice(PREFIXES))
     parts.append(core)
     if rng.random() < SUFFIX_RATE.get(topic, DEFAULT_SUFFIX_RATE):
-        options = MILD_SUFFIXES if rating >= 4 else SUFFIXES[topic]
+        options = MILD_SUFFIXES if tone >= 4 else SUFFIXES[topic]
         if topic == "menu" and not any(w in core for w in SIZE_WORDS):
             options = [s for s in options if s != "조금만 크게 해 주세요."]
         parts.append(rng.choice(options))
@@ -259,12 +259,11 @@ def main():
         dist = TOPICS[topic][3]
         for _ in range(n):
             ts = datetime(d.year, d.month, d.day) + timedelta(seconds=rng.randrange(86400))
-            rating = rng.choices(list(dist), list(dist.values()))[0]
+            tone = rng.choices(list(dist), list(dist.values()))[0]
             rows.append({
                 "created_at": ts.strftime("%Y-%m-%dT%H:%M:%S"),
                 "channel": "call_center" if rng.random() < CALL_CENTER_RATE else "review",
-                "text": make_text(rng, topic, rating),
-                "rating": rating,
+                "text": make_text(rng, topic, tone),
                 "topic": topic,
             })
     rows.sort(key=lambda r: r["created_at"])
@@ -274,8 +273,8 @@ def main():
 
     with open("vocs_1000.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
-        w.writerow(["voc_id", "created_at", "channel", "text", "rating"])
-        w.writerows([r["voc_id"], r["created_at"], r["channel"], r["text"], r["rating"]] for r in rows)
+        w.writerow(["voc_id", "created_at", "channel", "text"])
+        w.writerows([r["voc_id"], r["created_at"], r["channel"], r["text"]] for r in rows)
     with open("vocs_1000_labels.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
         w.writerow(["voc_id", "topic", "topic_name"])

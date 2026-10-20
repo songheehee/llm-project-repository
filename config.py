@@ -35,6 +35,7 @@ MIN_CLUSTER_SIZE = 3          # 분석 기간 건수가 이보다 적은 클러�
 SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
 TICKET_SAMPLE_VOCS = 10       # 티켓화 프롬프트에 넣는 VOC 수
 FIRST_TICKET_NO = 412         # VOC-0412부터
+DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 
 # ── VOC 유사도 지도 (임베딩 · t-SNE 3D 투영) ───────────────
 VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 지도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)
