@@ -60,14 +60,20 @@ OTHER_COLOR = "#BDC1C6"       # 차트 '기타' 색
 TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많으면 표 안에서 스크롤
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
-TEXT_COL_WIDTH = 480          # 표의 긴 텍스트 열 너비(px) — 넘으면 말줄임(…), 셀 클릭 시 전체 표시
-SHORT_COL_WIDTH = 100         # 표의 짧은 열(ID·날짜·숫자·우선순위) 너비(px)
-LONG_TEXT_MIN_CHARS = 20      # 글자 열 중 가장 긴 값이 이보다 길면 '긴 텍스트 열'로 본다
-LONG_TEXT_COLUMNS = {         # 값이 짧아도 항상 긴 텍스트 열로 넓히는 열 이름 (VOC 원문·유형 라벨·문제점·이유·관계 등)
-    "text", "원문", "클러스터", "LLM 클러스터", "임베딩 클러스터", "LLM 라벨", "이웃 다수 라벨",
-    "영역 · 제품", "문제점", "이유", "관계", "설명", "파일",
-}
 TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 개수
+
+# ── 2️⃣ 의심 위치 — 폴더 지도 ─────────────────────────
+DEFAULT_DEPLOY_BRANCH = "main"  # repos.yaml에 branch가 없고 .git/HEAD도 못 읽을 때
+FOLDER_MAP_COLUMNS = 3          # 폴더 카드 한 줄 개수
+FOLDER_MAP_MAX_CLASSES = 5      # 폴더당 보여 줄 클래스 최대 수
+CLASS_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점", "일반"]  # 위에 있을수록 우선 적용·먼저 표시
+CLASS_STATUS_STYLE = {          # 폴더 지도 클래스 알약 모양 (CSS)
+    "원인 후보": "background:#E8622C; color:#FFFFFF; font-weight:700; border:1px solid #E8622C;",
+    "함께 확인": "background:#F9D3C7; color:#202124; font-weight:700; border:1px solid #E8622C;",
+    "키워드 일치": "background:#FFB547; color:#202124; font-weight:700; border:1px solid #FFB547;",
+    "감점": "background:#FFFFFF; color:#D93025; border:1px dashed #D93025;",
+    "일반": "background:#F1F3F4; color:#3C4043; border:1px solid #F1F3F4;",
+}
 
 # ── VOC 유사도 지도 (임베딩 · t-SNE 3D 투영) ───────────────
 VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 지도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)

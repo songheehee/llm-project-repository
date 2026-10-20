@@ -148,23 +148,37 @@ def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
         st.plotly_chart(fig, width="stretch")
 
 
-def text_column_config(df: pd.DataFrame, overrides: dict | None = None) -> dict:
-    """모든 표가 같은 열 너비 규칙을 쓴다: 긴 텍스트 열 TEXT_COL_WIDTH, 나머지(ID·날짜·숫자·우선순위) SHORT_COL_WIDTH.
-    너비를 넘는 글자는 표 기본 말줄임(…)으로 두고 셀을 클릭하면 전체가 보인다. 열 너비 합이 화면보다 크면 가로 스크롤.
-    overrides는 형식(NumberColumn 등)이 필요한 열 — 호출하는 쪽에서 width도 함께 준다."""
-    overrides = overrides or {}
-    cfg = {}
-    for col in df.columns:
-        if col in overrides:
-            cfg[col] = overrides[col]
-            continue
-        values = df[col]
-        is_text = values.dtype == object and values.astype(str).str.len().max() > config.LONG_TEXT_MIN_CHARS
-        if col in config.LONG_TEXT_COLUMNS or is_text:
-            cfg[col] = st.column_config.TextColumn(width=config.TEXT_COL_WIDTH)
-        else:
-            cfg[col] = st.column_config.Column(width=config.SHORT_COL_WIDTH)
-    return cfg
+def render_folder_map(cards, repo: str, branch: str, voc_type: str) -> None:
+    """폴더 지도: 제목 줄 · 범례 · 폴더 카드 그리드(한 줄 3장). HTML은 st.html로, 모든 값은 html.escape."""
+    esc = html.escape
+    pill = "display:block; border-radius:8px; padding:3px 10px; margin:4px 0; font-size:13px;"
+    title = (f'<div style="font-weight:700; font-size:15px; margin-bottom:4px;">'
+             f'<span style="font-family:monospace;">{esc(repo)} / {esc(branch)}</span> · {esc(voc_type)} 기준</div>')
+    legend_items = []
+    for status in config.CLASS_STATUS_ORDER:
+        style = config.CLASS_STATUS_STYLE[status]
+        mark = "┅" if status == "감점" else "■"
+        sw = (f'<span style="display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; '
+              f'{style}"></span>') if mark == "■" else f'<span style="color:#D93025; font-weight:700;">{mark}</span>'
+        legend_items.append(f"{sw} {esc(status)}")
+    legend = f'<div style="font-size:13px; color:#3C4043; margin-bottom:10px;">{" · ".join(legend_items)}</div>'
+    if not cards:
+        st.html(title + legend + '<div style="color:#5F6368; font-size:13px;">보여 줄 폴더가 없습니다.</div>')
+        return
+    boxes = []
+    for card in cards:
+        pills = []
+        for item in card.items:
+            label = esc(item.name) + (" ✕" if item.status == "감점" else "")
+            tip = f' title="{esc(item.note)}"' if item.note else f' title="{esc(item.file)}"'
+            pills.append(f'<span style="{pill}{config.CLASS_STATUS_STYLE[item.status]}"{tip}>{label}</span>')
+        boxes.append(
+            '<div style="background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 14px;">'
+            f'<div style="font-family:monospace; font-weight:700; margin-bottom:6px;">📁 {esc(card.path)}</div>'
+            f'{"".join(pills)}</div>')
+    grid = (f'<div style="display:grid; grid-template-columns:repeat({config.FOLDER_MAP_COLUMNS}, minmax(0, 1fr)); '
+            f'gap:12px;">{"".join(boxes)}</div>')
+    st.html(title + legend + grid)
 
 
 def render_ticket_cards() -> None:
@@ -284,9 +298,8 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
         "같은 LLM 클러스터": "✓" if labels[j] == labels[pick] else "⚠ 다름",
         "임베딩 클러스터": emb_labels[j], "원문": cur.at[j, "text"],
     } for r, (j, s) in enumerate(neighbors, 1)])
-    st.dataframe(near, hide_index=True, width="stretch", column_config=text_column_config(near, {
-        "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0,
-                                                width=config.SHORT_COL_WIDTH)}))
+    st.dataframe(near, hide_index=True, width="stretch", column_config={
+        "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
 
     odd = stage1.label_disagreements(vectors, labels, config.DISAGREE_K)
     with st.expander(f"임베딩 이웃과 LLM 라벨이 다른 VOC {len(odd)}건 (경계·오분류 후보)"):
@@ -296,7 +309,7 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
                 "이웃 다수 라벨": f"{o['neighbor_label']} ({o['agree']}/{config.DISAGREE_K})",
                 "원문": cur.at[o["idx"], "text"],
             } for o in odd])
-            st.dataframe(odd_df, hide_index=True, width="stretch", column_config=text_column_config(odd_df))
+            st.dataframe(odd_df, hide_index=True, width="stretch")
         else:
             st.caption("모든 VOC가 이웃 다수와 같은 클러스터입니다.")
 
@@ -333,7 +346,7 @@ def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[s
         {"지표": "kNN 일관성 ↑", "LLM": fmt(m_llm["knn_consistency"]), "임베딩": fmt(m_emb["knn_consistency"])},
         {"지표": "기타 비율 ↓", "LLM": f"{m_llm['other_ratio']:.1%}", "임베딩": f"{m_emb['other_ratio']:.1%}"},
     ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP))
-    st.dataframe(metrics_df, hide_index=True, width="stretch", column_config=text_column_config(metrics_df))
+    st.dataframe(metrics_df, hide_index=True, width="stretch")
 
     if sil_by_k:
         with st.expander(f"임베딩 분류의 k 선택 — k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} 중 실루엣 최대"):
@@ -354,7 +367,7 @@ period = ss.get("period", (config.ANALYSIS_START, config.ANALYSIS_END))
 
 st.markdown('<div class="vocai-header"><span class="vocai-title">VOCAI</span></div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 레포 지도", "3️⃣ 수정 라인"])
+tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 의심 위치", "3️⃣ 수정 라인"])
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
@@ -409,7 +422,7 @@ with tab1:
         daily_bar_chart(data_utils.daily_counts(cur, "channel"), "일별 VOC 건수 (채널별 누적)")
         st.subheader("VOC 원문")
         raw = data_utils.voc_table(cur)
-        st.dataframe(raw, hide_index=True, width="stretch", column_config=text_column_config(raw),
+        st.dataframe(raw, hide_index=True, width="stretch",
                      height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
     elif not s1:
         st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
@@ -433,13 +446,12 @@ with tab1:
         edited = st.data_editor(
             table, hide_index=True, width="stretch", key=f"editor_{start}_{end}",
             height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
-            column_config=text_column_config(table, {
-                "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행", width=config.SHORT_COL_WIDTH),
-                "이번 기간": st.column_config.NumberColumn(format="%d건", width=config.SHORT_COL_WIDTH),
-                "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}",
-                                                         width=config.SHORT_COL_WIDTH),
-                "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리", width=config.SHORT_COL_WIDTH),
-            }),
+            column_config={
+                "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
+                "이번 기간": st.column_config.NumberColumn(format="%d건"),
+                "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
+                "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
+            },
             disabled=[c for c in table.columns if c != "발행"],
         )
         any_checked = bool(edited["발행"].any())
@@ -486,7 +498,7 @@ with tab1:
 
         render_voc_map(cur, clusters)
 
-# ════════════════════════════ 탭 2: 레포 지도 ════════════════════════════
+# ════════════════════════════ 탭 2: 의심 위치 ════════════════════════════
 
 with tab2:
     if not ss["tickets"]:
@@ -513,41 +525,22 @@ with tab2:
         if not result:
             st.caption("▶ 코드 좁혀 가기를 누르면 ④ 레포 라우팅 → ⑤ 폴더 의심도 → ⑥ 라인 탐색 → ⑦ 영향 범위를 차례로 실행합니다.")
         else:
-            with st.container(key="card_repos"):
-                st.markdown("#### 레포 후보")
-                cands = result.get("repo_candidates", [])
-                sources = result.get("repo_sources", {})
-                if not cands:
-                    st.warning("점수 0.1 이상인 레포 후보가 없습니다.")
-                else:
-                    # 후보마다 한 블록: 1줄 이름 · 점수 막대 · 점수 / 2줄 이유 전체 (표 셀에 넣으면 잘린다)
-                    for c in cands:
-                        c_name, c_bar, c_score = st.columns([2, 5, 1], vertical_alignment="center")
-                        c_name.markdown(f"**{c.name}**")
-                        c_bar.progress(min(max(c.score, 0.0), 1.0))
-                        c_score.markdown(f"{c.score:.2f}")
-                        st.caption(c.reason)
-                        if c.name in sources:
-                            st.caption(f"코드 출처: {sources[c.name]}")
-            if cands:
-                with st.container(key="card_folders"):
-                    st.markdown("#### 폴더 의심도")
-                    repo_sel = st.radio("레포", [c.name for c in cands], horizontal=True, label_visibility="collapsed")
-                    folders = [f for f in result.get("folder_scores", []) if f.repo == repo_sel]
-                    if folders:
-                        fdf = pd.DataFrame([{"폴더": f.path, "점수": f.score, "근거": f.note,
-                                             "구분": "감점" if f.role else "일반"} for f in folders])
-                        fig = px.bar(fdf.iloc[::-1], x="점수", y="폴더", orientation="h", text="점수",
-                                     color="구분", hover_data=["근거"],
-                                     color_discrete_map={"일반": "#1428A0", "감점": "#9AA0A6"})
-                        fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-                        fig.update_layout(height=60 + 42 * len(fdf), margin=dict(l=10, r=40, t=10, b=10),
-                                          xaxis=dict(range=[0, 1.1]), showlegend=False, plot_bgcolor="#FFFFFF")
-                        st.plotly_chart(fig, width="stretch")
-                        for f in folders:
-                            st.caption(("⚠ " if f.role else "") + f"{f.path} — {f.note}")
-                    else:
-                        st.caption("폴더 점수가 없습니다.")
+            cands = result.get("repo_candidates", [])
+            sources = result.get("repo_sources", {})
+            st.markdown("#### 레포 후보")
+            if not cands:
+                st.warning("점수 0.1 이상인 레포 후보가 없습니다.")
+            else:
+                # 한 줄 선택지: "pulsefit-py 0.98"처럼 이름 + 점수, 기본은 1위 레포
+                labels = {f"{c.name} {c.score:.2f}": c for c in cands}
+                picked = st.segmented_control("레포 후보", list(labels), default=list(labels)[0], required=True,
+                                              key=f"repo_pick_{sel}", label_visibility="collapsed")
+                cand = labels.get(picked, cands[0])
+                st.caption(cand.reason + (f"  \n코드 출처: {sources[cand.name]}" if cand.name in sources else ""))
+
+                st.markdown("#### 폴더 지도")
+                render_folder_map(stage2.build_folder_map(result, cand.name), cand.name,
+                                  stage2.repo_branch(cand.name), ticket.cluster_label)
 
 # ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
 
@@ -603,7 +596,7 @@ with tab3:
             if impacts:
                 imp = pd.DataFrame([{"저장소": i.repo, "파일": i.path, "라인": i.line, "심볼": i.symbol,
                                      "관계": i.relation} for i in impacts])
-                st.dataframe(imp, hide_index=True, width="stretch", column_config=text_column_config(imp))
+                st.dataframe(imp, hide_index=True, width="stretch")
             else:
                 st.caption("같은 저장소의 다른 파일에서 참조하는 곳이 없습니다.")
         st.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
@@ -642,4 +635,4 @@ with st.sidebar:
     if time_df.empty:
         st.caption("아직 실행 기록이 없습니다.")
     else:
-        st.dataframe(time_df, hide_index=True, width="stretch", column_config=text_column_config(time_df))
+        st.dataframe(time_df, hide_index=True, width="stretch")
