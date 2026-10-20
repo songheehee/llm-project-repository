@@ -1000,8 +1000,9 @@ def ticket_to_markdown(ticket: Ticket, result: dict | None) -> str:
         md.append("")
     if result.get("folder_scores"):
         md += ["## 폴더 의심도", ""]
-        md += md_table(["저장소", "폴더", "점수", "근거"],
-                       [[f.repo, f.path, f"{f.score:.2f}", f.note] for f in result["folder_scores"]])
+        md += md_table(["저장소", "폴더", "점수", "키워드", "함수 의미", "코드 원문(비교)", "최근 변경", "근거"],
+                       [[f.repo, f.path, f"{f.score:.2f}", f"{f.keyword:.2f}", f"{f.semantic:.2f}",
+                         f"{f.semantic_code:.2f}", f"{f.recent:g}", f.note] for f in result["folder_scores"]])
         md.append("")
     recs = [r for r in result.get("line_recs", []) if r.verified]
     for r in recs:
