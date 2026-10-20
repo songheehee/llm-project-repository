@@ -277,7 +277,7 @@ METRIC_HELP = {
 
 
 def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[str], sil_by_k: dict) -> None:
-    """LLM 분류 vs 임베딩 분류: 내부 지표 · 두 분류 일치도 · 교차표 · k별 실루엣."""
+    """LLM 분류 vs 임베딩 분류: 내부 지표 · 두 분류 일치도 · k별 실루엣."""
     st.markdown("#### 📏 LLM 분류 vs 임베딩 분류")
     k = config.DISAGREE_K
     m_llm = stage1.clustering_metrics(vectors, llm_labels, k)
@@ -298,17 +298,6 @@ def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[s
         {"지표": "kNN 일관성 ↑", "LLM": fmt(m_llm["knn_consistency"]), "임베딩": fmt(m_emb["knn_consistency"])},
         {"지표": "기타 비율 ↓", "LLM": f"{m_llm['other_ratio']:.1%}", "임베딩": f"{m_emb['other_ratio']:.1%}"},
     ]).assign(설명=lambda d: d["지표"].map(METRIC_HELP)), hide_index=True, width="stretch")
-
-    tab = pd.crosstab(pd.Series(llm_labels, name="LLM"), pd.Series(emb_labels, name="임베딩"))
-    tab = tab[sorted(tab.columns, key=lambda s: int(s.split(" ·")[0][1:]))]
-    fig = px.imshow(tab, text_auto=True, aspect="auto", color_continuous_scale="Blues",
-                    labels={"x": "임베딩 클러스터", "y": "LLM 클러스터", "color": "건수"})
-    fig.update_layout(height=120 + 38 * len(tab), margin=dict(l=10, r=10, t=30, b=10),
-                      title="교차표 — 한 행이 여러 열로 갈라지면 임베딩이 더 잘게, 한 열이 여러 행에 걸치면 LLM이 더 잘게 나눈 것",
-                      title_font_size=13, coloraxis_showscale=False)
-    fig.update_xaxes(tickangle=-30)
-    with st.container(key="card_cluster_compare"):
-        st.plotly_chart(fig, width="stretch")
 
     if sil_by_k:
         with st.expander(f"임베딩 분류의 k 선택 — k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} 중 실루엣 최대"):
