@@ -67,6 +67,8 @@ TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
 TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 개수
+HOVER_LINE_CHARS = 40         # 의미 공간 툴팁 원문 줄바꿈 글자 수
+HOVER_MAX_CHARS = 120         # 의미 공간 툴팁 원문 최대 글자 수 (넘으면 …)
 DATE_INPUT_WIDTH = 260        # 1️⃣ 기간 날짜 칸 고정 폭(px) — "2026/10/06 – 2026/10/20"이 끝까지 보이는 정도, 더 길게 하지 않는다
 TICKET_CARD_HEIGHT = 220      # 티켓 카드 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 날짜 줄이 스크롤 없이 들어가는 높이
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──

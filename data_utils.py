@@ -65,10 +65,20 @@ def top_groups(values: pd.Series, n: int, other: str, keep: tuple[str, ...] = ()
     return values.where(values.isin(top) | values.isin(keep), other)
 
 
+DISPLAY_COLUMNS = {"voc_id": "VOC ID", "created_at": "작성 일시", "channel": "채널", "text": "원문"}
+
+
+def to_display_vocs(df: pd.DataFrame) -> pd.DataFrame:
+    """VOC를 보여 주는 모든 표의 공통 규칙 (화면용 복사본만, 원본 DataFrame·CSV 열 이름은 그대로):
+    열 이름 한글화(VOC ID · 작성 일시 · 채널 · 원문), 작성 일시 "YYYY-MM-DD HH:MM", 채널 리뷰/고객센터."""
+    out = df.copy()
+    if "created_at" in out:
+        out["created_at"] = pd.to_datetime(out["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+    if "channel" in out:
+        out["channel"] = out["channel"].map(CHANNEL_LABELS).fillna(out["channel"])
+    return out.rename(columns=DISPLAY_COLUMNS)
+
+
 def voc_table(df: pd.DataFrame) -> pd.DataFrame:
-    """화면용 VOC 원문 표 (최신순)."""
-    out = df.sort_values("created_at", ascending=False)[
-        ["voc_id", "created_at", "channel", "text"]
-    ].copy()
-    out["channel"] = out["channel"].map(CHANNEL_LABELS).fillna(out["channel"])
-    return out
+    """화면용 VOC 원문 표 (최신순, 한글 열 이름)."""
+    return to_display_vocs(df.sort_values("created_at", ascending=False)[["voc_id", "created_at", "channel", "text"]])

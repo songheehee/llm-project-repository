@@ -44,17 +44,24 @@ CSS = """
 /* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
 [class*="st-key-tprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0;}
 [class*="st-key-tline_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
-/* 사이드바 내 티켓: 본문 티켓 카드를 줄인 압축 카드. 카드 전체를 덮는 투명 버튼으로 선택 */
+/* 사이드바 내 티켓: 본문 티켓 카드를 줄인 압축 카드 (일반 배치 · 오른쪽 위 작은 '선택' 버튼). 높이는 내용에 맞게 */
 [class*="st-key-sbcards"] {gap:6px;}
-[class*="st-key-sbcard_"] {position:relative; background:#FFFFFF; border:1px solid #E3E6EF; border-radius:8px;
-  padding:8px 10px; gap:2px; text-align:left;}
+[class*="st-key-sbcard_"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:8px;
+  padding:10px 10px; gap:4px; text-align:left; height:auto; overflow:visible;}
 [class*="st-key-sbcard_sel_"] {border-left:3px solid #1428A0;}
-[class*="st-key-sbcard_"] {height:auto !important; max-height:none !important; padding:10px 10px !important;}
+/* Streamlit은 문단 아래 여백 1rem을 마크다운 칸의 -1rem 여백으로 상쇄한다. 문단 여백을 0으로 둔 곳은
+   그 -1rem도 0으로 돌려야 칸 높이가 찌그러져(약 4px) 다음 줄과 겹치지 않는다 */
+[class*="st-key-sbcard_"] [data-testid="stMarkdownContainer"], [class*="st-key-sbcard_"] [data-testid="stCaptionContainer"],
+[class*="st-key-tprob_"] [data-testid="stMarkdownContainer"],
+[class*="st-key-tline_"] [data-testid="stMarkdownContainer"], [class*="st-key-repvoc_"] [data-testid="stMarkdownContainer"] {margin-bottom:0 !important;}
 [class*="st-key-sbcard_"] p {font-size:0.85rem; line-height:1.4; margin:0; text-align:left;}
 [class*="st-key-sbcard_"] [data-testid="stCaptionContainer"] p {font-size:0.75rem;}
 [class*="st-key-sbprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
-[class*="st-key-sbpick_"] {position:absolute; inset:0; z-index:5; margin:0;}
-[class*="st-key-sbpick_"] button {width:100%; height:100%; opacity:0; cursor:pointer;}
+[class*="st-key-sbpick_"] button {min-height:24px; height:24px; padding:0 8px; font-size:0.75rem; line-height:1;}
+/* 대표 VOC: expander 제목과 같은 본문 크기, 항목 사이 4px */
+[class*="st-key-repvoc_"] p, [class*="st-key-repvoc_"] li {font-size:14px; line-height:1.4;}
+[class*="st-key-repvoc_"] ul {margin:0; padding-left:1.2rem;}
+[class*="st-key-repvoc_"] li {margin:0 0 4px 0; padding:0;}
 </style>
 """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
@@ -283,8 +290,8 @@ def render_representative_vocs() -> None:
         return
     for t in my_tickets:
         with st.expander(f"{t.ticket_id} · {t.problem}", expanded=False):
-            for v in cached_rep_vocs(tuple(t.voc_ids)):
-                st.markdown(f"- {md_escape(v)}")
+            with st.container(key=f"repvoc_{t.ticket_id}"):  # 3건을 마크다운 목록 하나로 (간격 좁게)
+                st.markdown("\n".join(f"- {md_escape(v)}" for v in cached_rep_vocs(tuple(t.voc_ids))))
 
 
 def stage2_result_ok(result: dict) -> bool:
@@ -299,21 +306,22 @@ def stage2_result_ok(result: dict) -> bool:
         return False
 
 
-def hover_text(text: str, width: int = 28) -> str:
-    """Plotly 호버용: HTML 이스케이프 후 width 글자마다 줄바꿈."""
-    text = html.escape(text)
-    return "<br>".join(text[i:i + width] for i in range(0, len(text), width))
+def hover_text(text: str, width: int = config.HOVER_LINE_CHARS, limit: int = config.HOVER_MAX_CHARS) -> str:
+    """Plotly 툴팁용: limit자를 넘으면 …, width 글자마다 <br> (HTML 이스케이프)."""
+    if len(text) > limit:
+        text = text[:limit] + "…"
+    return "<br>".join(html.escape(text[i:i + width]) for i in range(0, len(text), width))
 
 
 def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     """VOC 유사도: 임베딩 3D 의미 공간 + 선택한 VOC의 유사 VOC. 색은 LLM 또는 임베딩 클러스터, 위치는 임베딩."""
     st.subheader("VOC 유사도")
     st.caption(f"위치는 VOC 문장 임베딩({config.VOC_EMBEDDING_MODEL})을 t-SNE로 3D 투영한 것입니다. "
-               "가까울수록 고객 표현이 비슷합니다. 색은 LLM 분류 또는 임베딩만으로 묶은 분류(KMeans)입니다.")
+               "가까울수록 고객 표현이 비슷합니다. 색은 유형 또는 임베딩만으로 묶은 분류(KMeans)입니다.")
     c_on, c_color = st.columns([1, 3], vertical_alignment="center")
     if not c_on.toggle("의미 공간", key="voc_map_on"):
         return
-    color_by = c_color.radio("색 기준", ["LLM 분류", "임베딩 분류"], horizontal=True,
+    color_by = c_color.radio("색 기준", ["유형", "임베딩 분류"], horizontal=True,
                              key="voc_map_color", label_visibility="collapsed")
     if not has_api_key():
         return
@@ -330,7 +338,7 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     labels = cur["cluster"].tolist()
 
     palette = px.colors.qualitative.Bold
-    if color_by == "LLM 분류":
+    if color_by == "유형":
         color_col = "cluster"
         order = [c.label for c in clusters] + [config.OTHER_LABEL]
     else:
@@ -355,9 +363,9 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
         fig.add_trace(go.Scatter3d(
             x=part["x"], y=part["y"], z=part["z"], mode="markers", name=html.escape(lab),
             marker=dict(size=config.MAP_POINT_SIZE, color=colors[lab], opacity=0.8, line=dict(width=0)),
-            hovertext=[f"<b>{v}</b><br>LLM: {html.escape(a)}<br>임베딩: {html.escape(b)}<br>{hover_text(t)}"
-                       for v, a, b, t in zip(part["voc_id"], part["cluster"], part["emb"], part["text"])],
-            hoverinfo="text",
+            # 툴팁 두 줄만: 유형 · 원문 (<extra></extra>로 trace 이름 숨김)
+            customdata=[f"유형: {html.escape(a)}<br>원문: {hover_text(t)}" for a, t in zip(part["cluster"], part["text"])],
+            hovertemplate="%{customdata}<extra></extra>",
         ))
     # 기준 VOC → 유사 VOC 연결선
     p = cur.loc[pick]
@@ -373,14 +381,14 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     fig.add_trace(go.Scatter3d(
         x=nb["x"], y=nb["y"], z=nb["z"], mode="markers", name=f"유사 VOC Top {len(neighbors)}",
         marker=dict(size=config.MAP_HIGHLIGHT_SIZE, symbol="circle-open", color="#1428A0", line=dict(width=2)),
-        hovertext=[f"<b>{v}</b> · 유사도 {s:.3f}<br>{hover_text(t)}"
-                   for v, t, (_, s) in zip(nb["voc_id"], nb["text"], neighbors)],
-        hoverinfo="text",
+        customdata=[f"유형: {html.escape(a)}<br>원문: {hover_text(t)}" for a, t in zip(nb["cluster"], nb["text"])],
+        hovertemplate="%{customdata}<extra></extra>",
     ))
     fig.add_trace(go.Scatter3d(
         x=[p["x"]], y=[p["y"]], z=[p["z"]], mode="markers", name="기준 VOC",
         marker=dict(size=config.MAP_HIGHLIGHT_SIZE, symbol="diamond", color="#202124", line=dict(color="#FFFFFF", width=1)),
-        hovertext=[f"<b>{p['voc_id']}</b> (기준)<br>{hover_text(p['text'])}"], hoverinfo="text",
+        customdata=[f"유형: {html.escape(p['cluster'])}<br>원문: {hover_text(p['text'])}"],
+        hovertemplate="%{customdata}<extra></extra>",
     ))
     axis = dict(showticklabels=False, title="", showbackground=True,
                 backgroundcolor="#F8F9FC", gridcolor="#E3E6EF", zeroline=False)
@@ -394,9 +402,9 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
 
     st.markdown(f"**{p['voc_id']}** 와 가장 비슷한 VOC")
     # 화면에는 유형만 (같은 LLM 클러스터 여부 · 임베딩 클러스터 열은 표시하지 않음 — 계산은 그대로)
-    near = pd.DataFrame([{
-        "순위": r, "VOC": cur.at[j, "voc_id"], "유사도": s, "유형": labels[j], "원문": cur.at[j, "text"],
-    } for r, (j, s) in enumerate(neighbors, 1)])
+    near = data_utils.to_display_vocs(pd.DataFrame([{
+        "순위": r, "voc_id": cur.at[j, "voc_id"], "유사도": s, "유형": labels[j], "text": cur.at[j, "text"],
+    } for r, (j, s) in enumerate(neighbors, 1)]))
     show_table(near, key="tbl_near", column_config={
         "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
 
@@ -454,6 +462,16 @@ def user_label(u: dict) -> str:
     return f"{u['name']} ({u['part']})"
 
 
+def to_raw_view() -> None:
+    """기간을 바꾸면 보기를 '원본 VOC'로 (위젯이 그려진 뒤엔 키를 못 바꾸므로 콜백에서). 분석 결과·캐시는 그대로."""
+    ss["voc_view"] = VIEW_RAW
+
+
+def to_raw_view_if_period_changed() -> None:
+    if ss.get("period_mode") in (PERIOD_CUSTOM, PERIOD_ALL):
+        to_raw_view()
+
+
 def pick_ticket(ticket_id: str) -> None:
     ss["current_ticket"] = ticket_id
 
@@ -480,11 +498,11 @@ with st.sidebar:
             selected = t.ticket_id == ss["current_ticket"]
             # 선택된 카드는 왼쪽 primaryColor 세로 줄 (CSS st-key-sbcard_sel_)
             with st.container(key=f"sbcard_{'sel_' if selected else ''}{t.ticket_id}"):
-                # 카드 전체를 덮는 투명 버튼 → 누르면 현재 티켓 (2️⃣·3️⃣ 탭 · 대표 VOC 보기에 반영)
-                st.button(f"{t.ticket_id} 선택", key=f"sbpick_{t.ticket_id}", on_click=pick_ticket, args=(t.ticket_id,))
-                c_id, c_badge = st.columns([3, 2], vertical_alignment="center")
-                c_id.markdown(f"**{t.ticket_id}**")
-                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+                # 1줄: ID + 우선순위 배지(왼쪽) · 오른쪽 위 작은 '선택' 버튼 → 누르면 현재 티켓 (2️⃣·3️⃣ 탭에 반영)
+                c_id, c_pick = st.columns([3, 1.4], vertical_alignment="center")
+                c_id.markdown(f"**{t.ticket_id}** {badge(t.priority)}", unsafe_allow_html=True)
+                c_pick.button("현재" if selected else "선택", key=f"sbpick_{t.ticket_id}", disabled=selected,
+                              on_click=pick_ticket, args=(t.ticket_id,))
                 with st.container(key=f"sbprob_{t.ticket_id}"):   # 문제점 최대 2줄, 넘치면 …
                     st.markdown(t.problem)
                 st.caption(":red[기한 지남]" if left < 0 else f"~{due:%m/%d} · D-{left}")
@@ -498,12 +516,13 @@ with tab1:
     # 세 경우 모두 같은 줄 구성: 날짜 위젯은 항상 같은 자리(직접 선택일 때만 활성) → 방식을 바꿔도 화면이 움직이지 않는다
     # 왼쪽부터 붙인 한 줄 (화면이 넓어져도 같은 자리): [기간 방식] [날짜 칸 고정 폭 DATE_INPUT_WIDTH]
     period_row = st.container(horizontal=True, gap="small", vertical_alignment="bottom")
-    mode = period_row.segmented_control("기간", PERIOD_MODES, key="period_mode", required=True)
+    mode = period_row.segmented_control("기간", PERIOD_MODES, key="period_mode", required=True,
+                                        on_change=to_raw_view_if_period_changed)
     today = date.today()
     date_max = max(max_d, today)
     if mode == PERIOD_CUSTOM:
         picked = period_row.date_input("날짜", key="custom_dates", min_value=min_d, max_value=date_max,
-                                       format="YYYY/MM/DD", width=config.DATE_INPUT_WIDTH)
+                                       format="YYYY/MM/DD", width=config.DATE_INPUT_WIDTH, on_change=to_raw_view)
         if isinstance(picked, (tuple, list)) and len(picked) == 2:
             start, end = picked
             ss["last_custom"] = (start, end)
@@ -728,12 +747,13 @@ with tab2:
                         c_name, c_bar = st.columns([1, 3], vertical_alignment="center")
                         c_name.markdown(f"**{c.name}**")
                         c_bar.progress(min(max(c.score, 0.0), 1.0), text=f"{c.score:.2f}")
-                        st.markdown(f"**이유:** {c.reason}")
+                        st.markdown(c.reason)
                         if c.name in sources:
                             st.caption(f"코드 출처: {sources[c.name]}")
                 # 어느 레포지토리의 폴더를 볼지 (이름만, 기본 1위)
                 names = [c.name for c in cands]
                 picked = st.segmented_control("폴더를 볼 레포지토리", names, default=names[0], required=True,
+                                              label_visibility="collapsed",
                                               key=f"repo_pick_{sel}")
                 repo_name = picked if picked in names else names[0]
 
