@@ -560,10 +560,14 @@ with tab1:
             )
             render_ticket_cards()  # 순서: 요약 카드 → 클러스터 제목·발행 버튼 → 표 → 비고 → 발행된 티켓
 
-        cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
-        chart_df = cur.assign(cluster=data_utils.top_groups(cur["cluster"], config.CHART_TOP_TYPES, config.OTHER_LABEL))
-        daily_bar_chart(data_utils.daily_counts(chart_df, "cluster"),
-                        f"일별 VOC 건수 (유형별 누적 · 상위 {config.CHART_TOP_TYPES}개 + 기타)")
+            cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
+            # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다
+            unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
+            chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
+                                                                keep=(config.UNASSIGNED_LABEL,)))
+            daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
+            st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
+                       f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
 
             df_idx = df_all.set_index("voc_id")
             for c in clusters:
