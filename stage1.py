@@ -66,7 +66,10 @@ class Ticket(BaseModel):
     code_terms: list[str]
     owner_part: str
     assignee: str               # departments.md의 owner_part 담당자 (LLM이 만들지 않음)
+    issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
+    cluster_label: str          # 원래 VOC 유형(클러스터) 이름
+    sample_vocs: list[str] = [] # 대표 VOC 원문 (티켓 상세용, TICKET_DETAIL_VOCS건)
     voc_ids: list[str]
 
 
@@ -94,7 +97,8 @@ class VocAssignmentList(BaseModel):
 
 
 class TicketDraft(BaseModel):
-    problem: str = Field(description="개발자 언어로 쓴 문제 한 줄 (예: 'OO 중 XX 과다 동작(증상)')")
+    problem: str = Field(description=f"개발자 언어로 쓴 문제 한 줄, {config.PROBLEM_MAX_CHARS}자 이내 "
+                                     "(예: '운동 중 센서 과다 동작(발열)')")
     conditions: list[str] = Field(description="발생 조건 1~4개, 짧은 한국어 (예: '운동 중', '업데이트 후')")
     tech_keywords: list[str] = Field(description="의심되는 기술 원인 용어 3~6개, 한국어")
     code_terms: list[str] = Field(
@@ -512,7 +516,9 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         "너는 고객 VOC를 개발 티켓으로 옮기는 테크 리드다. "
         f"{DATA_GUARD}\n"
         "고객 말투를 개발자 언어로 바꾼다. 증상 뒤에 숨은 기술적 원인을 추정해 쓴다.\n"
-        "- problem: 어떤 상황에서 어떤 부품/기능이 어떻게 잘못 동작하는지 한 줄 (괄호 안에 고객 증상)\n"
+        f"- problem: '상황 + 부품/기능 + 잘못된 동작(고객 증상)' 형태의 짧은 명사구, 공백 포함 {config.PROBLEM_MAX_CHARS}자 이내. "
+        "부품 이름은 하나만, 원인 설명·나열·슬래시는 넣지 않는다 "
+        "(예: '운동 중 센서 과다 동작(발열)', '연결 끊김 시 재연결 루프 과다(발열)', '배터리 잔량 계산 오류(급소모)')\n"
         "- tech_keywords: 원인으로 의심되는 기술 용어 (예: 샘플링 주기, 폴링 간격, 재시도 루프)\n"
         "- code_terms: 코드에서 그 원인을 찾을 때 쓸 영문 소문자 단어 "
         "(예: poll, interval, sensor, retry, loop). 한국어·공백 금지. "
@@ -532,7 +538,15 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         if d.owner_part not in parts:
             raise ValueError(f"알 수 없는 파트: {d.owner_part}")
 
-    draft = call_structured(TicketDraft, system, user, validate)
+    def validate_short(d: TicketDraft):
+        validate(d)
+        if len(d.problem.strip()) > config.PROBLEM_MAX_CHARS:
+            raise ValueError(f"문제점이 {config.PROBLEM_MAX_CHARS}자를 넘음")
+
+    try:
+        draft = call_structured(TicketDraft, system, user, validate_short)
+    except RuntimeError:  # 길이 조건만 계속 못 맞추면 길이 검사 없이 받는다 (파트 검사는 유지)
+        draft = call_structured(TicketDraft, system, user, validate)
     code_terms = [t for t in (re.sub(r"[^a-z0-9_]", "", s.lower()) for s in draft.code_terms) if t]
     issued_on = issued_on or date.today()
     return Ticket(
@@ -541,5 +555,19 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         count=cluster.count, trend=cluster.trend, conditions=draft.conditions,
         tech_keywords=draft.tech_keywords, code_terms=list(dict.fromkeys(code_terms)),
         owner_part=draft.owner_part, assignee=part_assignees().get(draft.owner_part, "미지정"),
-        due_date=due_date_for(cluster.priority, issued_on).isoformat(), voc_ids=cluster.voc_ids,
+        issued_on=issued_on.isoformat(), due_date=due_date_for(cluster.priority, issued_on).isoformat(),
+        cluster_label=cluster.label, sample_vocs=sample_vocs[:config.TICKET_DETAIL_VOCS], voc_ids=cluster.voc_ids,
     )
+
+
+def ticket_summary_row(t: Ticket) -> dict:
+    """발행된 티켓 표 · 티켓 Markdown이 같은 열 순서를 쓰도록 한 곳에서 정의한다."""
+    return {
+        "티켓 ID": t.ticket_id, "우선순위": t.priority, "문제점": t.problem, "담당 부서": t.owner_part,
+        "담당자": t.assignee, "건수": t.count, "추세": t.trend, "발행일": t.issued_on, "예상 완료일": t.due_date,
+    }
+
+
+def sort_tickets(tickets) -> list[Ticket]:
+    """우선순위 높은 순, 같으면 발행 순."""
+    return sorted(tickets, key=lambda t: (config.PRIORITY_ORDER.get(t.priority, 9), t.ticket_id))

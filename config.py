@@ -48,6 +48,9 @@ MIN_CLUSTER_SIZE = 3          # 분석 기간 건수가 이보다 적은 클러�
 MIN_CLUSTER_SHARE = 0.02      # 프롬프트 안내: 분석 기간 VOC의 이 비율 미만이 될 묶음은 따로 만들지 말고 합친다 (건수는 데이터에 따라 동적)
 SAMPLE_VOCS_PER_CLUSTER = 3   # 화면 대표 VOC
 TICKET_SAMPLE_VOCS = 10       # 티켓화 프롬프트에 넣는 VOC 수
+TICKET_DETAIL_VOCS = 2        # 티켓 상세에 보여 줄 대표 VOC 수
+PROBLEM_MAX_CHARS = 40        # 티켓 문제점(개발자 언어 한 줄) 최대 글자 수 — 표에서 잘리지 않게
+REASON_MAX_CHARS = 60         # 수정 라인 추천 사유 최대 글자 수 (명사형 한 문장)
 FIRST_TICKET_NO = 412         # VOC-0412부터
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 

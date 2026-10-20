@@ -50,10 +50,6 @@ STEP_NODES = {
 VIEW_RAW = "📄 원본 VOC"
 VIEW_CLUSTER = "🧩 클러스터 분석 결과"
 VIEW_OPTIONS = [VIEW_RAW, VIEW_CLUSTER]
-NEXT_NODE = {
-    "route_repos": "score_folders", "score_folders": "search_lines", "search_lines": "verify_lines",
-    "verify_lines": "add_commit_evidence", "add_commit_evidence": "analyze_impact",
-}
 
 # ════════════════════════════ 캐시 ════════════════════════════
 
@@ -125,10 +121,6 @@ def badge(priority: str) -> str:
     return f'<span class="vocai-badge" style="background:{color}">{priority}</span>'
 
 
-def fmt_ranges(ranges) -> str:
-    return " · ".join(f"L{s}" if s == e else f"L{s}–{e}" for s, e in ranges)
-
-
 def has_api_key() -> bool:
     if os.getenv("OPENAI_API_KEY"):
         return True
@@ -148,12 +140,31 @@ def daily_bar_chart(daily: pd.DataFrame, title: str) -> None:
         st.markdown(f"**{title}**")
         fig = px.bar(daily, x="date", y="count", color="group", labels={"count": "건수", "group": ""},
                      category_orders={"group": order}, color_discrete_map=colors)
-        fig.update_layout(barmode="stack", height=360, margin=dict(l=10, r=10, t=40, b=70),
+        fig.update_layout(barmode="stack", height=380, margin=dict(l=10, r=10, t=40, b=90),
                           legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None),
                           plot_bgcolor="#FFFFFF")
         # x축 제목 "날짜"는 눈금(10/03) 아래에 간격(standoff)을 두고, 범례는 차트 위라 겹치지 않는다
-        fig.update_xaxes(title=dict(text="날짜", standoff=12), tickformat="%m/%d", dtick=86_400_000, tickangle=0)
+        fig.update_xaxes(title=dict(text="날짜", standoff=20), tickformat="%m/%d", dtick=86_400_000, tickangle=0)
         st.plotly_chart(fig, width="stretch")
+
+
+def render_ticket_table() -> None:
+    """발행된 티켓: 표 한 개(우선순위 순, 5줄 고정 + 스크롤) + 티켓 상세 접기. 티켓이 없으면 숨긴다."""
+    tickets = stage1.sort_tickets(ss["tickets"].values())
+    if not tickets:
+        return
+    st.subheader("발행된 티켓")
+    st.dataframe(pd.DataFrame([stage1.ticket_summary_row(t) for t in tickets]), hide_index=True, width="stretch",
+                 height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
+                 column_config={"건수": st.column_config.NumberColumn(format="%d건"),
+                                "문제점": st.column_config.TextColumn(width="large")})
+    with st.expander("티켓 상세"):
+        for t in tickets:
+            st.markdown(f"**{t.ticket_id}** · {t.problem}")
+            st.markdown(f"발생 조건: {', '.join(t.conditions)}  \n기술 키워드: {', '.join(t.tech_keywords)}")
+            for v in t.sample_vocs:
+                st.text(f"대표 VOC · {v}")
+            st.divider()
 
 
 def hover_text(text: str, width: int = 28) -> str:
@@ -376,6 +387,7 @@ with tab1:
     elif not s1:
         st.info("🔍 클러스터 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
     else:
+        render_ticket_table()
         # 제목 줄: 왼쪽 섹션 제목 · 오른쪽 끝 발행 버튼 (버튼은 표의 체크 결과를 본 뒤 아래에서 채운다)
         c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
         c_title.subheader("클러스터")
@@ -442,14 +454,7 @@ with tab1:
                         ss["next_ticket_no"] += 1
                         ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
                 ss["ticket_secs"] = round(time.perf_counter() - t0, 1)
-
-        for t in ss["tickets"].values():
-            with st.container(key=f"card_ticket_{t.ticket_id}"):
-                st.markdown(f"{badge(t.priority)} &nbsp;**{t.ticket_id}**", unsafe_allow_html=True)
-                st.markdown(f"**{t.problem}**")
-                st.caption(f"{t.count}건 {t.trend} · {t.owner_part} · 담당자 {t.assignee} · "
-                           f"예상 완료일 {t.due_date} · {t.product} · {t.period}")
-                st.markdown(f"발생 조건: {', '.join(t.conditions)}  \n기술 키워드: {', '.join(t.tech_keywords)}")
+                st.rerun()  # 발행된 티켓 표(클러스터 위)에 바로 보이도록
 
         render_voc_map(cur, clusters)
 
@@ -471,17 +476,10 @@ with tab2:
         if c_run.button("▶ 코드 좁혀 가기", type="primary", width="stretch") and has_api_key():
             cached_vectorstore()
             graph = cached_graph()
-            with st.status(f"{config.NODE_LABELS['route_repos']} 중…", expanded=True) as status:
+            with st.spinner("코드 위치를 찾는 중…"):  # 단계별 소요 시간은 state timings → 사이드바에 표시
                 for event in stage2.stream_stage2(graph, ticket):
-                    if event[0] == "node":
-                        _, node, secs = event
-                        st.write(f"✓ {config.NODE_LABELS[node]} ({secs:.1f}초)")
-                        nxt = NEXT_NODE.get(node)
-                        if nxt:
-                            status.update(label=f"{config.NODE_LABELS[nxt]} 중…")
-                    else:
+                    if event[0] == "done":
                         ss["stage2"][sel] = event[1]
-                status.update(label="진행 상황 ✓ (④ → ⑤ → ⑥ → ⑦)", state="complete", expanded=False)
 
         result = ss["stage2"].get(sel)
         if not result:
@@ -494,12 +492,15 @@ with tab2:
                 if not cands:
                     st.warning("점수 0.1 이상인 레포 후보가 없습니다.")
                 else:
-                    st.dataframe(
-                        pd.DataFrame([{"레포": c.name, "점수": c.score, "코드 출처": sources.get(c.name, "–"),
-                                       "이유": c.reason} for c in cands]),
-                        hide_index=True, width="stretch",
-                        column_config={"점수": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")},
-                    )
+                    # 후보마다 한 블록: 1줄 이름 · 점수 막대 · 점수 / 2줄 이유 전체 (표 셀에 넣으면 잘린다)
+                    for c in cands:
+                        c_name, c_bar, c_score = st.columns([2, 5, 1], vertical_alignment="center")
+                        c_name.markdown(f"**{c.name}**")
+                        c_bar.progress(min(max(c.score, 0.0), 1.0))
+                        c_score.markdown(f"{c.score:.2f}")
+                        st.caption(c.reason)
+                        if c.name in sources:
+                            st.caption(f"코드 출처: {sources[c.name]}")
             if cands:
                 with st.container(key="card_folders"):
                     st.markdown("#### 폴더 의심도")
@@ -556,30 +557,27 @@ with tab3:
         recs = [r for r in result.get("line_recs", []) if r.verified]  # 검증된 라인만
         if not recs:
             st.warning("검증을 통과한 라인이 없습니다. 다시 실행해 보세요.")
-        for idx, r in enumerate(recs):
-            st.markdown(f"### `{r.path}` @ `{r.commit_sha}` &nbsp; 👉 {fmt_ranges(r.ranges)} 수정 추천")
-            st.caption(f"{r.repo} · 신뢰도 {r.confidence:.2f}")
-            c_code, c_side = st.columns([3, 2])
-            with c_code:
-                lines = stage2.read_lines(stage2.repo_dir(r.repo), r.path)
-                render_code(lines, r.ranges)
-                st.markdown(r.reason)
-            with c_side:
-                with st.container(key=f"card_evidence_{idx}"):
-                    st.markdown("**📌 근거**")
-                    icons = {"voc": "🗣", "commit": "🕒", "keyword": "🔤"}
-                    for e in r.evidence:
-                        st.markdown(f"{icons[e.kind]} {e.detail}" + (f" `{e.ref}`" if e.ref else ""))
-        impacts = result.get("impacts", [])
+        # 위에서 아래로 한 줄씩, 모두 가로 폭 전체: 요약 → 코드 → 근거 (추천 파일마다 한 블록)
+        for r in recs:
+            st.markdown("#### 수정 위치")
+            with st.container(border=True):
+                st.markdown(f"저장소: `{r.repo}`  \n"
+                            f"파일: **`{r.path}`**  \n"
+                            f"수정 라인: **{stage2.fmt_line_ranges(r.ranges)}**  \n"
+                            f"기준 커밋: `{r.commit_sha}`")
+            st.markdown("#### 코드")
+            render_code(stage2.read_lines(stage2.repo_dir(r.repo), r.path), r.ranges)
+            st.markdown("#### 근거")
+            st.table(pd.DataFrame(stage2.evidence_rows(ticket, r), columns=["항목", "내용"]).set_index("항목"))
         if recs:
-            with st.container(key="card_impacts"):
-                st.markdown("**🔗 함께 확인할 곳**")
-                if impacts:
-                    for i in impacts:
-                        st.markdown(f"- `{i.path}:{i.line}` — {i.relation}")
-                else:
-                    st.caption("다른 파일에서 참조하는 곳이 없습니다.")
-        st.download_button("⬇ 티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
+            st.markdown("#### 함께 확인할 곳")
+            impacts = result.get("impacts", [])
+            if impacts:
+                st.dataframe(pd.DataFrame([{"저장소": i.repo, "파일": i.path, "라인": i.line, "심볼": i.symbol,
+                                            "관계": i.relation} for i in impacts]), hide_index=True, width="stretch")
+            else:
+                st.caption("같은 저장소의 다른 파일에서 참조하는 곳이 없습니다.")
+        st.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
                            file_name=f"{ticket.ticket_id}.md", mime="text/markdown")
 
 # ════════════════════════════ 사이드바 ════════════════════════════

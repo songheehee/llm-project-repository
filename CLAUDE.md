@@ -224,19 +224,27 @@ class Cluster(BaseModel):   # stage1
 
 class Ticket(BaseModel):    # stage1
     ticket_id: str; cluster_id: str; period: str; product: str; priority: str
-    problem: str                # 개발자 언어 한 줄
+    problem: str                # 개발자 언어 한 줄, PROBLEM_MAX_CHARS(40)자 이내 — 예: "운동 중 심박 센서 과다 동작(발열)" (넘으면 재요청)
     count: int; trend: str
     conditions: list[str]       # ["운동 중", "업데이트 후"]
     tech_keywords: list[str]    # 한국어 기술 용어: 샘플링 주기, 폴링 간격 …
     code_terms: list[str]       # 코드 검색용 영문 소문자 조각: poll, interval, heart_rate, sensor, continuous …
     owner_part: str             # departments.md의 파트 중 하나
     assignee: str               # owner_part의 담당자 — departments.md에서 찾아 넣음 (LLM이 만들지 않음)
+    issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
+    cluster_label: str          # 원래 VOC 유형(클러스터) 이름 — 근거 표 '관련 VOC'에 사용
+    sample_vocs: list[str]      # 대표 VOC 원문 TICKET_DETAIL_VOCS(2)건 — 티켓 상세
     voc_ids: list[str]
+
+# stage1.ticket_summary_row(t): 발행된 티켓 표·Markdown 공통 열
+#   티켓 ID · 우선순위 · 문제점 · 담당 부서 · 담당자 · 건수 · 추세 · 발행일 · 예상 완료일 (sort_tickets: 우선순위 순)
 
 # stage2: RepoCandidate(name, score, reason) · FolderScore(repo, path, score, keyword, recent, role, note)
 #         Evidence(kind: "voc"|"commit"|"keyword", detail, ref) · LineRec(repo, path, ranges: list[tuple[int,int]],
-#         snippet, reason, confidence, evidence: list[Evidence], verified=False, commit_sha) · Impact(path, line, symbol, relation)
+#         snippet, reason, confidence, evidence: list[Evidence], verified=False, commit_sha) · Impact(repo, path, line, symbol, relation)
+#         Evidence.detail: voc = "건수 · 유형 (추세) · 조건", keyword = "poll, interval, …", commit = "YYYY-MM-DD · 메시지 (L17: old → new)"(ref = sha 7자리)
+#         stage2.evidence_rows(ticket, rec) → 근거 표 [(관련 VOC, …), (발생 조건, …), (매칭 키워드, …), (관련 커밋, …), (추천 사유, …)]
 ```
 
 LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_recs, impacts, retry, errors, `timings: Annotated[dict, operator.or*]`.
@@ -313,15 +321,18 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - **git 호출**: `subprocess.run(["git", "-C", repo_path, "-c", "core.quotepath=false", ...], capture_output=True, text=True, encoding="utf-8", check=True)`.
   - 최근 변경: `git log --since=YYYY-MM-DD --until=분석시작일 --name-only --format=%H|%ad|%s --date=short`
   - 커밋 근거: `git blame -L 시작,끝 --porcelain 파일` → `committer-time`·`summary`로 날짜·메시지. 날짜가 분석 시작일 전 30일 안이면 Evidence(kind="commit") 추가.
-- **search_lines**: 상위 폴더 2개의 `.py` 중 `code_terms` 히트 많은 파일 3개 → 각 줄 앞에 `f"{n:>4}| "`을 붙여 전달 + 해당 파일의 최근 30일 `git log -p` 요약(파일당 1,500자 이내). 출력: path, ranges, snippet, reason, confidence.
+- **search_lines**: 상위 폴더 2개의 `.py` 중 `code_terms` 히트 많은 파일 3개 → 각 줄 앞에 `f"{n:>4}| "`을 붙여 전달 + 해당 파일의 최근 30일 `git log -p` 요약(파일당 1,500자 이내). 출력: path, ranges, snippet, reason, confidence. reason(추천 사유)은 "명사형으로 끝나는 한 문장, `REASON_MAX_CHARS`(60)자 이내, 이모티콘·강조 표현 금지" — 넘으면 재요청(그래도 안 되면 길이 검사 없이 받음).
 - **verify_lines**: 파일 존재 · 1 ≤ 시작 ≤ 끝 ≤ 줄 수 · `" ".join(snippet.split())`이 범위 텍스트(같은 정규화)에 포함. 하나도 통과 못 하면 `retry < 1`일 때 search_lines로 되돌아감(조건 엣지).
-- **analyze_impact**: 심볼 = 추천 줄의 대문자 상수 + 추천 줄을 감싼 `def` 이름(위로 올라가며 찾음). 그 이름이 `_`로 시작하면 같은 파일에서 `self.<이름>`을 쓰는 공개 메서드로 바꾼다(`_loop` → `start_continuous`). 같은 레포의 다른 `.py`에서 `\b심볼\b` 검색 → Impact(path, line, symbol, relation=f"{symbol}() 호출").
-- **진행 표시**: `for update in graph.stream(state, stream_mode="updates")` → 키가 노드명. `stream_stage2`가 `("node", 노드명, 소요초)`를 내고 마지막에 `("done", 최종 state)`. 최종 state는 업데이트를 누적해 만든다. 화면 표기: route_repos=④ 레포 라우팅, score_folders=⑤ 폴더 의심도, search_lines·verify_lines·add_commit_evidence=⑥ 라인 탐색·검증·커밋 근거, analyze_impact=⑦ 영향 범위.
+- **analyze_impact**: 심볼 = 추천 줄의 대문자 상수 + 추천 줄을 감싼 `def` 이름(위로 올라가며 찾음). 그 이름이 `_`로 시작하면 같은 파일에서 `self.<이름>`을 쓰는 공개 메서드로 바꾼다(`_loop` → `start_continuous`). 같은 레포의 다른 `.py`에서만 `\b심볼\b` 검색 → Impact(repo, path, line, symbol, relation=f"{symbol}() 호출"). `__init__` 등 dunder는 제외.
+- **진행 표시**: `for update in graph.stream(state, stream_mode="updates")` → 키가 노드명. `stream_stage2`가 `("node", 노드명, 소요초)`를 내고 마지막에 `("done", 최종 state)`. 최종 state는 업데이트를 누적해 만든다. 화면에서는 실행 중 `st.spinner("코드 위치를 찾는 중…")` 하나만 보이고(단계별 박스 없음), timings는 사이드바에 표시. 노드 표기: route_repos=④ 레포 라우팅, score_folders=⑤ 폴더 의심도, search_lines·verify_lines·add_commit_evidence=⑥ 라인 탐색·검증·커밋 근거, analyze_impact=⑦ 영향 범위.
 - **코드 뷰**: 추천 범위 앞뒤 5줄만 잘라 `HtmlFormatter(linenos="table", linenostart=시작줄, hl_lines=[...], noclasses=True)`. `hl_lines`는 **잘라낸 조각 기준 1부터** 번호다(절대 줄 번호 아님).
 - **1️⃣ 보기 전환**: `st.segmented_control(["📄 원본 VOC", "🧩 클러스터 분석 결과"], key="voc_view", required=True)`. [🔍 클러스터 분석]의 `on_click`에서 `voc_view`를 결과 보기로 바꾼다. 결과는 `st.session_state["stage1"]`에서 읽어 전환해도 LLM을 다시 부르지 않는다.
 - **요약 카드**: 총 VOC · VOC 유형 · 긴급 유형 · 긴급 건수 (값은 숫자+단위). 총 VOC help에 이전 기간 날짜. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
 - **헤더**: "VOCAI"만. `.block-container` padding-top을 늘려 Streamlit 상단 바에 가리지 않게 한다.
 - **클러스터 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`. 열 이름 이번 기간 · 이전 기간 · 처리 시급도(×100). 처리 시급도 순 정렬, `height=(TABLE_VISIBLE_ROWS + 1) × TABLE_ROW_PX`. 표 위 제목 줄 `st.columns([4, 1], vertical_alignment="center")`: 왼쪽 섹션 제목, 오른쪽 끝 [🎫 티켓 발행](체크 없으면 `disabled`) — 버튼은 표를 그린 뒤 그 칸에 채운다(체크 결과가 필요). 제목 아래 `st.caption` 안내 문구, 표는 `width="stretch"`. 표 아래 비고 캡션(이전 기간 날짜 · 처리 시급도 뜻 · 심각도 1~5).
-- **일별 차트**: 범례 `orientation="h"` 차트 위, x축 제목 "날짜"(`title=dict(text="날짜", standoff=12)`) · `tickformat="%m/%d"`, 아래 margin 확보. 상위 `CHART_TOP_TYPES`개 + "기타"(회색).
+- **일별 차트**: 범례 `orientation="h"` 차트 위, x축 제목 "날짜"(`title=dict(text="날짜", standoff=20)`) · `tickformat="%m/%d"`, 아래 margin 90px. 상위 `CHART_TOP_TYPES`개 + "기타"(회색).
 - **사이드바**: 현재 티켓(담당 파트·담당자·예상 완료일) · ①수집 ②클러스터 ③티켓 ④~⑦(timings 유무로 ✓) · 단계별 소요 시간.
-- **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 담당자·예상 완료일 포함.
+- **발행된 티켓 표**(1️⃣, 클러스터 섹션 위): `st.dataframe(ticket_summary_row…)` hide_index, 우선순위 순, 5줄 고정 + 스크롤, 티켓 없으면 숨김. 아래 `st.expander("티켓 상세")`(발생 조건 · 기술 키워드 · 대표 VOC 2건). 발행 직후 `st.rerun()`으로 표에 바로 반영.
+- **레포 후보**(2️⃣): 후보마다 `st.columns([2, 5, 1])` 이름(굵게) · `st.progress` · 점수 + 다음 줄 `st.caption(이유 전체)`.
+- **수정 라인**(3️⃣, 이모티콘 없음, 위→아래 · 전체 폭): `st.container(border=True)` 요약(저장소 · 파일 · 수정 라인 · 기준 커밋) → 코드 뷰 → `st.table(evidence_rows)` 근거 → 함께 확인할 곳 `st.dataframe`(저장소 · 파일 · 라인 · 심볼 · 관계) → 다운로드 버튼.
+- **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 화면과 같은 순서·열(티켓 요약 표 → 상세 → 레포 → 폴더 → 수정 위치·근거 표 → 함께 확인할 곳 표).
