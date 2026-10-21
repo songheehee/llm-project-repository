@@ -105,6 +105,10 @@ FILE_STATUS_STYLE = {           # 폴더 후보 카드의 파일 알약 모양 (
     "의심 파일": "background:#FFB547; color:#202124; font-weight:700; border:1px solid #FFB547;",
     "감점": "background:#FFFFFF; color:#D93025; border:1px dashed #D93025;",
 }
+# 의심 파일·원인 후보 알약 배경 = 파일 의심도(0~1) 색 단계 — 낮음 노랑 → 주황 → 높음 빨강 (사이는 선형 보간)
+SUSPICION_COLOR_STOPS = [(0.0, "#FFE38A"), (0.5, "#FF9F43"), (1.0, "#D93025")]
+SUSPICION_DARK_TEXT_MAX = 0.6   # 의심도가 이 값 이하면 검은 글씨, 넘으면 흰 글씨
+
 
 # ── VOC 유사도 · 의미 공간 (임베딩 · t-SNE 3D 투영) ───────────────
 VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 유사도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)

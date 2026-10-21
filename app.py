@@ -213,19 +213,49 @@ def daily_bar_chart(daily: pd.DataFrame, title: str, weekly: bool = False) -> No
         st.plotly_chart(fig, width="stretch")
 
 
+def suspicion_color(score: float) -> str:
+    """파일 의심도(0~1) → 배경색. config.SUSPICION_COLOR_STOPS 사이를 선형 보간 (노랑 → 주황 → 빨강)."""
+    score = min(max(float(score), 0.0), 1.0)
+    stops = config.SUSPICION_COLOR_STOPS
+    for (x0, c0), (x1, c1) in zip(stops, stops[1:]):
+        if score <= x1:
+            t = (score - x0) / (x1 - x0) if x1 > x0 else 0.0
+            rgb0 = [int(c0[i:i + 2], 16) for i in (1, 3, 5)]
+            rgb1 = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+            return "#" + "".join(f"{round(a + (b - a) * t):02X}" for a, b in zip(rgb0, rgb1))
+    return stops[-1][1]
+
+
+def file_pill_style(status: str, score: float) -> str:
+    """파일 알약 CSS. 의심 파일 · 원인 후보는 의심도 색으로 채우고(원인 후보는 진한 테두리), 나머지는 상태 고정 색."""
+    if status not in ("의심 파일", "원인 후보"):
+        return config.FILE_STATUS_STYLE[status]
+    bg = suspicion_color(score)
+    fg = "#202124" if score <= config.SUSPICION_DARK_TEXT_MAX else "#FFFFFF"
+    border = "2px solid #202124" if status == "원인 후보" else f"1px solid {bg}"
+    return f"background:{bg}; color:{fg}; font-weight:700; border:{border};"
+
+
 def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
     """폴더 후보: 제목 줄 · 범례 · 폴더 카드 그리드(한 줄 3장). HTML은 st.html로, 모든 값은 html.escape.
-    글꼴은 본문과 같은 config.APP_FONT (고정폭 없음)."""
+    글꼴은 본문과 같은 config.APP_FONT (고정폭 없음). 파일 알약 색 = 의심도(낮음 노랑 → 높음 빨강)."""
     esc = html.escape
     pill = "display:block; border-radius:8px; padding:3px 10px; margin:4px 0; font-size:13px;"
     title = (f'<div style="font-weight:700; font-size:15px; margin-bottom:4px;">'
              f'{esc(repo)} / {esc(branch)} · {esc(voc_type)} 기준</div>')
-    legend_items = []
+    sw_box = "display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; "
+    gradient = ", ".join(f"{c} {x * 100:.0f}%" for x, c in config.SUSPICION_COLOR_STOPS)
+    legend_items = [f'의심도 낮음 <span style="display:inline-block; width:90px; height:12px; border-radius:3px; '
+                    f'vertical-align:-1px; background:linear-gradient(90deg, {gradient});"></span> 높음']
     for status in config.FILE_STATUS_ORDER:
-        style = config.FILE_STATUS_STYLE[status]
-        mark = "┅" if status == "감점" else "■"
-        sw = (f'<span style="display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; '
-              f'{style}"></span>') if mark == "■" else f'<span style="color:#D93025; font-weight:700;">{mark}</span>'
+        if status == "의심 파일":
+            continue
+        if status == "감점":
+            sw = '<span style="color:#D93025; font-weight:700;">┅</span>'
+        elif status == "원인 후보":
+            sw = f'<span style="{sw_box}background:{suspicion_color(1.0)}; border:2px solid #202124;"></span>'
+        else:
+            sw = f'<span style="{sw_box}{config.FILE_STATUS_STYLE[status]}"></span>'
         legend_items.append(f"{sw} {esc(status)}")
     legend = f'<div style="font-size:13px; color:#3C4043; margin-bottom:10px;">{" · ".join(legend_items)}</div>'
     if not cards:
@@ -238,7 +268,7 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
         for item in card.items:
             label = esc(item.name) + (" ✕" if item.status == "감점" else "") + f" · {item.score:.2f}"
             tip = f' title="{esc(item.note)}"' if item.note else f' title="{esc(item.file)}"'
-            pills.append(f'<span style="{pill}{config.FILE_STATUS_STYLE[item.status]}"{tip}>{label}</span>')
+            pills.append(f'<span style="{pill}{file_pill_style(item.status, item.score)}"{tip}>{label}</span>')
         boxes.append(
             '<div style="background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 14px;">'
             f'<div style="font-weight:700; margin-bottom:6px;">📁 {esc(card.path)}</div>'
