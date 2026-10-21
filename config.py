@@ -89,10 +89,10 @@ APP_FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'  # 앱 전체 글꼴
 # ── 2️⃣ 의심 위치 — 폴더 후보 ─────────────────────────
 DEFAULT_DEPLOY_BRANCH = "main"  # repos.yaml에 branch가 없고 .git/HEAD도 못 읽을 때
 FOLDER_CARD_COLUMNS = 3          # 폴더 카드 한 줄 개수
-FOLDER_CARD_MAX_CLASSES = 5      # 폴더당 보여 줄 클래스 최대 수
-CLASS_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점"]  # 폴더 카드에 그리는 상태 (위가 우선 적용·먼저 표시)
-CLASS_STATUS_NONE = "일반"      # 상태 없는 클래스 — build_folder_cards에서 걸러 내고 그리지 않는다
-CLASS_STATUS_STYLE = {          # 폴더 후보 카드의 클래스 알약 모양 (CSS)
+FOLDER_CARD_MAX_FILES = 5        # 폴더당 보여 줄 파일 최대 수
+FILE_STATUS_ORDER = ["원인 후보", "함께 확인", "키워드 일치", "감점"]  # 폴더 카드에 그리는 상태 (위가 우선 적용·먼저 표시)
+FILE_STATUS_NONE = "일반"       # 상태 없는 파일 — build_folder_cards에서 걸러 내고 그리지 않는다
+FILE_STATUS_STYLE = {           # 폴더 후보 카드의 파일 알약 모양 (CSS)
     "원인 후보": "background:#E8622C; color:#FFFFFF; font-weight:700; border:1px solid #E8622C;",
     "함께 확인": "background:#F9D3C7; color:#202124; font-weight:700; border:1px solid #E8622C;",
     "키워드 일치": "background:#FFB547; color:#202124; font-weight:700; border:1px solid #FFB547;",

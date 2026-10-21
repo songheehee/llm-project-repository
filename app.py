@@ -203,8 +203,8 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
     title = (f'<div style="font-weight:700; font-size:15px; margin-bottom:4px;">'
              f'{esc(repo)} / {esc(branch)} · {esc(voc_type)} 기준</div>')
     legend_items = []
-    for status in config.CLASS_STATUS_ORDER:
-        style = config.CLASS_STATUS_STYLE[status]
+    for status in config.FILE_STATUS_ORDER:
+        style = config.FILE_STATUS_STYLE[status]
         mark = "┅" if status == "감점" else "■"
         sw = (f'<span style="display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; '
               f'{style}"></span>') if mark == "■" else f'<span style="color:#D93025; font-weight:700;">{mark}</span>'
@@ -220,7 +220,7 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
         for item in card.items:
             label = esc(item.name) + (" ✕" if item.status == "감점" else "")
             tip = f' title="{esc(item.note)}"' if item.note else f' title="{esc(item.file)}"'
-            pills.append(f'<span style="{pill}{config.CLASS_STATUS_STYLE[item.status]}"{tip}>{label}</span>')
+            pills.append(f'<span style="{pill}{config.FILE_STATUS_STYLE[item.status]}"{tip}>{label}</span>')
         boxes.append(
             '<div style="background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 14px;">'
             f'<div style="font-weight:700; margin-bottom:6px;">📁 {esc(card.path)}</div>'
