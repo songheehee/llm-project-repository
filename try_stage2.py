@@ -43,9 +43,18 @@ def main() -> None:
             result = event[1]
     print(f"\n[폴더 확인] 수정 라인을 찾은 폴더: {[f['repo'] + '/' + f['path'] for f in result['selected_folders']]}")
     print(f"\n[⑥ 후보 파일별 search_file — 동시 최대 {config.MAX_PARALLEL_LLM}개] 그래프 전체 {time.perf_counter() - t0:.1f}초")
+    stats = result.get("llm_stats", {})
     for key, secs in result.get("timings", {}).items():
         if key.startswith("search_file:"):
-            print(f"  {key.split(':', 1)[1]:<28} {secs:.1f}초")
+            s = stats.get(key, {})
+            print(f"  {key.split(':', 1)[1]:<28} {secs:.1f}초 · LLM 입력 {s.get('input_tokens', 0):,} 토큰 "
+                  f"(LLM 호출 {s.get('llm_calls', 0)}회) · 도구 호출 {s.get('tool_calls', 0)}회 (최대 {config.MAX_TOOL_CALLS})")
+
+    # state 크기 — 파일 내용·diff 전문은 state 밖(디스크·outputs/cache/diffs)에 있어야 한다
+    print("\n[state 크기] 필드 · 바이트 · 가장 긴 문자열")
+    for field, size, longest in stage2.state_size_report(result):
+        print(f"  {field:<18} {size:>8,} B · {longest:>5}자")
+    print(f"  캐시한 diff: {result.get('diff_cache', [])}")
 
     print("\n[코드 출처]")
     for name, src in result.get("repo_sources", {}).items():

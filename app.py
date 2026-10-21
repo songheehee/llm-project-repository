@@ -897,12 +897,12 @@ with tab2:
 
 # ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
 
-def code_windows(lines: list[str], ranges: list[tuple[int, int]]) -> list[tuple[int, int, list[int]]]:
+def code_windows(n_lines: int, ranges: list[tuple[int, int]]) -> list[tuple[int, int, list[int]]]:
     """추천 범위 앞뒤 CODE_CONTEXT_LINES줄 창. 겹치면 합친다. (창 시작, 창 끝, 강조 절대 줄)"""
     pad = config.CODE_CONTEXT_LINES
     wins: list[list] = []
     for s, e in sorted(ranges):
-        ws, we = max(1, s - pad), min(len(lines), e + pad)
+        ws, we = max(1, s - pad), min(n_lines, e + pad)
         if wins and ws <= wins[-1][1] + 1:
             wins[-1][1] = max(wins[-1][1], we)
             wins[-1][2] += list(range(s, e + 1))
@@ -911,9 +911,10 @@ def code_windows(lines: list[str], ranges: list[tuple[int, int]]) -> list[tuple[
     return [(a, b, h) for a, b, h in wins]
 
 
-def render_code(lines: list[str], ranges: list[tuple[int, int]]) -> None:
-    for ws, we, hl in code_windows(lines, ranges):
-        chunk = "\n".join(lines[ws - 1:we]) + "\n"
+def render_code(ref, ranges: list[tuple[int, int]]) -> None:
+    """코드 뷰: 파일 전체를 읽지 않고 FileRef + read_lines로 추천 범위 앞뒤 CODE_CONTEXT_LINES줄 창만 읽는다."""
+    for ws, we, hl in code_windows(ref.n_lines, ranges):
+        chunk = stage2.read_lines(ref, ws, we, numbered=False) + "\n"
         fmt = HtmlFormatter(linenos="table", linenostart=ws, hl_lines=[n - ws + 1 for n in hl],
                             noclasses=True, hl_color="#FFF1A8", style="default")
         st.html(f'<div class="vocai-code" style="font-size:13px;overflow-x:auto;border:1px solid #E3E6EF;border-radius:8px;'
@@ -944,7 +945,7 @@ with tab3:
             st.markdown("#### 파일별 상세")
             for idx, r in enumerate(recs):
                 with st.expander(f"{r.path} · {stage2.fmt_line_ranges(r.ranges)}", expanded=(idx == 0)):
-                    render_code(stage2.read_lines(stage2.repo_dir(r.repo), r.path), r.ranges)
+                    render_code(stage2.file_ref(r.repo, r.path), r.ranges)
                     with st.container(key=f"card_evidence_{idx}"):  # 흰 배경 카드 안 근거 표
                         st.table(pd.DataFrame(stage2.evidence_rows(ticket, r), columns=["항목", "내용"]).set_index("항목"))
                     if len(r.last_authors) > 1:  # 근거 표의 마지막 수정자는 한 줄 요약 — 범위별은 접어 둔다
