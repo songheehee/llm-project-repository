@@ -18,6 +18,14 @@ def load_vocs() -> pd.DataFrame:
     return df
 
 
+def load_answer_labels() -> dict[str, str]:
+    """정답 라벨 {voc_id: 정답 주제} — 화면의 ARI 계산에만 쓴다(LLM에는 넣지 않음). 파일이 없으면 빈 dict."""
+    if not config.ANSWER_CSV.exists():
+        return {}
+    df = pd.read_csv(config.ANSWER_CSV, encoding="utf-8")
+    return dict(zip(df["voc_id"], df[config.ANSWER_LABEL_COL]))
+
+
 def load_users() -> list[dict]:
     """data/users.yaml의 개발자 목록 [{id, name, part}] — 사이드바 '현재 개발자'(로그인 대신)."""
     data = yaml.safe_load(config.USERS_YAML.read_text(encoding="utf-8"))

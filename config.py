@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 RAG_DIR = DATA_DIR / "rag"
 VOCS_CSV = DATA_DIR / "vocs.csv"            # VOC 입력 — 건수는 이 CSV를 읽을 때 정해진다 (지금은 테스트용 1000건)
-ANSWER_CSV = DATA_DIR / "vocs_labels.csv"   # 정답 확인 전용 (앱·LLM에 넣지 않음, try_stage1에서만)
+ANSWER_CSV = DATA_DIR / "vocs_labels.csv"   # 정답 확인 전용 (LLM에 넣지 않음 — try_stage1 · 화면 ARI 지표에만)
 ANSWER_LABEL_COL = "topic_name"                  # ANSWER_CSV의 정답 라벨 열
 
 

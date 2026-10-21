@@ -115,6 +115,11 @@ def cached_embed_clusters(voc_ids: tuple[str, ...]):
 
 
 @st.cache_data
+def cached_answer_labels() -> dict[str, str]:
+    return data_utils.load_answer_labels()
+
+
+@st.cache_data
 def cached_users() -> list[dict]:
     return data_utils.load_users()
 
@@ -362,11 +367,11 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     """VOC 유사도: 임베딩 3D 의미 공간 + 선택한 VOC의 유사 VOC. 색은 LLM 또는 임베딩 클러스터, 위치는 임베딩."""
     st.subheader("VOC 유사도")
     st.caption(f"위치는 VOC 문장 임베딩({config.VOC_EMBEDDING_MODEL})을 t-SNE로 3D 투영한 것입니다. "
-               "가까울수록 고객 표현이 비슷합니다. 색은 유형 또는 임베딩만으로 묶은 분류(KMeans)입니다.")
+               "가까울수록 고객 표현이 비슷합니다. 색은 LLM 분류 또는 임베딩만으로 묶은 분류(KMeans)입니다.")
     c_on, c_color = st.columns([1, 3], vertical_alignment="center")
     if not c_on.toggle("의미 공간", key="voc_map_on"):
         return
-    color_by = c_color.radio("색 기준", ["유형", "임베딩 분류"], horizontal=True,
+    color_by = c_color.radio("색 기준", ["LLM 분류", "임베딩 분류"], horizontal=True,
                              key="voc_map_color", label_visibility="collapsed")
     if not has_api_key():
         return
@@ -383,7 +388,7 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     labels = cur["cluster"].tolist()
 
     palette = px.colors.qualitative.Bold
-    if color_by == "유형":
+    if color_by == "LLM 분류":
         color_col = "cluster"
         order = [c.label for c in clusters] + [config.OTHER_LABEL]
     else:
@@ -453,18 +458,28 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
     show_table(near, key="tbl_near", column_config={
         "유사도": st.column_config.ProgressColumn(format="%.3f", min_value=0.0, max_value=1.0)})
 
-    render_cluster_comparison(vectors, labels, emb_labels, sil_by_k)
+    render_cluster_comparison(list(voc_ids), labels, emb_labels, sil_by_k)
 
 
-def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[str], sil_by_k: dict) -> None:
-    """LLM 분류 vs 임베딩 분류: 클러스터 수 · ARI(두 분류의 일치도) · 임베딩 분류 k별 실루엣."""
+def render_cluster_comparison(voc_ids: list[str], llm_labels: list[str], emb_labels: list[str],
+                              sil_by_k: dict) -> None:
+    """LLM 분류 vs 임베딩 분류: 클러스터 수 · 정답 라벨 대비 ARI(각각) · 임베딩 분류 k별 실루엣."""
     from sklearn.metrics import adjusted_rand_score
 
+    answers = cached_answer_labels()
+    keep = [i for i, v in enumerate(voc_ids) if v in answers]  # 정답 라벨이 있는 VOC만 비교
+
+    def ari(pred: list[str]) -> str:
+        if len(keep) < 2:
+            return "–"
+        return f"{adjusted_rand_score([answers[voc_ids[i]] for i in keep], [pred[i] for i in keep]):.3f}"
+
     st.markdown("#### LLM 분류 vs 임베딩 분류")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     c1.metric("유형 수 (LLM · 임베딩)", f"{len(set(llm_labels))} · {len(set(emb_labels))}")
-    c2.metric("ARI (LLM ↔ 임베딩)", f"{adjusted_rand_score(llm_labels, emb_labels):.3f}",
-              help="두 분류가 VOC를 같은 묶음으로 나눈 정도 (1 = 완전히 같음, 0 = 우연 수준)")
+    ari_help = "정답 라벨과 VOC를 같은 묶음으로 나눈 정도 (1 = 정답과 같음, 0 = 우연 수준)"
+    c2.metric("ARI (LLM 분류)", ari(llm_labels), help=ari_help)
+    c3.metric("ARI (임베딩 분류)", ari(emb_labels), help=ari_help)
 
     if sil_by_k:
         with st.expander(f"실루엣 — 임베딩 분류 k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS}"):
