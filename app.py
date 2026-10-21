@@ -232,7 +232,7 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
     for card in cards:
         pills = []
         for item in card.items:
-            label = esc(item.name) + (" ✕" if item.status == "감점" else "")
+            label = esc(item.name) + (" ✕" if item.status == "감점" else "") + f" · {item.score:.2f}"
             tip = f' title="{esc(item.note)}"' if item.note else f' title="{esc(item.file)}"'
             pills.append(f'<span style="{pill}{config.FILE_STATUS_STYLE[item.status]}"{tip}>{label}</span>')
         boxes.append(

@@ -88,14 +88,15 @@ class Impact(BaseModel):
 class FileItem(BaseModel):
     name: str               # 파일 이름 (reconnect.py, 대상 코드는 import·실행하지 않음)
     file: str               # 레포 기준 파일 경로
-    status: str             # config.FILE_STATUS_ORDER 중 하나: 원인 후보 / 함께 확인 / 키워드 일치 / 감점 (일반은 걸러 냄)
-    note: str = ""          # 감점 사유 등 (화면 title 속성)
+    status: str             # config.FILE_STATUS_ORDER 중 하나: 원인 후보 / 함께 확인 / 의심 파일 / 감점
+    score: float = 0.0      # 파일 의심도 (폴더 의심도와 같은 식, file_scores)
+    note: str = ""          # 점수 구성 · 감점 사유 (화면 title 속성)
 
 
 class FolderCard(BaseModel):
     path: str               # "sensor/"
     score: float            # 폴더 의심도
-    items: list[FileItem]   # 상태 순 → 이름순, 최대 FOLDER_CARD_MAX_FILES개
+    items: list[FileItem]   # 상태 순 → 파일 점수 순, 최대 FOLDER_CARD_MAX_FILES개
 
 
 # ── LLM 구조화 출력용 ──
@@ -915,13 +916,44 @@ def is_test_file(rel: str) -> bool:
     return name.startswith("test_") or name.endswith("_test.py") or "tests" in parts[:-1] or "test" in parts[:-1]
 
 
-def build_folder_cards(state: dict, repo_name: str) -> list[FolderCard]:
-    """선택한 레포지토리의 폴더 후보 카드. 이미 계산된 folder_scores · line_recs · impacts로 파일 상태를 정한다.
-    의심도 0 폴더, __init__.py, 테스트 파일, 상태 없는(일반) 파일은 뺀다."""
+def file_scores(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_START) -> dict[str, dict]:
+    """파일 의심도 — 폴더 의심도(score_folders)와 같은 식을 파일 단위로:
+    (0.3×키워드 + 0.3×함수 의미 + 0.4×최근변경) × 역할보정. 키워드·의미는 레포 안 파일끼리 정규화.
+    {파일 경로: {score, hits, semantic, last}}"""
     repo = repo_dir(repo_name)
-    terms = state["ticket"].code_terms
+    roles = load_registry()[repo_name].get("folder_roles") or {}
+    files = [rel for rel in py_files(repo) if not rel.endswith("__init__.py") and not is_test_file(rel)]
+    hits = {rel: count_terms((repo / rel).read_text(encoding="utf-8"), ticket.code_terms) for rel in files}
+    max_hits = max(hits.values(), default=0) or 1
+    sims = unit_similarities(repo_name, ticket)  # 폴더 의심도와 같은 캐시 벡터
+    sem = minmax({rel: max(s["sim"] for s in sims if s["unit"].path == rel)
+                  for rel in files if any(s["unit"].path == rel for s in sims)})
+    changes = recent_changes(repo, start)
+    out = {}
+    for rel in files:
+        last = changes.get(rel)
+        recent = 0.0
+        if last:
+            recent = (config.RECENT_SCORE_STRONG if (start - last).days <= config.RECENT_DAYS_STRONG
+                      else config.RECENT_SCORE_WEAK)
+        factor = config.ROLE_FACTORS.get(roles.get(rel.split("/")[0] + "/"), 1.0)
+        semantic = sem.get(rel, 0.0)
+        score = (config.W_KEYWORD * hits[rel] / max_hits + config.W_SEMANTIC * semantic
+                 + config.W_RECENT * recent) * factor
+        out[rel] = {"score": round(score, 2), "hits": hits[rel], "semantic": round(semantic, 2), "last": last}
+    return out
+
+
+def build_folder_cards(state: dict, repo_name: str) -> list[FolderCard]:
+    """선택한 레포지토리의 폴더 후보 카드 — 폴더 의심도(folder_scores)와 같은 기준.
+    의심도 > 0인 폴더마다 카드 하나, 카드 안 파일은 같은 식의 파일 의심도(file_scores) 순.
+    파일 상태: 검증된 수정 라인 → 원인 후보, 영향 범위 → 함께 확인, display_only 폴더 → 감점, 그 외 → 의심 파일.
+    파일 점수 0인 파일 · __init__.py · 테스트 파일은 뺀다(폴더에 남는 파일이 없으면 점수 1위 파일 하나는 남김)."""
     folders = sorted((f for f in state.get("folder_scores", []) if f.repo == repo_name and f.score > 0),
                      key=lambda f: -f.score)
+    if not folders:
+        return []
+    scores = file_scores(repo_name, state["ticket"])
     rec_files = {r.path for r in state.get("line_recs", []) if r.verified and r.repo == repo_name}
     impact_files = {i.path for i in state.get("impacts", []) if i.repo == repo_name}
     rank = {s: n for n, s in enumerate(config.FILE_STATUS_ORDER)}
@@ -929,27 +961,27 @@ def build_folder_cards(state: dict, repo_name: str) -> list[FolderCard]:
     cards = []
     for f in folders:
         penalized = f.role in config.ROLE_FACTORS
+        in_folder = sorted((rel for rel in scores if rel.startswith(f.path)), key=lambda rel: -scores[rel]["score"])
+        picked = [rel for rel in in_folder if scores[rel]["score"] > 0 or rel in rec_files or rel in impact_files]
+        picked = picked or in_folder[:1]
         items: list[FileItem] = []
-        for rel in py_files(repo, f.path):
-            if rel.endswith("__init__.py") or is_test_file(rel):
-                continue
-            has_kw = count_terms((repo / rel).read_text(encoding="utf-8"), terms) > 0
-            note = ""
+        for rel in picked:
+            s = scores[rel]
+            notes = [f"점수 {s['score']:.2f}", f"키워드 {s['hits']}회", f"의미 {s['semantic']:.2f}"]
+            if s["last"]:
+                notes.append(f"{s['last']:%m/%d} 변경")
             if rel in rec_files:
                 status = "원인 후보"
             elif rel in impact_files:
                 status = "함께 확인"
-            elif has_kw and penalized:
-                status, note = "감점", config.ROLE_NOTES.get(f.role, "")
-            elif has_kw:
-                status = "키워드 일치"
+            elif penalized:
+                status = "감점"
+                notes.append(config.ROLE_NOTES.get(f.role, ""))
             else:
-                status = config.FILE_STATUS_NONE
-            if status != config.FILE_STATUS_NONE:  # 상태 없는 '일반' 파일은 그리지 않는다
-                items.append(FileItem(name=Path(rel).name, file=rel, status=status, note=note))
-        if not items:  # 보여 줄 파일이 없는 폴더는 카드 자체를 만들지 않는다
-            continue
-        items.sort(key=lambda c: (rank[c.status], c.name))  # 원인 후보 → 함께 확인 → 키워드 일치 → 감점, 그다음 이름순
+                status = "의심 파일"
+            items.append(FileItem(name=Path(rel).name, file=rel, status=status, score=s["score"],
+                                  note=f"{rel} · " + " · ".join(n for n in notes if n)))
+        items.sort(key=lambda c: (rank[c.status], -c.score, c.name))  # 상태 순 → 파일 점수 순
         cards.append(FolderCard(path=f.path, score=f.score, items=items[:config.FOLDER_CARD_MAX_FILES]))
     return cards
 
