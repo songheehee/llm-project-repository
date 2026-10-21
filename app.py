@@ -39,12 +39,13 @@ CSS = """
 /* 근거 표: 흰 배경, 긴 내용은 줄바꿈 그대로 (마지막 수정자는 범위마다 한 행) */
 [class*="st-key-card_evidence"] table, [class*="st-key-card_evidence"] th, [class*="st-key-card_evidence"] td {background:#FFFFFF;}
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
-/* 티켓 카드 안 [처리 완료]: 작은 버튼 (담당 티켓 카드에만) */
-[class*="st-key-done_card_"] button {min-height:28px; height:28px; padding:0 10px; font-size:0.8rem; line-height:1;}
+/* 티켓 카드 마지막 줄: [처리 완료](담당 카드만, 오른쪽 끝) — 버튼 없는 카드도 같은 높이의 빈 줄 */
+[class*="st-key-tact_"] {min-height:40px;}
 /* 현재 개발자의 티켓 카드: primaryColor 테두리 */
 [class*="st-key-card_mine"] {border:2px solid #1428A0 !important;}
 /* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
 [class*="st-key-tprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0;}
+[class*="st-key-tprob_"] {min-height:3.2em;}  /* 한 줄이어도 두 줄 자리 → 모든 카드의 마지막 줄(처리 완료)이 카드 바닥에 맞춰진다 */
 [class*="st-key-tline_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
 /* 사이드바 내 티켓: 본문 티켓 카드를 줄인 압축 카드 (일반 배치 · 오른쪽 위 작은 '선택' 버튼). 높이는 내용에 맞게 */
 [class*="st-key-sbcards"] {gap:6px;}
@@ -250,17 +251,19 @@ def render_ticket_cards() -> None:
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
             # 흰 배경 · 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓은 primaryColor 테두리
             with col.container(border=True, height=config.TICKET_CARD_HEIGHT, key=card_key):
-                # 1줄: ID + 우선순위 배지 · 오른쪽 [처리 완료] (현재 개발자가 담당자인 카드에만)
-                c_id, c_done = st.columns([3, 2], vertical_alignment="center")
-                c_id.markdown(f"**{t.ticket_id}** {badge(t.priority)}", unsafe_allow_html=True)
-                if mine and c_done.button("처리 완료", key=f"done_card_{t.ticket_id}"):
-                    confirm_complete(t.ticket_id)
+                c_id, c_badge = st.columns([2, 1], vertical_alignment="center")
+                c_id.markdown(f"**{t.ticket_id}**")
+                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
                 with st.container(key=f"tprob_{t.ticket_id}"):   # 문제점: 최대 2줄, 넘치면 … (CSS line-clamp)
                     st.markdown(f"**{t.problem}**")
                 with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
                     st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
                 st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
                            f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
+                # 마지막 줄: 오른쪽 끝 [처리 완료] (현재 개발자가 담당자인 카드에만). 다른 카드는 같은 높이의 빈 줄
+                actions = st.container(horizontal=True, horizontal_alignment="right", key=f"tact_{t.ticket_id}")
+                if mine and actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}"):
+                    confirm_complete(t.ticket_id)
 
 
 @st.dialog("처리 완료")
@@ -599,25 +602,32 @@ with tab1:
         st.info("선택한 기간에 VOC가 없습니다. 기간을 바꿔 보세요.")
     else:
         kpi = cached_kpis(start, end)
-        k1, k2, k3, k4 = st.columns(4)
+        period_txt = f"{start}~{end}"
+        # 용도별 목록 (같은 목록을 같이 쓰지 않는다): period_vocs = 선택 기간 VOC 전체(거르지 않음) → 총 VOC ·
+        # open_clusters(처리 전 + 진행 중) → VOC 유형·긴급 · completed_voc_ids → 처리 완료. 유형 표는 아래 table_clusters
+        period_vocs = cur
+        cards = stage1.summary_cards(period_vocs["voc_id"], s1["clusters"] if s1 else None, ss["tickets"], period_txt)
+        # 카드 순서: 총 VOC · 처리 완료(총 VOC 바로 옆) · VOC 유형 · 긴급
+        k1, k4, k2, k3 = st.columns(4)
         if full_period:  # 비교할 이전 기간이 없다
-            k1.metric("총 VOC", f"{kpi['total']:,}건", help=f"전체 기간 {start:%Y/%m/%d}~{end:%Y/%m/%d}")
+            k1.metric("총 VOC", f"{cards['total']:,}건", help=f"전체 기간 {start:%Y/%m/%d}~{end:%Y/%m/%d}")
         else:
-            k1.metric("총 VOC", f"{kpi['total']:,}건",
+            k1.metric("총 VOC", f"{cards['total']:,}건",
                       delta=f"{kpi['change_pct']:+.1f}%" if kpi["change_pct"] is not None else None,
                       delta_color="inverse",
-                      help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비 · 이전 기간 {kpi['prev_total']:,}건")
-        period_txt = f"{start}~{end}"
-        # 처리 완료되지 않은 유형 = 발행 전 + 발행됨(진행 중) — 요약 카드와 유형 표가 같은 기준을 쓴다
-        active = stage1.active_clusters(s1["clusters"], ss["tickets"], period_txt) if s1 else []
-        if s1:
-            urgent = [c for c in active if c.priority == "긴급"]
-            k2.metric("VOC 유형", f"{len(active)}개", help="처리 완료되지 않은 유형 수 (발행 전 + 진행 중 티켓)")
-            k3.metric("긴급 유형", f"{len(urgent)}개", help="처리 완료되지 않은 유형 중 우선순위가 '긴급'인 유형 수")
-            k4.metric("긴급 건수", f"{sum(c.count for c in urgent):,}건", help="위 긴급 유형에 속한 VOC 건수 합계")
+                      help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비 · 이전 기간 {kpi['prev_total']:,}건 · "
+                           "처리 전 + 진행 중 + 처리 완료 모두 포함")
+        if cards["types"] is not None:
+            k2.metric("VOC 유형", f"{cards['types']}개", help="처리 완료되지 않은 유형 수 (처리 전 + 진행 중)")
+            k3.metric("긴급", f"{cards['urgent_types']}개 / {cards['urgent_count']:,}건",
+                      help="처리 완료되지 않은 긴급 유형 수 / 그 유형들의 VOC 건수 합")
         else:
-            for col, label in [(k2, "VOC 유형"), (k3, "긴급 유형"), (k4, "긴급 건수")]:
-                col.metric(label, "–", help="유형 분석 후 표시")
+            k2.metric("VOC 유형", "–", help="유형 분석 후 표시")
+            k3.metric("긴급", "–", help="유형 분석 후 표시")
+        # 처리 완료: 티켓 voc_ids로 계산하므로 분석 전에도 표시. 처리율은 증감이 아니라서 화살표·색 없음
+        k4.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
+                  delta_color="off", delta_arrow="off",
+                  help=f"처리 완료한 티켓에 묶인 VOC 건수 ({cards['done_types']}개 유형) · 처리율 = 처리 완료 ÷ 총 VOC")
 
         if view == VIEW_RAW:
             daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
@@ -633,9 +643,6 @@ with tab1:
         elif not s1:
             st.info("유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
         else:
-            # 진행 중 티켓의 유형(누가 발행했든, 같은 기간의 cluster_id)은 표에서 빼고 아래 티켓 카드에서만 보인다.
-            # 처리 완료된 유형은 active_clusters에서 이미 빠져 있다
-            issued = {t.cluster_id for t in OPEN_TICKETS.values() if t.period == period_txt}
             all_clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순 (의미 공간용 전체)
 
             # 1. 일별 VOC 건수 차트 (유형별 누적)
@@ -652,7 +659,8 @@ with tab1:
             c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
             c_title.subheader("VOC 유형별 처리 우선순위")
             st.caption("체크한 유형만 티켓 발행")
-            clusters = [c for c in sorted(active, key=lambda c: -c.priority_score) if c.cluster_id not in issued]
+            # 처리 전 유형만 — 진행 중(티켓 카드에만 보임) · 처리 완료 유형은 표에서 빠진다
+            clusters = stage1.table_clusters(s1["clusters"], ss["tickets"], period_txt)
             # 열: 우선순위·처리 시급도를 건수보다 앞에, 그 뒤는 시급도 계산식 순서(건수 → 증가율(추세) → 심각도)
             columns = ["발행", "우선순위", "유형", "처리 시급도", "이번 기간", "이전 기간", "추세", "심각도", "카테고리 · 제품"]
             table = pd.DataFrame([{

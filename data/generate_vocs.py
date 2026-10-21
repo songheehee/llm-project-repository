@@ -8,6 +8,10 @@ VOC 1,000건 생성 (주제 13개).
 주제는 원본 5개에 실제 워치 VOC에서 흔한 8개를 더했다.
 말투 세기(1~4)는 주제마다 분포를 두어 섞었다 — 맺음말 고르기에만 쓰고 CSV에는 넣지 않는다.
 
+추가 주제(EXTRA_TOPICS): 기존 1,000건(V0001~V1000)은 한 글자도 바꾸지 않고, 따로 만든 VOC를 V1001부터 뒤에 붙인다.
+  - 충전 중 과열·화상: 10/3 업데이트 이후 새로 생긴 긴급 유형 (이전 기간 0건, 분석 기간 하루 평균 7.5건)
+  - 기존 1,000건과 별도 난수(EXTRA_SEED)를 써서, 추가해도 기존 문장·ID·티켓 voc_ids가 그대로다
+
   python generate_vocs.py  ->  vocs.csv, vocs_labels.csv
 """
 import csv
@@ -203,6 +207,33 @@ SUFFIXES = {
     "charging": ["교환 가능한가요?", "충전기 불량인가요?", "너무 불편해요.", "개선 부탁드려요."],
     "app_crash": ["너무 답답해요.", "빨리 고쳐 주세요.", "이거 정상인가요?", "운동할 맛이 안 나요."],
 }
+# ── 추가 주제 (기존 1,000건 뒤에 V1001부터) ──
+EXTRA_SEED = 20261021
+# 주제: (한글 이름, 급증 전 하루 평균, 10/3 이후 하루 평균, 말투 세기 분포)
+EXTRA_TOPICS = {
+    "heat_charge": ("충전 중 과열·화상", 0.0, 7.5, {1: .80, 2: .20}),
+}
+# '운동'·'연결'이라는 말은 쓰지 않는다 (운동 중 발열 · 연결 끊김 발열과 구분되도록 발생 상황은 '충전하는 동안'만,
+#  '충전 끝나고 찼더니'처럼 직후 표현도 쓰지 않는다 — '운동 후 발열' 같은 별도 묶음이 생겼음)
+EXTRA_CORES = {
+    "heat_charge": [
+        "충전기에 올려 두면 시계가 손대기 힘들 만큼 뜨거워져요.", "밤새 충전기에 올려 둔 시계가 아침까지 뜨끈뜨끈해요.",
+        "충전 중에 시계 뒷면이 너무 뜨거워서 깜짝 놀랐어요.", "충전 거치대에서 꺼냈는데 뒤판이 데일 것처럼 뜨거웠어요.",
+        "업데이트 후로 충전만 하면 시계가 뜨끈뜨끈해요.", "충전하면서 화면을 켜 두면 시계가 금방 뜨거워져요.",
+        "충전하는 동안 시계를 만지면 손이 화끈거려요.", "충전 중인 시계를 집었다가 너무 뜨거워서 떨어뜨렸어요.",
+        "충전기에 올려 두면 거치대까지 뜨겁게 달아올라요.", "충전하다가 타는 냄새 같은 게 나서 무서웠어요.",
+        "충전 중에 시계가 너무 뜨거워서 아이가 만졌다가 울었어요.", "충전 중에 시계를 잠깐 들었는데 열감이 확 느껴졌어요.",
+        "자기 전에 충전기에 올려 두면 침대 옆에서 열기가 느껴져요.", "충전할 때마다 시계 뒷면이 뜨겁게 달아올라요.",
+        "완충되고 나서도 거치대 위에서 계속 뜨거워요.", "충전 중에 시계가 너무 뜨거워져서 충전기를 뽑았어요.",
+    ],
+}
+EXTRA_SUFFIXES = {
+    "heat_charge": ["화상 입을까 봐 무서워요.", "이거 위험한 거 아닌가요?", "교환해 주세요.", "충전하기가 겁나요.",
+                    "빨리 확인해 주세요."],
+}
+CORES.update(EXTRA_CORES)
+SUFFIXES.update(EXTRA_SUFFIXES)
+
 SIZE_WORDS = ("작아", "글씨", "글자")
 # 말투 세기 4(대체로 만족)에는 순한 맺음말만 붙인다
 MILD_SUFFIXES = ["그것만 빼면 만족해요.", "나머지는 다 좋아요.", "개선되면 좋겠어요.", "아쉬워요."]
@@ -252,6 +283,29 @@ def make_text(rng, topic, tone):
     return " ".join(parts)
 
 
+def extra_rows(start_no: int) -> list[dict]:
+    """추가 주제 VOC (별도 난수 · 날짜순 · voc_id는 start_no부터). 기존 1,000건과 섞지 않는다."""
+    rng = random.Random(EXTRA_SEED)
+    rows = []
+    days = [START + timedelta(days=i) for i in range((END - START).days + 1)]
+    for topic, (_, before, after, dist) in EXTRA_TOPICS.items():
+        for d in days:
+            for _ in range(poisson(rng, after if d >= SPIKE else before)):
+                ts = datetime(d.year, d.month, d.day) + timedelta(seconds=rng.randrange(86400))
+                tone = rng.choices(list(dist), list(dist.values()))[0]
+                rows.append({
+                    "created_at": ts.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "channel": "call_center" if rng.random() < CALL_CENTER_RATE else "review",
+                    "text": make_text(rng, topic, tone),
+                    "topic": topic,
+                })
+    rows.sort(key=lambda r: r["created_at"])
+    for i, r in enumerate(rows, start_no):
+        r["voc_id"] = f"V{i:04d}"
+        assert "," not in r["text"] and '"' not in r["text"]
+    return rows
+
+
 def main():
     rng = random.Random(SEED)
     rows = []
@@ -270,6 +324,8 @@ def main():
     for i, r in enumerate(rows, 1):
         r["voc_id"] = f"V{i:04d}"
         assert "," not in r["text"] and '"' not in r["text"]
+    rows += extra_rows(len(rows) + 1)  # 기존 1,000건 뒤에 V1001부터 (기존 행은 그대로)
+    names = {k: v[0] for k, v in {**TOPICS, **EXTRA_TOPICS}.items()}
 
     with open("vocs.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
@@ -278,7 +334,7 @@ def main():
     with open("vocs_labels.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")
         w.writerow(["voc_id", "topic", "topic_name"])
-        w.writerows([r["voc_id"], r["topic"], TOPICS[r["topic"]][0]] for r in rows)
+        w.writerows([r["voc_id"], r["topic"], names[r["topic"]]] for r in rows)
     print(f"{len(rows)} rows -> vocs.csv, vocs_labels.csv")
 
 

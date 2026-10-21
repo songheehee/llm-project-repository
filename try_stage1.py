@@ -60,7 +60,8 @@ def compare_methods(df: pd.DataFrame, assignments: dict[str, str], answers: pd.S
 
 
 # 현재 데이터(config.VOCS_CSV = vocs.csv) 기준 기대값 — 데이터를 바꾸면 여기와 CLAUDE.md 정답을 함께 갱신
-EXPECTED_PRIORITY = {"운동 중 기기 발열": "긴급", "연결 끊김 시 발열": "높음", "배터리 소모": "높음"}  # 정답 주제 → 우선순위
+EXPECTED_PRIORITY = {"운동 중 기기 발열": "긴급", "충전 중 과열·화상": "긴급",
+                     "연결 끊김 시 발열": "높음", "배터리 소모": "높음"}  # 정답 주제 → 우선순위
 EXPECTED_TOP = "운동 중 기기 발열"     # 처리 시급도 1위 유형의 정답 주제
 # 데이터와 무관한 일반 기준
 TYPE_COUNT_TOLERANCE = 3              # 유형 수 = 분석 기간 정답 주제 수 ± 이 값

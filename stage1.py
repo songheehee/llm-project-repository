@@ -158,7 +158,9 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
         "- 나누는 기준은 '증상 + 발생 상황' 두 가지뿐이다. 같은 증상을 다른 표현·다른 시점(아침, 충전 직후, 여행 중 등)으로 "
         "말한 VOC는 하나로 합친다 (예: '빨리 닳음', '충전해도 금방 꺼짐', '잔량이 뚝뚝 떨어짐'은 같은 묶음).\n"
         "- 증상이 비슷해도 발생 상황이 확실히 다르면(예: 특정 활동 중 vs 특정 연결 상태에서) 별도 묶음으로 나눈다.\n"
-        "  특히 뜨거워짐(발열)은 '운동 중'과 '폰 연결이 끊겼을 때'를 반드시 따로 묶는다 — 원인 코드가 다르다.\n"
+        "  특히 뜨거워짐(발열)은 '운동 중', '폰 연결이 끊겼을 때', '충전하는 동안(충전기·거치대 위)'을 반드시 서로 따로 묶는다 "
+        "— 원인 코드가 다르다. 충전 중 뜨거워짐은 '충전이 안 됨·느림' 같은 충전 불량과도 따로 묶는다. "
+        "운동하는 동안과 운동 직후(운동 끝나고도 식지 않음 등)에 뜨거운 것은 같은 '운동 중' 묶음이다.\n"
         "- 묶음 하나는 개발 티켓 하나로 넘어간다. 같은 기능 영역 안의 묶음은 발생 상황이 다르지 않으면 "
         "하나로 합친다 (예: 글씨 크기·버튼 크기·메뉴 찾기 어려움은 모두 한 묶음).\n"
         f"- 묶음 수는 꼭 필요한 만큼만 만든다 (최소 {config.MIN_CLUSTERS}개).\n"
@@ -550,14 +552,54 @@ def sort_tickets(tickets) -> list[Ticket]:
 
 def open_tickets(tickets: dict[str, Ticket]) -> dict[str, Ticket]:
     """처리 완료되지 않은(진행 중) 티켓만 — 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC가 쓴다."""
-    return {k: t for k, t in tickets.items() if t.status != config.TICKET_STATUS_DONE}
+    return {k: t for k, t in tickets.items() if not is_done(t)}
 
 
-def active_clusters(clusters: list[Cluster], tickets: dict[str, Ticket], period: str) -> list[Cluster]:
-    """처리 완료되지 않은 유형 = 발행 전 + 발행됨(진행 중). 같은 기간에 '완료' 티켓이 있는 유형만 뺀다.
-    요약 카드(VOC 유형·긴급 유형·긴급 건수)와 유형 표가 같이 쓰는 기준 (유형 표는 여기서 진행 중 티켓 유형을 더 뺀다)."""
-    done = {t.cluster_id for t in tickets.values() if t.period == period and t.status == config.TICKET_STATUS_DONE}
+# ── 요약 카드 · 유형 표가 쓰는 목록 — 용도별로 따로 만든다 (같은 목록을 같이 쓰지 않는다) ──
+# 티켓 status: "완료"만 처리 완료. 그 외(Round 22 전 티켓처럼 status 필드가 없어 기본값 "진행 중"인 것 포함)는 진행 중
+
+def is_done(t: Ticket) -> bool:
+    return t.status == config.TICKET_STATUS_DONE
+
+
+def open_clusters(clusters: list[Cluster], tickets: dict[str, Ticket], period: str) -> list[Cluster]:
+    """처리 완료되지 않은 유형 = 처리 전 + 진행 중 → 요약 카드 VOC 유형 · 긴급.
+    같은 기간에 '완료' 티켓이 있는 유형만 뺀다 (진행 중 티켓의 유형은 남긴다)."""
+    done = {t.cluster_id for t in tickets.values() if t.period == period and is_done(t)}
     return [c for c in clusters if c.cluster_id not in done]
+
+
+def table_clusters(clusters: list[Cluster], tickets: dict[str, Ticket], period: str) -> list[Cluster]:
+    """처리 전 유형만(같은 기간에 티켓이 하나도 없는 유형) → VOC 유형별 처리 우선순위 표. 처리 시급도 높은 순."""
+    ticketed = {t.cluster_id for t in tickets.values() if t.period == period}
+    return sorted((c for c in clusters if c.cluster_id not in ticketed), key=lambda c: -c.priority_score)
+
+
+def completed_voc_ids(tickets: dict[str, Ticket], period_voc_ids) -> set[str]:
+    """처리 완료 티켓들의 voc_ids 합집합 ∩ 선택 기간 VOC → 처리 완료 카드 (유형 분석 없이도 계산된다)."""
+    done = set().union(*(t.voc_ids for t in tickets.values() if is_done(t)))
+    return done & set(period_voc_ids)
+
+
+def summary_cards(period_voc_ids, clusters: list[Cluster] | None, tickets: dict[str, Ticket], period: str) -> dict:
+    """요약 카드 숫자 (화면과 확인 코드가 같이 쓴다).
+    total = 선택 기간 VOC 전체(거르지 않음) · types/urgent_types/urgent_count = open_clusters 기준(분석 전 None) ·
+    done_count/done_rate = completed_voc_ids 기준 · done_types = 선택 기간 VOC가 묶인 처리 완료 티켓 수."""
+    period_ids = set(period_voc_ids)
+    done_ids = completed_voc_ids(tickets, period_ids)
+    total = len(period_ids)
+    out = {
+        "total": total,
+        "done_count": len(done_ids),
+        "done_rate": round(len(done_ids) / total * 100, 1) if total else 0.0,
+        "done_types": sum(1 for t in tickets.values() if is_done(t) and period_ids & set(t.voc_ids)),
+        "types": None, "urgent_types": None, "urgent_count": None,
+    }
+    if clusters is not None:
+        opened = open_clusters(clusters, tickets, period)
+        urgent = [c for c in opened if c.priority == "긴급"]
+        out.update(types=len(opened), urgent_types=len(urgent), urgent_count=sum(c.count for c in urgent))
+    return out
 
 
 # ════════════════════════════ 발행된 티켓 저장 (outputs/tickets.json) ════════════════════════════
