@@ -11,6 +11,7 @@
 - clustering_metrics · agreement_metrics : LLM vs 임베딩 분류 품질 지표
 """
 
+import hashlib
 import json
 import math
 import operator
@@ -508,6 +509,52 @@ def project_3d(vectors: np.ndarray) -> np.ndarray:
     reducer = TSNE(n_components=3, perplexity=min(config.TSNE_PERPLEXITY, len(vectors) - 1),
                    metric="cosine", init="pca", random_state=config.PROJECTION_SEED)
     return reducer.fit_transform(vectors)
+
+
+def voc_map_path(voc_ids: tuple[str, ...], model: str = config.VOC_EMBEDDING_MODEL):
+    """VOC 묶음(기간·표본)마다 하나인 의미 공간 캐시 파일. 키 = voc_id 목록 + t-SNE·KMeans 설정의 해시."""
+    raw = "|".join(voc_ids) + f"#{config.TSNE_PERPLEXITY}#{config.PROJECTION_SEED}#{config.KMEANS_N_INIT}"
+    key = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return config.OUTPUTS_DIR / config.VOC_MAP_TEMPLATE.format(dataset=config.DATASET, model=model, key=key)
+
+
+def _read_map_cache(path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError):  # 깨진 캐시는 다시 계산
+        return {}
+
+
+def _write_map_cache(path, data: dict) -> None:
+    config.OUTPUTS_DIR.mkdir(exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def cached_projection(voc_ids: tuple[str, ...], vectors: np.ndarray) -> np.ndarray:
+    """project_3d 결과를 파일에 캐시한다. 같은 VOC 묶음이면 t-SNE를 다시 돌리지 않는다."""
+    path = voc_map_path(voc_ids)
+    data = _read_map_cache(path)
+    if len(data.get("coords", [])) == len(voc_ids):
+        return np.array(data["coords"], dtype=np.float32)
+    coords = project_3d(vectors)
+    data["coords"] = np.round(coords, 4).tolist()
+    _write_map_cache(path, data)
+    return coords
+
+
+def cached_embedding_clusters(voc_ids: tuple[str, ...], vectors: np.ndarray,
+                              texts: list[str]) -> tuple[list[str], dict[int, float]]:
+    """임베딩 분류(VOC별 이름, {k: 실루엣})를 파일에 캐시한다. 같은 VOC 묶음이면 KMeans를 다시 돌리지 않는다."""
+    path = voc_map_path(voc_ids)
+    data = _read_map_cache(path)
+    if len(data.get("emb_labels", [])) == len(voc_ids):
+        return data["emb_labels"], {int(k): v for k, v in data.get("sil_by_k", {}).items()}
+    ids, sil_by_k = cluster_embeddings(vectors)
+    names = embedding_cluster_names(vectors, ids, texts)
+    data = _read_map_cache(path)  # 그사이 좌표가 저장됐을 수 있어 다시 읽고 합친다
+    data.update(emb_labels=names, sil_by_k={str(k): v for k, v in sil_by_k.items()})
+    _write_map_cache(path, data)
+    return names, sil_by_k
 
 
 def similar_vocs(vectors: np.ndarray, idx: int, k: int) -> list[tuple[int, float]]:

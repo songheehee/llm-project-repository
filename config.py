@@ -111,6 +111,7 @@ FILE_STATUS_STYLE = {           # 폴더 후보 카드의 파일 알약 모양 (
 VOC_EMBEDDING_MODEL = "text-embedding-3-large"  # VOC 유사도·임베딩 클러스터링용 (RAG는 EMBEDDING_MODEL)
 VOC_EMBEDDINGS_TEMPLATE = "voc_embeddings_{dataset}_{model}.json"  # outputs/ 안 {voc_id: 벡터} 캐시 (데이터셋·모델별)
 EMBED_BATCH_SIZE = 100
+VOC_MAP_TEMPLATE = "voc_map_{dataset}_{model}_{key}.json"  # outputs/ 안 t-SNE 좌표 · 임베딩 분류 캐시 (VOC 묶음별 = 기간별)
 PROJECTION_SEED = 42
 TSNE_PERPLEXITY = 30
 SIMILAR_TOP_K = 5             # 선택한 VOC와 가장 비슷한 VOC 수

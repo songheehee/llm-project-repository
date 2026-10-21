@@ -101,18 +101,17 @@ def cached_voc_vectors(voc_ids: tuple[str, ...]):
 
 @st.cache_data(show_spinner=False)
 def cached_voc_map(voc_ids: tuple[str, ...]):
-    """(임베딩, t-SNE 3D 좌표)."""
+    """(임베딩, t-SNE 3D 좌표). 좌표는 outputs/voc_map_*.json에도 캐시 (같은 기간이면 다시 계산 안 함)."""
     vectors = cached_voc_vectors(voc_ids)
-    return vectors, stage1.project_3d(vectors)
+    return vectors, stage1.cached_projection(voc_ids, vectors)
 
 
 @st.cache_data(show_spinner=False)
 def cached_embed_clusters(voc_ids: tuple[str, ...]):
-    """임베딩 클러스터링 결과 (VOC별 이름, {k: 실루엣})."""
+    """임베딩 클러스터링 결과 (VOC별 이름, {k: 실루엣}). outputs/voc_map_*.json에도 캐시."""
     vectors = cached_voc_vectors(voc_ids)
-    ids, sil_by_k = stage1.cluster_embeddings(vectors)
     texts = cached_vocs().set_index("voc_id").loc[list(voc_ids), "text"].tolist()
-    return stage1.embedding_cluster_names(vectors, ids, texts), sil_by_k
+    return stage1.cached_embedding_clusters(voc_ids, vectors, texts)
 
 
 @st.cache_data
@@ -457,32 +456,23 @@ def render_voc_map(cur: pd.DataFrame, clusters) -> None:
 
 
 def render_cluster_comparison(vectors, llm_labels: list[str], emb_labels: list[str], sil_by_k: dict) -> None:
-    """LLM 분류 vs 임베딩 분류: 클러스터 수 · 실루엣(LLM · 임베딩) · k별 실루엣."""
+    """LLM 분류 vs 임베딩 분류: 클러스터 수 · ARI(두 분류의 일치도) · 임베딩 분류 k별 실루엣."""
+    from sklearn.metrics import adjusted_rand_score
+
     st.markdown("#### LLM 분류 vs 임베딩 분류")
-    k = config.DISAGREE_K
-    m_llm = stage1.clustering_metrics(vectors, llm_labels, k)
-    m_emb = stage1.clustering_metrics(vectors, emb_labels, k)
-
-    def fmt(v, digits=3):
-        return "–" if v is None else f"{v:.{digits}f}"
-
     c1, c2 = st.columns(2)
-    c1.metric("유형 수 (LLM · 임베딩)", f"{m_llm['n_clusters']} · {m_emb['n_clusters']}")
-    c2.metric("실루엣 (LLM · 임베딩)", f"{fmt(m_llm['silhouette'])} · {fmt(m_emb['silhouette'])}",
-              help="자기 묶음과 가깝고 다른 묶음과 먼 정도 (-1~1, 높을수록 좋음)")
+    c1.metric("유형 수 (LLM · 임베딩)", f"{len(set(llm_labels))} · {len(set(emb_labels))}")
+    c2.metric("ARI (LLM ↔ 임베딩)", f"{adjusted_rand_score(llm_labels, emb_labels):.3f}",
+              help="두 분류가 VOC를 같은 묶음으로 나눈 정도 (1 = 완전히 같음, 0 = 우연 수준)")
 
     if sil_by_k:
-        with st.expander(f"실루엣 — 임베딩 분류 k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS} vs LLM 분류"):
+        with st.expander(f"실루엣 — 임베딩 분류 k = {config.MIN_CLUSTERS}~{config.MAX_CLUSTERS}"):
             sil = pd.DataFrame({"k": list(sil_by_k), "실루엣": list(sil_by_k.values())})
             fig_k = px.line(sil, x="k", y="실루엣", markers=True)
             fig_k.update_traces(name="임베딩 (k별)", showlegend=True)
             best = sil.loc[sil["실루엣"].idxmax()]
             fig_k.add_scatter(x=[best["k"]], y=[best["실루엣"]], mode="markers", name=f"임베딩 선택 k={int(best['k'])}",
                               marker=dict(size=12, color="#D93025"))
-            if m_llm["silhouette"] is not None:  # LLM 분류는 k가 하나 → 가로 기준선
-                fig_k.add_hline(y=m_llm["silhouette"], line_dash="dash", line_color="#1428A0",
-                                annotation_text=f"LLM 분류 {m_llm['silhouette']:.3f} (k={m_llm['n_clusters']})",
-                                annotation_position="top left")
             fig_k.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="#FFFFFF")
             st.plotly_chart(fig_k, width="stretch")
 
