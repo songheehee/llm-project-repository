@@ -3,7 +3,7 @@
 import html
 import os
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import plotly.express as px
@@ -174,13 +174,13 @@ ss = st.session_state
 ss.setdefault("stage1", {})          # {(start, end): {"clusters", "assignments", "secs"}}
 # 발행된 티켓은 outputs/tickets.json이 기준 — 매 실행마다 읽어 개발자를 바꾸거나 새로고침해도 남고, 번호도 이어진다
 ss["tickets"], ss["next_ticket_no"] = stage1.load_tickets()
-# 화면(티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC)에는 처리 완료되지 않은 티켓만. 완료 기록은 파일에 남는다
+# 화면(티켓 카드 · 사이드바 · 3️⃣·4️⃣ 티켓 선택 · 대표 VOC)에는 처리 완료되지 않은 티켓만. 완료 기록은 파일에 남는다
 OPEN_TICKETS = stage1.open_tickets(ss["tickets"])
 ss.setdefault("stage2", {})          # {ticket_id: 최종 state} — outputs/stage2/{ticket_id}.json에도 저장
 # 코드 찾기 대기 상태(폴더 확인에서 멈춤): {ticket_id: {"thread_id", "payload", "state"}} — 티켓별로 따로 둔다
 ss.setdefault("stage2_wait", {})
 ss.setdefault("stage2_run_no", {})   # {ticket_id: 실행 번호} — thread_id = f"{ticket_id}:{번호}"
-ss.setdefault("stage2_notice", {})   # {ticket_id: 안내 문구} — 수정 라인 찾기 실패·0건 (2️⃣ 탭에 한 번 표시)
+ss.setdefault("stage2_notice", {})   # {ticket_id: 안내 문구} — 수정 라인 찾기 실패·0건 (3️⃣ 의심 위치 탭에 한 번 표시)
 ss.setdefault("current_ticket", None)
 ss.setdefault("editor_nonce", 0)        # 발행 후 유형 표(data_editor)를 체크 없이 새로 그리기 위한 번호
 ss.setdefault("voc_view", VIEW_RAW)
@@ -288,17 +288,13 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
     st.html(f'<div style="font-family:{esc(config.APP_FONT)};">{title}{legend}{grid}</div>')
 
 
-def render_ticket_cards() -> None:
-    """발행된 티켓(모든 개발자에게 전체 표시): 카드 한 줄 3장, 우선순위 순, 높이 모두 같음(TICKET_CARD_HEIGHT).
+def render_ticket_cards(tickets, grid_key: str) -> None:
+    """티켓 카드(2️⃣ 티켓 탭 — 내 티켓 · 다른 개발자 티켓이 같이 쓴다): 한 줄 3장, 높이 모두 같음(TICKET_CARD_HEIGHT).
     항목: ID · 우선순위 배지 / 문제점(최대 2줄) / 건수·담당 부서·담당자 / 발행일→예상 완료일.
-    현재 개발자의 티켓은 글자 없이 테두리만 primaryColor로 강조. 티켓이 없으면 숨긴다."""
-    tickets = stage1.sort_tickets(OPEN_TICKETS.values())
-    if not tickets:
-        return
-    st.subheader("발행된 티켓")
-    # 카드 전체를 한 container에 — CSS grid로 넓으면 한 줄 TICKET_CARDS_PER_ROW(3)장, 좁으면 카드 최소 폭
+    현재 개발자의 티켓은 테두리 primaryColor + [발행 취소]·[처리 완료], 다른 개발자 티켓은 같은 높이의 빈 줄."""
+    # 카드 전체를 한 container에 — CSS grid(st-key-tcards…)로 넓으면 한 줄 TICKET_CARDS_PER_ROW(3)장, 좁으면 카드 최소 폭
     # (TICKET_CARD_MIN_WIDTH)을 지키며 2장·1장으로 줄인다 (좁은 화면에서 버튼이 밀려 카드 밖으로 잘리지 않게)
-    with st.container(key="tcards"):
+    with st.container(key=grid_key):
         for t in tickets:
             mine = t.assignee_id == me["id"]
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
@@ -382,15 +378,15 @@ def md_escape(text: str) -> str:
     return text
 
 
-def render_representative_vocs() -> None:
+def render_representative_vocs(tickets) -> None:
     """대표 VOC 보기: 현재 개발자가 담당한 티켓마다 접힌 expander 하나 (다른 개발자의 티켓은 없음).
     펼치면 그 유형의 대표 VOC를 유형 중심에 가까운 순으로 최대 REP_VOC_MAX건, 원문 그대로."""
-    st.subheader("대표 VOC 보기")
-    if not my_tickets:
+    st.subheader("대표 VOC")
+    if not tickets:
         st.info("티켓을 발행하면 해당 유형의 대표 VOC를 볼 수 있습니다")
         return
     with st.container(key="repvocs"):  # 이 묶음의 접히는 상자만 제목 줄 흰 바탕 (CSS st-key-repvocs)
-        for t in my_tickets:
+        for t in tickets:
             with st.expander(f"{t.ticket_id} · {t.problem}", expanded=False):
                 with st.container(key=f"repvoc_{t.ticket_id}"):  # 3건을 마크다운 목록 하나로 (간격 좁게)
                     st.markdown("\n".join(f"- {md_escape(v)}" for v in cached_rep_vocs(tuple(t.voc_ids))))
@@ -601,7 +597,7 @@ with st.sidebar:
             selected = t.ticket_id == ss["current_ticket"]
             # 선택된 카드는 왼쪽 primaryColor 세로 줄 (CSS st-key-sbcard_sel_)
             with st.container(key=f"sbcard_{'sel_' if selected else ''}{t.ticket_id}"):
-                # 1줄: ID + 우선순위 배지(왼쪽) · 오른쪽 위 작은 '선택' 버튼 → 누르면 현재 티켓 (2️⃣·3️⃣ 탭에 반영)
+                # 1줄: ID + 우선순위 배지(왼쪽) · 오른쪽 위 작은 '선택' 버튼 → 누르면 현재 티켓 (3️⃣·4️⃣ 탭에 반영)
                 c_id, c_pick = st.columns([3, 1.4], vertical_alignment="center")
                 c_id.markdown(f"**{t.ticket_id}** {badge(t.priority)}", unsafe_allow_html=True)
                 c_pick.button("현재" if selected else "선택", key=f"sbpick_{t.ticket_id}", disabled=selected,
@@ -610,12 +606,18 @@ with st.sidebar:
                     st.markdown(t.problem)
                 st.caption(":red[기한 지남]" if left < 0 else f"~{due:%m/%d} · D-{left}")
 
-TAB_LABELS = ["1️⃣ VOC 대시보드", "2️⃣ 의심 위치", "3️⃣ 수정 라인"]
-# 수정 라인 탐색이 끝나면 3️⃣ 탭으로 — st.tabs(key=…)의 선택 탭은 위젯을 그리기 전에만 바꿀 수 있어서
-# 탐색 직후에는 표시만 남기고 st.rerun(), 다음 실행에서 탭을 그리기 전에 바꾼다
-if ss.pop("goto_lines_tab", False):
-    ss["active_tab"] = TAB_LABELS[2]
-tab1, tab2, tab3 = st.tabs(TAB_LABELS, key="active_tab", on_change="rerun")  # key로 선택 탭을 코드에서 바꾼다
+TAB_LABELS = ["1️⃣ VOC 대시보드", "2️⃣ 티켓", "3️⃣ 의심 위치", "4️⃣ 수정 라인"]
+TAB_TICKETS, TAB_LINES = TAB_LABELS[1], TAB_LABELS[3]
+# 탭 자동 이동(티켓 발행 → 2️⃣ 티켓, 수정 라인 찾기 → 4️⃣ 수정 라인) — st.tabs(key=…)의 선택 탭은 위젯을
+# 그리기 전에만 바꿀 수 있어서, 그 직후에는 ss["goto_tab"]에 표시만 남기고 st.rerun(), 다음 실행에서 탭을 그리기 전에 바꾼다
+if ss.get("active_tab") not in TAB_LABELS:  # 탭 이름이 바뀌기 전 세션 값은 버린다
+    ss.pop("active_tab", None)
+goto = ss.pop("goto_tab", None)
+if goto in TAB_LABELS:
+    ss["active_tab"] = goto
+if ss.get("toast"):  # 발행 알림 (rerun 뒤에 띄운다)
+    st.toast(ss.pop("toast"))
+tab1, tab2, tab3, tab4 = st.tabs(TAB_LABELS, key="active_tab", on_change="rerun")  # key로 선택 탭을 코드에서 바꾼다
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
@@ -770,9 +772,9 @@ with tab1:
                 st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
                            f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
 
-                # 2. VOC 유형별 처리 우선순위 표 — 제목 줄 오른쪽 [티켓 발행] (버튼은 표의 체크 결과를 본 뒤 채운다)
+                # 2. 유형별 처리 우선순위 표 — 제목 줄 오른쪽 [티켓 발행] (버튼은 표의 체크 결과를 본 뒤 채운다)
                 c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
-                c_title.subheader("VOC 유형별 처리 우선순위")
+                c_title.subheader("유형별 처리 우선순위")
                 st.caption("체크한 유형만 티켓 발행")
                 # 처리 전 유형만 — 진행 중(티켓 카드에만 보임) · 처리 완료 유형은 표에서 빠진다
                 clusters = stage1.table_clusters(s1["clusters"], ss["tickets"], period_txt)
@@ -785,7 +787,7 @@ with tab1:
                     "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
                     "이번 기간": c.count,
                     "이전 기간": c.prev_count,
-                    "추세": c.trend,
+                    "추세": c.trend.replace("새로 생김", "NEW"),  # 표에서는 짧게 "▲ NEW"
                     "심각도": c.severity,
                     "카테고리 · 제품": f"{c.category} · {c.product}",
                 } for c in clusters], columns=columns)
@@ -815,15 +817,23 @@ with tab1:
                              if state != config.CLUSTER_STATE_NEW}
                     chosen = sorted((c for c in to_issue if c.cluster_id not in taken),
                                     key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
+                    issued_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 한 번에 발행한 티켓은 같은 시각
+                    issued: list[str] = []
                     with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):
                         for c in chosen:
                             samples = stage1.sample_texts(df_all, c, config.TICKET_SAMPLE_VOCS)
                             ticket = stage1.ticketize(c, samples, period_txt, next_no, assignee=me)
+                            ticket = ticket.model_copy(update={"issued_at": issued_at})
                             tickets[ticket.ticket_id] = ticket
                             next_no += 1
                             stage1.save_tickets(tickets, next_no)
+                            issued.append(ticket.ticket_id)
                             ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
                     ss["editor_nonce"] += 1  # 표를 체크 없이 새로 그린다 (발행된 유형은 표에서 빠진다)
+                    if issued:  # 2️⃣ 티켓 탭으로 이동 + 알림 (다음 실행에서 탭을 그리기 전에 처리)
+                        ss["goto_tab"] = TAB_TICKETS
+                        ss["toast"] = (f"{issued[0]} 발행됨" if len(issued) == 1
+                                       else f"{issued[0]} 외 {len(issued) - 1}건 발행됨")
                     st.rerun()
                 thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
                 st.caption(
@@ -833,14 +843,29 @@ with tab1:
                     "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
                 )
 
-                # 3. 발행된 티켓 카드
-                render_ticket_cards()
-                # 4. 대표 VOC 보기 (내 티켓의 유형만)
-                render_representative_vocs()
-                # 5. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
+                # 3. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
+                #    (발행된 티켓 카드 · 대표 VOC는 2️⃣ 티켓 탭으로 옮겼다)
                 render_voc_map(cur, all_clusters)
 
-# ════════════════════════════ 탭 2: 의심 위치 ════════════════════════════
+# ════════════════════════════ 탭 2: 티켓 ════════════════════════════
+
+with tab2:
+    # 1. 내 티켓 — 발행 시각 최신순(방금 발행한 카드가 맨 앞) → 같은 때 발행한 것끼리 우선순위 순
+    my_recent = stage1.sort_tickets_recent(my_tickets)
+    st.subheader("내 티켓")
+    if not my_recent:
+        st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
+    else:
+        render_ticket_cards(my_recent, "tcards_mine")
+        # 2. 대표 VOC — 내 티켓마다 접힌 상자 (내 티켓이 없으면 위 안내만)
+        render_representative_vocs(my_recent)
+    # 3. 다른 개발자 티켓 — 접힌 상자, 버튼 없는 카드 (없으면 상자를 숨긴다)
+    others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
+    if others:
+        with st.expander(f"다른 개발자 티켓 ({len(others)}건)", expanded=False):
+            render_ticket_cards(others, "tcards_others")
+
+# ════════════════════════════ 탭 3: 의심 위치 ════════════════════════════
 
 NO_MY_TICKET = "내가 맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요"
 
@@ -864,7 +889,7 @@ def folder_option(f: dict) -> str:
 
 def render_folder_pick(sel: str, wait: dict) -> None:
     """폴더 확인(interrupt 대기): '수정 라인을 찾을 폴더'를 고르고 [수정 라인 찾기]로 그래프를 재개한다.
-    끝나서 검증된 수정 라인이 있으면 3️⃣ 탭으로 이동, 실패하거나 0건이면 2️⃣ 탭에 남아 안내.
+    끝나서 검증된 수정 라인이 있으면 4️⃣ 수정 라인 탭으로 이동, 실패하거나 0건이면 3️⃣ 의심 위치 탭에 남아 안내.
     기본 선택 = 1위 레포지토리에서 감점되지 않은 의심도 상위 2개 폴더, 최대 MAX_SELECTED_FOLDERS개."""
     st.markdown("#### 수정 라인을 찾을 폴더")
     graph = cached_graph()
@@ -894,19 +919,19 @@ def render_folder_pick(sel: str, wait: dict) -> None:
                         stage2.save_result(sel, event[1])
                         ss["stage2_wait"].pop(sel, None)
                         found = sum(r.verified for r in event[1].get("line_recs", []))
-        except Exception as e:  # noqa: BLE001 — 오류 화면 대신 2️⃣ 탭에 안내
+        except Exception as e:  # noqa: BLE001 — 오류 화면 대신 3️⃣ 탭에 안내
             ss["stage2_wait"].pop(sel, None)
             ss["stage2_notice"][sel] = f"수정 라인 찾기에 실패했습니다. 다시 [코드 찾기]를 눌러 주세요 ({str(e)[:80]})"
         else:
             if found:
-                ss["goto_lines_tab"] = True  # 다음 실행에서 3️⃣ 탭을 연다
+                ss["goto_tab"] = TAB_LINES  # 다음 실행에서 4️⃣ 수정 라인 탭을 연다
             else:
                 ss["stage2_notice"][sel] = ("고른 폴더에서 검증된 수정 라인을 찾지 못했습니다. "
                                             "[코드 찾기]를 다시 눌러 다른 폴더를 골라 보세요")
         st.rerun()  # 폴더 카드에 원인 후보·함께 확인 색을 칠해 다시 그린다
 
 
-with tab2:
+with tab3:
     if not my_tickets:  # 티켓 선택 목록에는 현재 개발자의 티켓만
         st.info(NO_MY_TICKET)
     else:
@@ -936,7 +961,7 @@ with tab2:
                         ss["stage2"][sel] = event[1]
                         stage2.save_result(sel, event[1])
 
-        notice = ss["stage2_notice"].pop(sel, None)  # 수정 라인 찾기가 실패했거나 0건이면 3️⃣로 가지 않고 여기서 안내
+        notice = ss["stage2_notice"].pop(sel, None)  # 수정 라인 찾기가 실패했거나 0건이면 4️⃣로 가지 않고 여기서 안내
         if notice:
             st.warning(notice)
         wait = ss["stage2_wait"].get(sel)  # 폴더 확인 대기 중이면 그 시점 state(수정 라인·영향 범위 없음)를 보여 준다
@@ -987,7 +1012,7 @@ with tab2:
             if wait:  # 폴더 확인 — 사람이 고른 폴더에서만 수정 라인을 찾는다
                 render_folder_pick(sel, wait)
 
-# ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
+# ════════════════════════════ 탭 4: 수정 라인 ════════════════════════════
 
 def code_windows(n_lines: int, ranges: list[tuple[int, int]]) -> list[tuple[int, int, list[int]]]:
     """추천 범위 앞뒤 CODE_CONTEXT_LINES줄 창. 겹치면 합친다. (창 시작, 창 끝, 강조 절대 줄)"""
@@ -1013,15 +1038,15 @@ def render_code(ref, ranges: list[tuple[int, int]]) -> None:
                 f'padding:6px;background:#FFFFFF;margin-bottom:8px">{highlight(chunk, PythonLexer(), fmt)}</div>')
 
 
-with tab3:
-    sel = ss["current_ticket"]  # 사이드바 '내 티켓' · 2️⃣ 탭 선택과 같은 티켓 (항상 현재 개발자의 티켓)
+with tab4:
+    sel = ss["current_ticket"]  # 사이드바 '내 티켓' · 3️⃣ 탭 선택과 같은 티켓 (항상 현재 개발자의 티켓)
     result = get_result(ss["tickets"][sel]) if sel in ss["tickets"] else None
     if not my_tickets:
         st.info(NO_MY_TICKET)
     elif sel in ss["stage2_wait"]:  # 폴더 확인 전 (코드 찾기가 폴더 후보에서 멈춰 있음)
         st.info("의심 위치 탭에서 폴더를 고르면 수정 라인이 나옵니다")
     elif not result:
-        st.info("2️⃣ 탭에서 코드 찾기를 실행하면 검증된 수정 라인이 여기에 나옵니다.")
+        st.info("3️⃣ 의심 위치 탭에서 코드 찾기를 실행하면 검증된 수정 라인이 여기에 나옵니다.")
     else:
         ticket = ss["tickets"][sel]
         st.caption(f"{ticket.ticket_id} · {ticket.problem}")

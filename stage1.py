@@ -77,6 +77,7 @@ class Ticket(BaseModel):
     completed_at: str | None = None          # 처리 완료 일시 YYYY-MM-DD HH:MM (진행 중이면 None)
     canceled_at: str | None = None           # 발행 취소 일시 YYYY-MM-DD HH:MM (취소 아니면 None)
     issued_on: str              # 발행일 YYYY-MM-DD
+    issued_at: str | None = None  # 발행 시각 YYYY-MM-DD HH:MM:SS — 한 번에 같이 발행한 티켓은 같은 값 (티켓 탭 최신순 정렬용)
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름
     voc_ids: list[str]          # 이 티켓에 묶인 개별 VOC ID (V0001 …)
@@ -714,6 +715,15 @@ def ticket_card_fields(t: Ticket) -> dict:
         "티켓 ID": t.ticket_id, "우선순위": t.priority, "상태": t.status, "문제점": t.problem, "건수": f"{t.count:,}건",
         "담당 부서": t.owner_part, "담당자": t.assignee, "발행일": t.issued_on, "예상 완료일": t.due_date,
     }
+
+
+def sort_tickets_recent(tickets) -> list[Ticket]:
+    """발행 시각 최신순 → 같은 때 발행한 것끼리는 우선순위 높은 순 (티켓 탭 '내 티켓' — 방금 발행한 카드가 맨 앞).
+    issued_at이 없는 예전 티켓은 발행일 기준."""
+    def key(t: Ticket):
+        when = t.issued_at or f"{t.issued_on} 00:00:00"
+        return (when, -config.PRIORITY_ORDER.get(t.priority, 9), -int(t.ticket_id.split("-")[-1]))
+    return sorted(tickets, key=key, reverse=True)
 
 
 def sort_tickets(tickets) -> list[Ticket]:
