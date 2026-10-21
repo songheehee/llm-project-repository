@@ -36,6 +36,10 @@ CSS = """
 [data-testid="stMetricDelta"], [data-testid="stMetricDelta"] > div {
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 [data-testid="stMetricValue"] {font-size:1.9rem;}
+/* 처리 완료 카드: 제목 줄 오른쪽 끝에 작은 회색 글씨 "N개 유형" (글자는 그 카드 옆 st.html이 content로 넣는다) */
+[class*="st-key-kpi_done"] [data-testid="stMetric"] {position:relative;}
+[class*="st-key-kpi_done"] [data-testid="stMetric"]::after {position:absolute; top:14px; right:16px;
+  font-size:0.8rem; line-height:1.5; color:rgba(49, 51, 63, 0.6);}
 /* 근거 표: 흰 배경, 긴 내용은 줄바꿈 그대로 (마지막 수정자는 한 줄 요약 · 범위별은 아래 접힌 상자) */
 [class*="st-key-card_evidence"] table, [class*="st-key-card_evidence"] th, [class*="st-key-card_evidence"] td {background:#FFFFFF;}
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
@@ -648,24 +652,27 @@ with tab1:
         # 카드 순서: 총 VOC · 처리 완료(총 VOC 바로 옆) · VOC 유형 · 긴급
         k1, k4, k2, k3 = st.columns(4)
         if full_period:  # 비교할 이전 기간이 없다
-            k1.metric("총 VOC", f"{cards['total']:,}건", help=f"전체 기간 {start:%Y/%m/%d}~{end:%Y/%m/%d}")
+            k1.metric("VOC 건수", f"{cards['total']:,}건", help=f"전체 기간 {start:%Y/%m/%d}~{end:%Y/%m/%d}")
         else:
-            k1.metric("총 VOC", f"{cards['total']:,}건",
+            k1.metric("VOC 건수", f"{cards['total']:,}건",
                       delta=f"{kpi['change_pct']:+.1f}%" if kpi["change_pct"] is not None else None,
                       delta_color="inverse",
-                      help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비 · 이전 기간 {kpi['prev_total']:,}건 · "
-                           "처리 전 + 진행 중 + 처리 완료 모두 포함")
+                      help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비")
         if cards["types"] is not None:
             k2.metric("VOC 유형", f"{cards['types']}개", help="처리 완료되지 않은 유형 수 (처리 전 + 진행 중)")
             k3.metric("긴급 유형", f"{cards['urgent_types']}개",
-                      help="처리 완료되지 않은 유형(처리 전 + 진행 중) 중 우선순위가 '긴급'인 유형 수")
+                      help="처리 완료되지 않은 긴급 유형 수")
         else:
             k2.metric("VOC 유형", "–", help="유형 분석 후 표시")
             k3.metric("긴급 유형", "–", help="유형 분석 후 표시")
         # 처리 완료: 티켓 voc_ids로 계산하므로 분석 전에도 표시. 처리율은 증감이 아니라서 화살표·색 없음
-        k4.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
-                  delta_color="off", delta_arrow="off",
-                  help=f"처리 완료한 티켓에 묶인 VOC 건수 ({cards['done_types']}개 유형) · 처리율 = 처리 완료 ÷ 총 VOC")
+        # 제목 줄 오른쪽 끝 작은 회색 글씨 "N개 유형"(처리 완료된 유형(티켓) 수) · 아래 줄 처리율(화살표·색 없이 회색)
+        with k4.container(key="kpi_done"):
+            st.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
+                      delta_color="off", delta_arrow="off", help="처리율 = 처리 완료 VOC ÷ VOC 건수")
+            # st.metric 값에는 HTML을 못 넣어서, 유형 수 글자만 실행마다 바꿔 넣는다 (모양은 위 CSS 한 곳의 kpi_done 규칙)
+            st.html(f'<style>[class*="st-key-kpi_done"] [data-testid="stMetric"]::after'
+                    f'{{content:"{cards["done_types"]}개 유형";}}</style>')
 
         if view == VIEW_RAW:
             daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)

@@ -316,7 +316,7 @@ LangGraph state는 `TypedDict`. 병렬 가지(`Send`)가 결과를 모으는 필
 - 레포지토리 후보: 점수 < 0.1 제외, 최대 3개
 - 예상 완료일 = 발행일 + `DUE_DAYS`: 긴급 3일 · 높음 7일 · 보통 14일 · 낮음 30일
 - 처리 시급도(화면) = `round(priority_score × 100)` (0~100). 내부 계산·임계값은 0~1 그대로
-- 요약 카드: 총 VOC = 선택 기간 VOC 전체 · VOC 유형 = `open_clusters` 수 · 긴급 유형 = 그중 "긴급" 유형 수(건수는 표시하지 않음) · 처리 완료 = `completed_voc_ids` 수, 처리율 = 처리 완료 ÷ 총 VOC × 100(소수 첫째 자리). 발행(진행 중)해도 4개 모두 그대로, 처리 완료하면 VOC 유형·긴급이 줄고 처리 완료가 늘며 총 VOC는 그대로
+- 요약 카드: VOC 건수 = 선택 기간 VOC 전체 · VOC 유형 = `open_clusters` 수 · 긴급 유형 = 그중 "긴급" 유형 수(건수는 표시하지 않음) · 처리 완료 = `completed_voc_ids` 수, 처리율 = 처리 완료 ÷ VOC 건수 × 100(소수 첫째 자리). 발행(진행 중)해도 4개 모두 그대로, 처리 완료하면 VOC 유형·긴급이 줄고 처리 완료가 늘며 VOC 건수는 그대로
 - 일별 차트: 건수 상위 `CHART_TOP_TYPES`(5)개 유형만 색, 나머지는 "기타" · VOC 유형별 처리 우선순위 표 높이 = (`TABLE_VISIBLE_ROWS`(5) + 1) × `TABLE_ROW_PX`
 
 ## 정답 (현재 데이터 `vocs.csv` 기준 — 데이터를 바꾸면 다시 계산)
@@ -326,7 +326,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 
 **꼭 맞아야 하는 것**
 - 분석 기간 총 VOC **741건** (이전 365건, **+103.0%**) — LLM과 무관, 항상 같음
-- 요약 카드: 총 VOC **741건(+103.0%)** · 처리 완료 0건(처리율 0.0%, 완료 티켓 없을 때) · 긴급 유형 **2개**(운동 중 발열 · 충전 중 발열) (분석 전에는 VOC 유형·긴급 유형 "–")
+- 요약 카드: VOC 건수 **741건(+103.0%)** · 처리 완료 0건(0개 유형, 처리율 0.0%, 완료 티켓 없을 때) · 긴급 유형 **2개**(운동 중 발열 · 충전 중 발열) (분석 전에는 VOC 유형·긴급 유형 "–")
 - 우선순위 (유형은 다수 정답 주제로 대응):
 
 | 정답 주제         | 이번 기간 (참고 범위) | 추세 (참고)   | 처리 시급도 (참고) | 우선순위 |
@@ -369,7 +369,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - **코드 뷰**: `render_code(stage2.file_ref(repo, path), ranges)` — `code_windows(ref.n_lines, ranges)`로 창을 정하고 `read_lines(ref, ws, we, numbered=False)`로 추천 범위 앞뒤 5줄만 읽어 `HtmlFormatter(linenos="table", linenostart=시작줄, hl_lines=[...], noclasses=True)`. `hl_lines`는 **잘라낸 조각 기준 1부터** 번호다(절대 줄 번호 아님).
 - **1️⃣ 보기 전환**: `st.segmented_control(["원본 VOC", "유형 분석 결과"], key="voc_view", required=True)` — 보기 전환 줄 `st.columns([4, 1])` 오른쪽에 [유형 분석]. 1️⃣ 탭 버튼·제목에 이모티콘 없음. 버튼의 `on_click`에서 `voc_view`를 결과 보기로 바꾼다. 결과는 `st.session_state["stage1"]`에서 읽어 전환해도 LLM을 다시 부르지 않는다.
 - **유형 분석 결과 순서**: 일별 차트(유형별 누적) → VOC 유형별 처리 우선순위 표(+ [티켓 발행] · 안내 · 비고) → `render_ticket_cards()` → `render_representative_vocs()` → `render_voc_map(cur, all_clusters)`. 의미 공간에는 발행 여부와 상관없이 **전체 유형**(`all_clusters`)을 넘긴다(표의 발행 안 된 목록을 넘기면 발행된 유형의 점이 빠진다).
-- **요약 카드**(왼쪽부터): 총 VOC · 처리 완료("0건", delta "처리율 0.0%" + `delta_color="off"`·`delta_arrow="off"`, help에 처리 완료 유형 수) · VOC 유형 · 긴급 유형("2개", 유형 수만). 숫자는 `stage1.summary_cards(period_vocs["voc_id"], clusters 또는 None, ss["tickets"], period)` 하나로. 분석 전 VOC 유형·긴급 유형은 "–", 총 VOC·처리 완료는 분석 전에도 표시. 유형 표는 따로 `stage1.table_clusters`. 총 VOC help에 이전 기간 날짜. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
+- **요약 카드**(왼쪽부터): VOC 건수 · 처리 완료(제목 줄 오른쪽 끝 작은 회색 글씨 "N개 유형", 값 "0건", delta "처리율 0.0%" + `delta_color="off"`·`delta_arrow="off"`(회색), help "처리율 = 처리 완료 VOC ÷ VOC 건수"). `st.metric` 값에는 HTML을 못 넣어서 `container(key="kpi_done")`로 감싸고, CSS 한 곳의 `[class*="st-key-kpi_done"] [data-testid="stMetric"]::after`(position:absolute · top 14px · right 16px · 0.8rem · 회색, stMetric은 position:relative)가 모양을, 그 카드 옆 `st.html("<style>…::after{content:\"N개 유형\"}</style>")`(style만 있어 자리 차지 없음)가 글자를 넣는다. 카드 4개 높이는 그대로 124px · VOC 유형 · 긴급 유형("2개", 유형 수만). 숫자는 `stage1.summary_cards(period_vocs["voc_id"], clusters 또는 None, ss["tickets"], period)` 하나로. 분석 전 VOC 유형·긴급 유형은 "–", VOC 건수·처리 완료는 분석 전에도 표시. 유형 표는 따로 `stage1.table_clusters`. VOC 건수 help에 이전 기간 날짜. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
 - **헤더**: "VOCAI"만. `.block-container` padding-top을 늘려 Streamlit 상단 바에 가리지 않게 한다.
 - **VOC 유형별 처리 우선순위 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`. 열(왼쪽부터): 발행 · 우선순위 · 유형 · 처리 시급도(×100) · 이번 기간 · 이전 기간 · 추세 · 심각도 · 카테고리 · 제품. 처리 시급도 순, 이미 발행된 유형은 제외, `height=(TABLE_VISIBLE_ROWS + 1) × TABLE_ROW_PX`. 제목 줄 `st.columns([4, 1])` 왼쪽 "VOC 유형별 처리 우선순위" · 오른쪽 [티켓 발행](체크 없으면 `disabled`, 누르면 확인 없이 바로 발행). 제목 아래 `st.caption("체크한 유형만 티켓 발행")`. 발행 후 `ss["editor_nonce"]`를 올려 표를 체크 없이 새로 그린다. 비고 첫 줄 "· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 (MM/DD~MM/DD)".
 - **대표 VOC 보기**: `render_representative_vocs()` — 내 티켓마다 `st.expander(f"{id} · {문제점}", expanded=False)` 안 `container(key="repvoc_…")`에 마크다운 목록 하나("- 원문1\n- 원문2\n- 원문3"). 내용 = `cached_rep_vocs(voc_ids)`: 의미 공간과 같은 VOC 임베딩 캐시로 `stage1.nearest_to_center` 최대 `REP_VOC_MAX`(3)건, `md_escape`로 원문 그대로. CSS: 글자 14px(= expander 제목) · line-height 1.4 · 항목 사이 4px. API 키가 없으면 유형 목록에서 고르게. 내 티켓이 없으면 안내.
