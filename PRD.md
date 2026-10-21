@@ -164,9 +164,18 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
 | 함수                              | 입력       | 동작 / 반환                                                                         |
 | --------------------------------- | ---------- | ----------------------------------------------------------------------------------- |
 | `propose_clusters(vocs)`          | VOC 목록   | LLM이 VOC 표본 80건을 보고 클러스터 라벨 5~7개 제안 (라벨·카테고리·제품·심각도 1~5) |
-| `assign_clusters(vocs, clusters)` | VOC, 라벨  | 50건씩 LLM에 넘겨 VOC마다 라벨 1개 지정 (맞는 게 없으면 "기타")                     |
+| `assign_records(batch, clusters)` | VOC 묶음  | 묶음 하나(50건)를 LLM에 넘겨 VOC마다 라벨 1개 지정 (맞는 게 없으면 "기타")          |
 | `score_clusters(df, prev_df)`     | 분류된 VOC | pandas로 건수·급증률·추세·우선순위 계산 (LLM 없음)                                  |
-| `run_stage1(start, end)`          | 기간       | 위 3개 실행 후 `outputs/clusters.json`에 저장 (같은 기간이면 캐시 사용)             |
+| `run_stage1(start, end)`          | 기간       | 아래 `stage1_graph` 실행 후 `outputs/clusters_{데이터셋}_{시작}_{끝}.json`에 저장 (같은 기간이면 캐시 사용, 그래프 안 돌림) |
+
+- **동적 병렬(LangGraph `Send`)**: `build_stage1_graph()` = `START → propose_clusters → (Send × 묶음 수) assign_batch → merge_assignments → dissolve_small → score_clusters → END`
+  - 분배(조건 엣지 `dispatch_batches`): 분석+이전 기간 VOC를 `ASSIGN_BATCH_SIZE`(50)건씩 나눠 묶음마다 `Send("assign_batch", {batch, proposals, index})` — 묶음 수는 데이터 크기로 자동(현재 데이터 10/03~10/14는 23개)
+  - `assign_batch`: 묶음 하나 분류. 재시도 후에도 실패하면 그 VOC는 "기타", errors에 "묶음 N 분류 실패" (다른 묶음은 계속)
+  - `merge_assignments`: 묶음 결과를 voc_id 순으로 정렬해 합친다 / `dissolve_small`: 작은 묶음 해체(기존 기능) / `score_clusters`: LLM 없음
+  - state: `assignments: Annotated[dict, operator.or_]` · `errors: Annotated[list, operator.add]` · `timings: Annotated[dict, operator.or_]`(묶음은 "assign_batch:03")
+  - 동시에 부르는 LLM 수 상한 `MAX_PARALLEL_LLM`(8) → `graph.invoke(..., config={"max_concurrency": MAX_PARALLEL_LLM})`. 확인 실행: 동시 1개 89.8초 → 8개 12~24초
+  - LLM이 429·일시 오류로 실패하면 1초 → 2초 쉬고 최대 2회 재시도(`LLM_RETRY_WAITS`)
+  - `try_stage1.py`가 묶음 수 · 전체 소요 시간 · 실패한 묶음 수를 출력한다
 
 - LLM 출력은 `with_structured_output`(Pydantic)으로 받는다.
 - 심각도 기준(프롬프트에 포함): 발열·화상 등 신체 위해 5 / 기능 불가 4 / 성능 저하(배터리) 3 / 부정확·사용성 2 / 단순 불만 1
@@ -255,15 +264,21 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
 
 | 함수                         | 동작                                                                                                                         |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `search_lines(state)`        | 의심도 상위 폴더 1~2개에서 키워드가 많은 파일 3개 선택 → 라인 번호를 붙여 LLM에 전달 → 파일·라인 범위·스니펫·이유·confidence |
-| `verify_lines(state)`        | 파일 존재 / 범위가 파일 길이 안 / 스니펫이 해당 줄과 일치(공백 무시)인지 확인. 실패분은 버린다                               |
+| `select_files(state)`        | 의심도 상위 폴더 2개의 `.py` 중 (키워드 + 함수 의미) 점수가 높은 파일 최대 3개 선택                                         |
+| `search_file(payload)`       | **파일 하나**: 라인 번호를 붙여 LLM에 전달(라인 탐색) → `verify_recs`로 검증. 하나도 통과 못 하면 그 파일 안에서 1회만 다시 탐색. 통과한 추천만 반환 |
+| `verify_recs(recs)`          | 파일 존재 / 범위가 파일 길이 안 / 스니펫이 해당 줄과 일치(공백 무시)인지 확인. 실패분은 버린다                               |
+| `merge_lines(state)`         | 모든 파일의 추천을 confidence 높은 순으로 합침. 같은 파일·같은 범위는 하나로, `LINE_MIN_CONFIDENCE`(0.5) 미만은 뺀다        |
 | `add_commit_evidence(state)` | 추천 줄에 `git blame -L`로 마지막 커밋을 찾아, 분석 시작일 이전 30일 안이면 sha·날짜·메시지를 근거에 추가 (LLM 아님)         |
 | `analyze_impact(state)`      | 추천 줄의 상수·함수명을 뽑아 같은 레포에서 텍스트 검색 → 호출 위치(파일:줄, 관계) 목록                                       |
 
-- `build_stage2_graph()`: LangGraph `StateGraph`로 `route_repos → score_folders → search_lines → verify_lines → add_commit_evidence → analyze_impact → END`
-  - `verify_lines` 결과가 0건이면 `search_lines`로 **한 번만** 되돌아간다 (조건 엣지)
-  - 노드마다 소요 시간을 state `timings`에 기록
-- `stream_stage2(graph, ticket)` 제너레이터: `graph.stream(stream_mode="updates")`로 `("node", 노드명, 소요초)` · `("done", 최종 state)` 이벤트
+- `build_stage2_graph()`: LangGraph `StateGraph`로 `route_repos → score_folders → select_files → (Send × 후보 파일 수) search_file → merge_lines → add_commit_evidence → analyze_impact → END`
+  - 분배(조건 엣지 `dispatch_files`): 후보 파일마다 `Send("search_file", {file, repo, ticket})` — 파일별로 동시에. 후보가 0개면 Send 없이 `merge_lines`로 바로
+  - 예전의 `retry` 필드와 `verify_lines → search_lines` 되돌아가는 조건 엣지는 없다(재탐색은 `search_file` 안에서 파일 단위로)
+  - 파일별 가지 결과는 `file_recs: Annotated[list, operator.add]`에 모으고, `merge_lines`가 `line_recs`를 한 번 쓴다(`add_commit_evidence`가 `line_recs`를 근거 붙여 다시 쓰므로 `line_recs`에는 add reducer를 달지 않음). `errors`는 `operator.add`
+  - 파일 여러 개를 따로 물으면 관련이 약한 파일도 낮은 신뢰도로 답해서 `LINE_MIN_CONFIDENCE` 미만은 뺀다(예전처럼 유력한 파일만 남김)
+  - 노드마다 소요 시간을 state `timings`에 기록, 파일별 가지는 `"search_file:sensor/heart_rate.py"`
+- `stream_stage2(graph, ticket)` 제너레이터: `graph.stream(stream_mode=["updates", "values"], config={"max_concurrency": MAX_PARALLEL_LLM})`로 `("node", 노드명, 소요초)` · `("done", 최종 state)` 이벤트. 최종 state는 그래프가 reducer로 합친 `"values"`를 쓴다(업데이트를 직접 덮어쓰면 마지막 가지 결과만 남음)
+- `try_stage2.py`가 후보 파일별 `search_file` 소요 시간을 출력한다
 - 화면: [코드 찾기] → 실행 중에는 `st.spinner("코드 위치를 찾는 중…")` 하나만 (단계별 진행 박스 없음). 단계별 소요 시간(timings)은 내부 기록만 하고 화면에 표시하지 않는다
 - 2️⃣·3️⃣ 탭: 티켓 선택 목록에는 현재 개발자의 티켓만. [코드 찾기]도 내 티켓에서만. 내 티켓이 없으면 "내가 맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요"
 - 코드 찾기 결과는 티켓 id별로 `outputs/stage2/{ticket_id}.json`에 저장 — 현재 개발자를 바꿨다 돌아와도·새로고침해도 다시 실행하지 않는다
@@ -289,7 +304,7 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
 
 ## 5. 기술 스택
 
-Streamlit · pandas · LangChain(`init_chat_model`, `with_structured_output`) · LangGraph(`StateGraph`) · Chroma(메모리) · Pygments · PyYAML · GitPython 또는 `subprocess`로 git 호출.
+Streamlit · pandas · LangChain(`init_chat_model`, `with_structured_output`) · LangGraph(`StateGraph`, `Send` 동적 병렬) · Chroma(메모리) · Pygments · PyYAML · GitPython 또는 `subprocess`로 git 호출.
 모델·API 키는 `.env`에서 읽는다.
 
 ## 6. 정답 (현재 데이터 `vocs.csv` 기준 — 데이터를 바꾸면 다시 계산)

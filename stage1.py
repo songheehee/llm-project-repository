@@ -1,9 +1,10 @@
 """② 클러스터링 · 시급도 · ③ 티켓화. (streamlit import 금지)
 
-- propose_clusters: 분석 기간 VOC 텍스트 → 클러스터 라벨 5~7개 (LLM)
-- assign_clusters : VOC 50건씩 → {voc_id: 라벨} (LLM)
+- propose_clusters: 분석 기간 VOC 텍스트 → 클러스터 라벨 (LLM)
+- assign_records  : VOC 묶음 하나(50건) → {voc_id: 라벨} (LLM). assign_clusters는 묶음을 차례로 (작은 묶음 해체용)
 - score_clusters  : 건수 · 급증률 · 추세 · 우선순위 (pandas, LLM 없음)
-- run_stage1      : 위 3개 실행 + outputs/clusters_{시작}_{끝}.json 캐시
+- build_stage1_graph: LangGraph — propose → (Send × 묶음 수) assign_batch 병렬 → merge → 작은 묶음 해체 → score
+- run_stage1      : 그래프 실행 + outputs/clusters_{데이터셋}_{시작}_{끝}.json 캐시 (같은 기간이면 그래프를 돌리지 않음)
 - ticketize       : 클러스터 → 개발자 티켓 (LLM)
 - embed_vocs · project_3d · similar_vocs · label_disagreements : VOC 유사도 · 의미 공간 (임베딩, 티켓 분류에는 안 씀)
 - cluster_embeddings · embedding_cluster_names : 임베딩만으로 묶는 비교용 클러스터링 (LLM 없음)
@@ -12,17 +13,21 @@
 
 import json
 import math
+import operator
 import re
+import time
 from collections import Counter
 from datetime import date, datetime, timedelta
 from functools import lru_cache
-from typing import Type, TypeVar
+from typing import Annotated, Type, TypedDict, TypeVar
 
 import numpy as np
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 from pydantic import BaseModel, Field
 
 import config
@@ -116,10 +121,13 @@ def get_llm() -> ChatOpenAI:
 
 
 def call_structured(schema: Type[T], system: str, user: str, validate=None) -> T:
-    """with_structured_output 호출. 실패(예외·검증 실패)하면 최대 LLM_MAX_RETRIES회 재시도."""
+    """with_structured_output 호출. 실패(예외·검증 실패 · 429 요청 한도 · 일시 오류)하면
+    LLM_RETRY_WAITS(1초 → 2초) 쉬고 최대 LLM_MAX_RETRIES회 재시도. 병렬 가지에서 동시에 불려도 된다."""
     llm = get_llm().with_structured_output(schema)
     last_err: Exception | None = None
-    for _ in range(config.LLM_MAX_RETRIES + 1):
+    for attempt in range(config.LLM_MAX_RETRIES + 1):
+        if attempt:
+            time.sleep(config.LLM_RETRY_WAITS[min(attempt, len(config.LLM_RETRY_WAITS)) - 1])
         try:
             result = llm.invoke([("system", system), ("user", user)])
             if result is None:
@@ -186,12 +194,9 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
     return call_structured(ClusterProposalList, system, user, validate).clusters
 
 
-def assign_clusters(vocs: pd.DataFrame, clusters: list[ClusterProposal]) -> dict[str, str]:
-    """VOC를 50건씩 LLM에 넘겨 {voc_id: 라벨}을 받는다. 라벨 밖 답은 '기타'."""
-    labels = [c.label for c in clusters]
-    allowed = set(labels) | {config.OTHER_LABEL}
+def assign_system(clusters: list[ClusterProposal]) -> str:
     guide = "\n".join(f"- {c.label}: {c.description}" for c in clusters)
-    system = (
+    return (
         "너는 고객 VOC 분류기다. "
         f"{DATA_GUARD}\n"
         "각 VOC에 아래 클러스터 라벨 중 가장 맞는 것 하나를 글자 그대로 붙인다. "
@@ -199,26 +204,43 @@ def assign_clusters(vocs: pd.DataFrame, clusters: list[ClusterProposal]) -> dict
         "입력의 모든 voc_id에 대해 빠짐없이 답한다.\n\n"
         f"클러스터:\n{guide}"
     )
-    records = vocs[["voc_id", "text"]].to_dict("records")
+
+
+def assign_records(batch: list[dict], clusters: list[ClusterProposal]) -> dict[str, str]:
+    """VOC 묶음 하나([{voc_id, text}], ASSIGN_BATCH_SIZE건)를 LLM에 넘겨 {voc_id: 라벨}을 받는다.
+    라벨 밖 답은 '기타', 빠진 건 한 번 더 묻고 그래도 없으면 '기타'. 재시도 후에도 실패하면 예외."""
+    allowed = {c.label for c in clusters} | {config.OTHER_LABEL}
+    system = assign_system(clusters)
     result: dict[str, str] = {}
 
-    def run_batch(batch: list[dict]) -> None:
-        user = json.dumps(batch, ensure_ascii=False)
-        res = call_structured(VocAssignmentList, system, user)
-        ids = {r["voc_id"] for r in batch}
+    def run_batch(items: list[dict]) -> None:
+        res = call_structured(VocAssignmentList, system, json.dumps(items, ensure_ascii=False))
+        ids = {r["voc_id"] for r in items}
         for item in res.items:
             if item.voc_id in ids:
                 result[item.voc_id] = item.label if item.label in allowed else config.OTHER_LABEL
 
-    size = config.ASSIGN_BATCH_SIZE
-    for i in range(0, len(records), size):
-        batch = records[i:i + size]
-        run_batch(batch)
-        missing = [r for r in batch if r["voc_id"] not in result]
-        if missing:  # 빠진 건 한 번 더 묻는다
-            run_batch(missing)
-    for r in records:
+    run_batch(batch)
+    missing = [r for r in batch if r["voc_id"] not in result]
+    if missing:  # 빠진 건 한 번 더 묻는다
+        run_batch(missing)
+    for r in batch:
         result.setdefault(r["voc_id"], config.OTHER_LABEL)
+    return result
+
+
+def split_batches(vocs: pd.DataFrame) -> list[list[dict]]:
+    """VOC를 ASSIGN_BATCH_SIZE건씩 나눈다 — 묶음 수는 데이터 크기에 따라 자동 (1,000건이면 20개)."""
+    records = vocs[["voc_id", "text"]].to_dict("records")
+    size = config.ASSIGN_BATCH_SIZE
+    return [records[i:i + size] for i in range(0, len(records), size)]
+
+
+def assign_clusters(vocs: pd.DataFrame, clusters: list[ClusterProposal]) -> dict[str, str]:
+    """묶음을 차례로 분류한다 (작은 묶음 해체 때 옮길 VOC처럼 건수가 적을 때만 쓴다. 전체 분류는 그래프에서 병렬)."""
+    result: dict[str, str] = {}
+    for batch in split_batches(vocs):
+        result.update(assign_records(batch, clusters))
     return result
 
 
@@ -314,15 +336,112 @@ def dissolve_small_clusters(cur: pd.DataFrame, both: pd.DataFrame, proposals: li
     return proposals, assignments
 
 
+# ── LangGraph: 50건 묶음을 동시에 분류 ──
+
+class Stage1State(TypedDict, total=False):
+    cur: pd.DataFrame                              # 분석 기간 VOC
+    prev: pd.DataFrame                             # 이전 기간 VOC
+    proposals: list[ClusterProposal]
+    batches: int                                   # 묶음 수
+    assignments: Annotated[dict, operator.or_]     # 묶음별 {voc_id: 라벨}을 합친다 (병렬 가지가 서로 덮어쓰지 않게)
+    merged: dict                                   # voc_id 순으로 정렬한 최종 {voc_id: 라벨} (해체·점수 단계에서 갱신)
+    clusters: list[Cluster]
+    errors: Annotated[list, operator.add]
+    timings: Annotated[dict, operator.or_]         # 노드별 초 — 묶음은 "assign_batch:03"처럼 겹치지 않게
+
+
+def timed1(name: str, fn):
+    def wrapper(state: dict) -> dict:
+        t0 = time.perf_counter()
+        update = fn(state)
+        update["timings"] = {name: round(time.perf_counter() - t0, 2)}
+        return update
+    return wrapper
+
+
+def both_periods(state: Stage1State) -> pd.DataFrame:
+    return pd.concat([state["cur"], state["prev"]])
+
+
+def propose_node(state: Stage1State) -> dict:
+    return {"proposals": propose_clusters(state["cur"]["text"].tolist())}
+
+
+def dispatch_batches(state: Stage1State) -> list[Send]:
+    """분석+이전 기간 VOC를 ASSIGN_BATCH_SIZE건씩 나눠 묶음마다 assign_batch 가지를 하나씩 만든다."""
+    batches = split_batches(both_periods(state))
+    return [Send("assign_batch", {"batch": b, "proposals": state["proposals"], "index": i + 1})
+            for i, b in enumerate(batches)]
+
+
+def assign_batch(payload: dict) -> dict:
+    """묶음 하나 분류. 재시도 후에도 실패하면 그 VOC는 '기타'로 두고 errors에 남긴다 (다른 묶음은 계속)."""
+    t0 = time.perf_counter()
+    index, batch = payload["index"], payload["batch"]
+    try:
+        result, errors = assign_records(batch, payload["proposals"]), []
+    except Exception as e:  # noqa: BLE001 — 한 묶음 실패가 전체를 멈추지 않게
+        result = {r["voc_id"]: config.OTHER_LABEL for r in batch}
+        errors = [f"묶음 {index} 분류 실패: {str(e)[:80]}"]
+    return {"assignments": result, "errors": errors,
+            "timings": {f"assign_batch:{index:02d}": round(time.perf_counter() - t0, 2)}}
+
+
+def merge_assignments(state: Stage1State) -> dict:
+    """모든 묶음 결과를 voc_id 순으로 정렬해 합친다 (실행마다 순서가 같게). 빠진 VOC는 '기타'."""
+    merged = dict(state.get("assignments", {}))
+    for vid in both_periods(state)["voc_id"]:
+        merged.setdefault(vid, config.OTHER_LABEL)
+    return {"merged": dict(sorted(merged.items()))}
+
+
+def dissolve_node(state: Stage1State) -> dict:
+    proposals, merged = dissolve_small_clusters(state["cur"], both_periods(state), state["proposals"], state["merged"])
+    return {"proposals": proposals, "merged": dict(sorted(merged.items()))}
+
+
+def score_node(state: Stage1State) -> dict:
+    merged = state["merged"]
+    cur = state["cur"].assign(cluster=state["cur"]["voc_id"].map(merged))
+    prev = state["prev"].assign(cluster=state["prev"]["voc_id"].map(merged))
+    clusters = score_clusters(cur, prev, state["proposals"])
+    kept = {c.label for c in clusters}
+    return {"clusters": clusters,
+            "merged": {k: (v if v in kept else config.OTHER_LABEL) for k, v in merged.items()}}
+
+
+@lru_cache(maxsize=1)
+def build_stage1_graph():
+    """START → propose_clusters → (Send × 묶음 수) assign_batch → merge_assignments → dissolve_small → score_clusters → END."""
+    g = StateGraph(Stage1State)
+    g.add_node("propose_clusters", timed1("propose_clusters", propose_node))
+    g.add_node("assign_batch", assign_batch)  # 묶음별 소요 시간은 노드 안에서 기록
+    g.add_node("merge_assignments", timed1("merge_assignments", merge_assignments))
+    g.add_node("dissolve_small", timed1("dissolve_small", dissolve_node))
+    g.add_node("score_clusters", timed1("score_clusters", score_node))
+    g.add_edge(START, "propose_clusters")
+    g.add_conditional_edges("propose_clusters", dispatch_batches, ["assign_batch"])
+    g.add_edge("assign_batch", "merge_assignments")  # 모든 묶음이 끝난 뒤 한 번 실행
+    g.add_edge("merge_assignments", "dissolve_small")
+    g.add_edge("dissolve_small", "score_clusters")
+    g.add_edge("score_clusters", END)
+    return g.compile()
+
+
 def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
-               use_cache: bool = True) -> tuple[list[Cluster], dict[str, str]]:
-    """클러스터 목록과 {voc_id: 라벨}(분석+직전 기간)을 돌려준다. 같은 기간이면 캐시 사용."""
+               use_cache: bool = True, info: dict | None = None) -> tuple[list[Cluster], dict[str, str]]:
+    """클러스터 목록과 {voc_id: 라벨}(분석+직전 기간)을 돌려준다. 같은 기간이면 캐시 사용(그래프를 돌리지 않음).
+    info(dict)를 넘기면 실행 정보(cached · batches · secs · errors · timings)를 채운다 — try_stage1 확인용."""
     path = cache_path(start, end)
+    if info is not None:
+        info.update(cached=False, batches=0, secs=0.0, errors=[], timings={})
     if use_cache and path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
         clusters = [Cluster(**c) for c in data["clusters"]]
         for c in clusters:  # 예전 캐시의 추세 문구도 현재 표기로 맞춘다
             c.trend = trend_text(c.count, c.prev_count)[1]
+        if info is not None:
+            info["cached"] = True
         return clusters, data["assignments"]
 
     if df is None:
@@ -333,15 +452,15 @@ def run_stage1(start: date, end: date, df: pd.DataFrame | None = None,
     if cur.empty:
         return [], {}
 
-    proposals = propose_clusters(cur["text"].tolist())
-    both = pd.concat([cur, prev])
-    assignments = assign_clusters(both, proposals)
-    proposals, assignments = dissolve_small_clusters(cur, both, proposals, assignments)
-    cur["cluster"] = cur["voc_id"].map(assignments)
-    prev["cluster"] = prev["voc_id"].map(assignments)
-    clusters = score_clusters(cur, prev, proposals)
-    kept = {c.label for c in clusters}
-    assignments = {k: (v if v in kept else config.OTHER_LABEL) for k, v in assignments.items()}
+    t0 = time.perf_counter()
+    final = build_stage1_graph().invoke(
+        {"cur": cur, "prev": prev, "assignments": {}, "errors": [], "timings": {}},
+        config={"max_concurrency": config.MAX_PARALLEL_LLM})  # 동시에 부르는 LLM 수 상한
+    clusters, assignments = final["clusters"], final["merged"]
+    if info is not None:
+        info.update(batches=sum(k.startswith("assign_batch:") for k in final["timings"]),
+                    secs=round(time.perf_counter() - t0, 1), errors=final.get("errors", []),
+                    timings=final.get("timings", {}))
 
     config.OUTPUTS_DIR.mkdir(exist_ok=True)
     path.write_text(json.dumps({

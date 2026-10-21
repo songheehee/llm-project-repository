@@ -50,6 +50,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import Send                              # 동적 병렬 (묶음별 · 파일별 가지)
 from pydantic import BaseModel, Field
 from pygments import highlight
 from pygments.lexers import PythonLexer
@@ -274,7 +275,10 @@ class Ticket(BaseModel):    # stage1
 #         LineRec.last_authors: 범위마다 "L17 · 김민준 · 2026-10-02" (add_commit_evidence에서 git blame --porcelain의 author·author-time 최신값, LLM 아님)
 ```
 
-LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_recs, impacts, retry, errors, `timings: Annotated[dict, operator.or*]`.
+LangGraph state는 `TypedDict`. 병렬 가지(`Send`)가 결과를 모으는 필드는 반드시 reducer를 단다(없으면 가지끼리 덮어씀).
+- `Stage1State`(stage1): cur, prev, proposals, batches, `assignments: Annotated[dict, operator.or_]`, merged(voc_id 순 정렬본), clusters, `errors: Annotated[list, operator.add]`, `timings: Annotated[dict, operator.or_]`("assign_batch:03")
+- `Stage2State`(stage2): ticket, repo_sources, repo_candidates, folder_scores, line_repo, files, `file_recs: Annotated[list, operator.add]`(파일별 가지), line_recs(merge_lines가 한 번 씀 — 뒤 노드가 다시 쓰므로 reducer 없음), impacts, `errors: Annotated[list, operator.add]`, `timings: Annotated[dict, operator.or_]`("search_file:sensor/heart_rate.py"). `retry` 없음
+- 동시 LLM 수 상한 `MAX_PARALLEL_LLM`(8): `graph.invoke`/`graph.stream`에 `config={"max_concurrency": MAX_PARALLEL_LLM}`. LLM 실패(429·일시 오류)는 `LLM_RETRY_WAITS`(1초 → 2초) 쉬고 최대 2회 재시도
 
 ## 규칙
 
@@ -283,7 +287,7 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 3. API 키는 `.env`에서만 읽는다. 코드·화면·로그에 키를 출력하지 않는다.
 4. **VOCAI는 코드를 고치지 않는다.** 패치·diff·수정 코드·PR 생성 기능을 넣지 않는다.
 5. **`sample_repos/`는 읽기 전용.** 파일 읽기와 `git log`·`git blame`·`git show`만 한다. import·실행·수정·commit 금지(빌드 스크립트 제외).
-6. **검증된 라인만 보여 준다.** LLM이 낸 경로·범위는 `verify_lines`를 통과한 것(`verified=True`)만 화면에 낸다.
+6. **검증된 라인만 보여 준다.** LLM이 낸 경로·범위는 `verify_recs`(search_file 안 검증)를 통과한 것(`verified=True`)만 화면에 낸다.
 7. **레지스트리 밖으로 나가지 않는다.** LLM이 `repos.yaml`에 없는 레포 이름을 내면 버린다.
 8. **결정은 사람이.** 티켓은 현재 개발자가 체크한 유형만 그 개발자 담당으로 발행한다(담당 부서 = 그 개발자의 파트). LLM이 파트를 정하거나 추천하지 않는다. 자동 전체 발행·자동 배정 금지. 이미 발행된 유형(같은 기간의 cluster_id)은 VOC 유형별 처리 우선순위 표에서 빠진다.
    체크박스(행 선택)가 있는 표는 VOC 유형별 처리 우선순위 표(`st.data_editor`, 티켓 발행) 하나뿐이다. 다른 표에는 `on_select`를 쓰지 않는다. 화면 문구는 "유형"(코드 이름 cluster_id·Cluster 등은 그대로).
@@ -345,17 +349,17 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 
 ## 구현 힌트
 
-- **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc_id 없이 텍스트만)를 주고 `MIN_CLUSTERS`~`MAX_CLUSTERS`개 라벨을 받는다(발열은 '운동 중'·'연결 끊김'·'충전 중'·'자는 동안'을 반드시 따로, 충전 중 발열은 충전 불량과도 따로, 운동 직후 발열은 '운동 중'에 포함, 배터리 부풂은 배터리 소모와 따로). `assign_clusters`는 분석+이전 기간 VOC를 50건씩 `[{voc_id, text}]`로 넘겨 `{voc_id: label}`을 받는다.
-  `dissolve_small_clusters`: 분석 기간 건수가 `max(MIN_CLUSTER_SIZE, 분석 기간 VOC 수 × MIN_CLUSTER_SHARE(2%))` 미만인 묶음을 **가장 작은 것부터 하나씩** 해체하고 그 VOC만 남은 묶음 중 하나로 다시 분류한다(같은 증상이 작은 조각으로 갈라지는 것 방지, 기준은 데이터 건수에 따라 동적). 결과는 `outputs/clusters_{데이터셋}_{시작}_{끝}.json`에 캐시해 같은 기간이면 LLM을 다시 부르지 않는다.
+- **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc_id 없이 텍스트만)를 주고 `MIN_CLUSTERS`~`MAX_CLUSTERS`개 라벨을 받는다(발열은 '운동 중'·'연결 끊김'·'충전 중'·'자는 동안'을 반드시 따로, 충전 중 발열은 충전 불량과도 따로, 운동 직후 발열은 '운동 중'에 포함, 배터리 부풂은 배터리 소모와 따로). 분류는 `build_stage1_graph()`(LangGraph): `propose_clusters → (Send × 묶음 수) assign_batch → merge_assignments → dissolve_small → score_clusters`. 분배 함수 `dispatch_batches`가 분석+이전 기간 VOC를 `ASSIGN_BATCH_SIZE`(50)건씩 `[{voc_id, text}]` 묶음으로 나눠 `Send("assign_batch", {batch, proposals, index})` — 묶음마다 `assign_records`가 `{voc_id: label}`(빠진 건 한 번 더, 실패하면 그 묶음은 '기타' + errors "묶음 N 분류 실패"). `merge_assignments`가 voc_id 순으로 정렬해 합친다. `run_stage1(start, end, df, use_cache, info)`의 바깥 동작(캐시)은 그대로, `info`에 cached·batches·secs·errors·timings.
+  `dissolve_small_clusters`: 분석 기간 건수가 `max(MIN_CLUSTER_SIZE, 분석 기간 VOC 수 × MIN_CLUSTER_SHARE(2%))` 미만인 묶음을 **가장 작은 것부터 하나씩** 해체하고 그 VOC만 남은 묶음 중 하나로 다시 분류한다(같은 증상이 작은 조각으로 갈라지는 것 방지, 기준은 데이터 건수에 따라 동적, 옮길 VOC가 적어 `assign_clusters`로 묶음을 차례로). 결과는 `outputs/clusters_{데이터셋}_{시작}_{끝}.json`에 캐시해 같은 기간이면 LLM을 다시 부르지 않는다.
 - **티켓 ID**: 발행 순서대로 TKT-0001, TKT-0002 … (`st.session_state["next_ticket_no"]`는 1부터). 우선순위 높은 순으로 발행. 개별 VOC ID(V0001…)는 그대로 `voc_ids`에.
 - **RAG**: `data/rag/*.md` → `RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)` → `Chroma.from_documents(docs, OpenAIEmbeddings(...))`(persist_directory 없음). stage2에서는 `functools.lru_cache`로 한 번만 만든다.
 - **git 호출**: `subprocess.run(["git", "-C", repo_path, "-c", "core.quotepath=false", ...], capture_output=True, text=True, encoding="utf-8", check=True)`.
   - 최근 변경: `git log --since=YYYY-MM-DD --until=분석시작일 --name-only --format=%H|%ad|%s --date=short`
   - 커밋 근거: `git blame -L 시작,끝 --porcelain 파일` → `committer-time`·`summary`로 날짜·메시지. 날짜가 분석 시작일 전 30일 안이면 Evidence(kind="commit") 추가.
-- **search_lines**: 상위 폴더 2개의 `.py` 중 `code_terms` 히트 많은 파일 3개 → 각 줄 앞에 `f"{n:>4}| "`을 붙여 전달 + 해당 파일의 최근 30일 `git log -p` 요약(파일당 1,500자 이내). 출력: path, ranges, snippet, reason, confidence. reason(추천 사유)은 "명사형으로 끝나는 한 문장, `REASON_MAX_CHARS`(60)자 이내, 이모티콘·강조 표현 금지" — 넘으면 재요청(그래도 안 되면 길이 검사 없이 받음).
-- **verify_lines**: 파일 존재 · 1 ≤ 시작 ≤ 끝 ≤ 줄 수 · `" ".join(snippet.split())`이 범위 텍스트(같은 정규화)에 포함. 하나도 통과 못 하면 `retry < 1`일 때 search_lines로 되돌아감(조건 엣지).
+- **select_files → search_file(파일별 병렬)**: `select_files`가 상위 폴더 2개의 `.py` 중 (키워드 + 함수 의미) 점수가 높은 파일 3개를 고르고, `dispatch_files`가 파일마다 `Send("search_file", {file, repo, ticket})`(0개면 `merge_lines`로 바로). `search_file`은 파일 하나만: 각 줄 앞에 `f"{n:>4}| "`을 붙여 전달 + 그 파일의 최근 30일 `git log -p` 요약(1,500자 이내) → `verify_recs` → 하나도 통과 못 하면 그 파일 안에서 1회(`MAX_LINE_RETRY`)만 다시 탐색. 프롬프트: 원인 없으면 빈 목록, confidence는 이 파일이 직접 원인일 가능성(발생 조건·증상과 직접 이어지지 않으면 0.5 미만), 반복 블록의 start는 for/while 줄 자체. `merge_lines`가 confidence 순으로 합치고 같은 파일은 하나, `LINE_MIN_CONFIDENCE`(0.5) 미만은 뺀다. 출력: path, ranges, snippet, reason, confidence. reason(추천 사유)은 "명사형으로 끝나는 한 문장, `REASON_MAX_CHARS`(60)자 이내, 이모티콘·강조 표현 금지" — 넘으면 재요청(그래도 안 되면 길이 검사 없이 받음).
+- **verify_recs**(search_file 안): 파일 존재 · 1 ≤ 시작 ≤ 끝 ≤ 줄 수 · `" ".join(snippet.split())`이 범위 텍스트(같은 정규화)에 포함. 예전 retry 필드·되돌아가는 조건 엣지는 없다.
 - **analyze_impact**: 심볼 = 추천 줄의 대문자 상수 + 추천 줄을 감싼 `def` 이름(위로 올라가며 찾음). 그 이름이 `_`로 시작하면 같은 파일에서 `self.<이름>`을 쓰는 공개 메서드로 바꾼다(`_loop` → `start_continuous`). 같은 레포의 다른 `.py`에서만 `\b심볼\b` 검색 → Impact(repo, path, line, symbol, relation=f"{symbol}() 호출"). `__init__` 등 dunder는 제외.
-- **진행 표시**: `for update in graph.stream(state, stream_mode="updates")` → 키가 노드명. `stream_stage2`가 `("node", 노드명, 소요초)`를 내고 마지막에 `("done", 최종 state)`. 최종 state는 업데이트를 누적해 만든다. 화면에서는 실행 중 `st.spinner("코드 위치를 찾는 중…")` 하나만 보이고(단계별 박스 없음), timings는 사이드바에 표시. 노드 표기: route_repos=④ 레포 라우팅, score_folders=⑤ 폴더 의심도, search_lines·verify_lines·add_commit_evidence=⑥ 라인 탐색·검증·커밋 근거, analyze_impact=⑦ 영향 범위.
+- **진행 표시**: `graph.stream(state, stream_mode=["updates", "values"], config={"max_concurrency": MAX_PARALLEL_LLM})` → updates의 키가 노드명(파일별 가지는 `search_file`이 여러 번). `stream_stage2`가 `("node", 노드명, 소요초)`를 내고 마지막에 `("done", 최종 state)`. 최종 state는 그래프가 reducer로 합친 마지막 `"values"`(업데이트를 직접 덮어쓰면 병렬 가지 결과가 사라진다). 화면에서는 실행 중 `st.spinner("코드 위치를 찾는 중…")` 하나만 보이고(단계별 박스 없음), timings는 사이드바에 표시. 노드 표기: route_repos=④ 레포 라우팅, score_folders=⑤ 폴더 의심도, select_files·search_file·merge_lines·add_commit_evidence=⑥ 후보 파일 선택·라인 탐색·검증(파일별)·합치기·커밋 근거, analyze_impact=⑦ 영향 범위.
 - **코드 뷰**: 추천 범위 앞뒤 5줄만 잘라 `HtmlFormatter(linenos="table", linenostart=시작줄, hl_lines=[...], noclasses=True)`. `hl_lines`는 **잘라낸 조각 기준 1부터** 번호다(절대 줄 번호 아님).
 - **1️⃣ 보기 전환**: `st.segmented_control(["원본 VOC", "유형 분석 결과"], key="voc_view", required=True)` — 보기 전환 줄 `st.columns([4, 1])` 오른쪽에 [유형 분석]. 1️⃣ 탭 버튼·제목에 이모티콘 없음. 버튼의 `on_click`에서 `voc_view`를 결과 보기로 바꾼다. 결과는 `st.session_state["stage1"]`에서 읽어 전환해도 LLM을 다시 부르지 않는다.
 - **유형 분석 결과 순서**: 일별 차트(유형별 누적) → VOC 유형별 처리 우선순위 표(+ [티켓 발행] · 안내 · 비고) → `render_ticket_cards()` → `render_representative_vocs()` → `render_voc_map(cur, all_clusters)`. 의미 공간에는 발행 여부와 상관없이 **전체 유형**(`all_clusters`)을 넘긴다(표의 발행 안 된 목록을 넘기면 발행된 유형의 점이 빠진다).

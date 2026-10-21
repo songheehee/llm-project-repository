@@ -41,6 +41,8 @@ PREV_END = date(2026, 10, 2)
 CHAT_MODEL = "gpt-5.4-mini"
 EMBEDDING_MODEL = "text-embedding-3-small"
 LLM_MAX_RETRIES = 2  # 구조화 출력 실패 시 재시도 횟수
+LLM_RETRY_WAITS = (1, 2)  # 재시도 전 대기(초): 1회차 1초 → 2회차 2초 (429 요청 한도·일시 오류 대비)
+MAX_PARALLEL_LLM = 8      # LangGraph 병렬 가지(Send)에서 동시에 부르는 LLM 수 상한 — graph config max_concurrency
 
 # ── 클러스터링 ───────────────────────────────────────
 ASSIGN_BATCH_SIZE = 50
@@ -164,17 +166,19 @@ ROLE_NOTES = {"display_only": "표시 전용 폴더 → 감점"}
 # ── 라인 탐색 · 검증 · 영향 ──────────────────────────
 TOP_FOLDERS_FOR_LINES = 2
 TOP_FILES_FOR_LINES = 3
+LINE_MIN_CONFIDENCE = 0.5     # 파일별 탐색 결과 중 이 신뢰도 미만 추천은 merge_lines에서 뺀다
 GIT_LOG_PATCH_CHARS = 1500   # 파일당 최근 변경 요약 길이
 COMMIT_EVIDENCE_DAYS = 30
-MAX_LINE_RETRY = 1           # verify 실패 시 search_lines 재시도 횟수
+MAX_LINE_RETRY = 1           # 파일 하나의 검증이 모두 실패하면 그 파일 안에서 다시 탐색하는 횟수 (search_file)
 CODE_CONTEXT_LINES = 5       # 코드 뷰 앞뒤 줄 수
 
 # ── 화면 표기 ────────────────────────────────────────
 NODE_LABELS = {
     "route_repos": "④ 레포지토리 라우팅",
     "score_folders": "⑤ 폴더 의심도",
-    "search_lines": "⑥ 라인 탐색",
-    "verify_lines": "⑥ 라인 검증",
+    "select_files": "⑥ 후보 파일 선택",
+    "search_file": "⑥ 라인 탐색·검증(파일별)",
+    "merge_lines": "⑥ 라인 합치기",
     "add_commit_evidence": "⑥ 커밋 근거",
     "analyze_impact": "⑦ 영향 범위",
 }

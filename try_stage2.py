@@ -4,6 +4,7 @@
 """
 
 import sys
+import time
 
 import config
 import data_utils
@@ -27,11 +28,16 @@ def main() -> None:
 
     graph = stage2.build_stage2_graph()
     result = {}
+    t0 = time.perf_counter()
     for event in stage2.stream_stage2(graph, ticket):
         if event[0] == "node":
             print(f"✓ {config.NODE_LABELS[event[1]]} ({event[2]:.1f}초)")
         else:
             result = event[1]
+    print(f"\n[⑥ 후보 파일별 search_file — 동시 최대 {config.MAX_PARALLEL_LLM}개] 그래프 전체 {time.perf_counter() - t0:.1f}초")
+    for key, secs in result.get("timings", {}).items():
+        if key.startswith("search_file:"):
+            print(f"  {key.split(':', 1)[1]:<28} {secs:.1f}초")
 
     print("\n[코드 출처]")
     for name, src in result.get("repo_sources", {}).items():
@@ -57,7 +63,7 @@ def main() -> None:
         print(f"  {i.path}:{i.line}  {i.relation}")
     if result.get("errors"):
         print("\n[검증 실패 기록]", *result["errors"], sep="\n  ")
-    print(f"\nretry={result.get('retry')} timings={result.get('timings')}")
+    print(f"\ntimings={result.get('timings')}")
 
 
 if __name__ == "__main__":

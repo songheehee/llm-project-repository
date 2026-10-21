@@ -110,7 +110,19 @@ def main() -> None:
     use_cache = "--no-cache" not in sys.argv
     df = data_utils.load_vocs()
     start, end = config.ANALYSIS_START, config.ANALYSIS_END
-    clusters, assignments = stage1.run_stage1(start, end, df, use_cache=use_cache)
+    info: dict = {}
+    clusters, assignments = stage1.run_stage1(start, end, df, use_cache=use_cache, info=info)
+    if info["cached"]:
+        print("[유형 분류] 캐시 사용 (그래프 실행 안 함 — 새로 돌리려면 --no-cache)")
+    else:
+        batch_secs = [v for k, v in info["timings"].items() if k.startswith("assign_batch:")]
+        print(f"[유형 분류] 묶음 {info['batches']}개 (동시 최대 {config.MAX_PARALLEL_LLM}개) · 전체 {info['secs']}초 · "
+              f"실패 묶음 {sum(e.startswith('묶음') for e in info['errors'])}개")
+        print(f"  라벨 제안 {info['timings'].get('propose_clusters', 0)}초 · 묶음별 {min(batch_secs, default=0)}~"
+              f"{max(batch_secs, default=0)}초 (합 {sum(batch_secs):.1f}초) · 작은 묶음 해체 "
+              f"{info['timings'].get('dissolve_small', 0)}초")
+        for e in info["errors"]:
+            print(f"  ! {e}")
 
     print(f"\n[클러스터] {start} ~ {end}")
     print(f"{'ID':<4}{'우선순위':<6}{'라벨':<20}{'영역':<6}{'심각도':>4}{'이번':>6}{'이전':>6}  {'추세':<12}{'시급도':>5}")

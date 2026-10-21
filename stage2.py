@@ -15,7 +15,7 @@ import time
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any, Iterator, Literal, TypedDict
+from typing import Annotated, Iterator, Literal, TypedDict
 
 import numpy as np
 import yaml
@@ -24,6 +24,7 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 from pydantic import BaseModel, Field
 
 import config
@@ -142,11 +143,13 @@ class Stage2State(TypedDict, total=False):
     repo_sources: dict[str, str]   # {레포 이름: 원격 미러 / 로컬 sample_repos}
     repo_candidates: list[RepoCandidate]
     folder_scores: list[FolderScore]
-    line_recs: list[LineRec]
+    line_repo: str                 # 라인을 찾는 레포 (레포 후보 1위)
+    files: list[str]               # select_files가 고른 후보 파일 (최대 TOP_FILES_FOR_LINES개)
+    file_recs: Annotated[list, operator.add]   # 파일별 search_file 가지의 검증된 추천을 모은다 (가지끼리 덮어쓰지 않게)
+    line_recs: list[LineRec]       # merge_lines가 정렬·중복 제거한 결과 → add_commit_evidence가 근거를 붙여 다시 씀
     impacts: list[Impact]
-    retry: int
-    errors: list[str]
-    timings: Annotated[dict, operator.or_]
+    errors: Annotated[list, operator.add]      # 노드·가지마다 새 오류만 돌려주면 이어 붙는다
+    timings: Annotated[dict, operator.or_]     # 노드별 초, 파일별 가지는 "search_file:sensor/heart_rate.py"
 
 
 # ════════════════════════════ 레지스트리 · git ════════════════════════════
@@ -559,63 +562,117 @@ def normalize_path(path: str, repo_name: str) -> str:
     return p
 
 
-def search_lines(state: Stage2State) -> dict:
-    ticket = state["ticket"]
+LINE_SEARCH_SYSTEM = (
+    "너는 시니어 개발자다. 개발 티켓의 증상을 일으키는 코드 줄을 찾아 '어디를 봐야 하는지'만 알려 준다. "
+    f"{DATA_GUARD}\n"
+    "- 후보 파일 하나를 받는다. 다른 후보 파일은 따로 검토되므로, 이 파일만 보고 판단한다. "
+    "이 파일에 증상의 원인으로 볼 만한 코드가 없으면 recs를 빈 목록으로 둔다.\n"
+    "- 각 줄 앞의 'NNNN| '은 줄 번호다. 범위는 그 번호로 쓰고, 범위마다 code에 start 줄 코드를 번호 없이 글자 그대로 복사한다.\n"
+    "- 원인으로 의심되는 값이 정의된 줄과, 그 값이 실제 동작(반복·대기 등)에 쓰이는 블록을 각각 범위로 고른다.\n"
+    "- 범위는 실행 코드 줄만 최소로 잡는다. 주석·docstring·def·try·finally 줄과 준비·정리 코드는 넣지 않는다.\n"
+    "  예) 상수 `RETRY_LIMIT = 3`은 그 대입 한 줄만 → (12, 12). "
+    "반복 블록은 `for`/`while` 줄부터 블록 안 마지막 대기·호출 줄까지만 → (30, 36). "
+    "반복 블록의 start는 반드시 `for`/`while` 줄 자체이고, 그 앞의 전원 켜기·초기화·try 줄은 넣지 않는다.\n"
+    "- 이 파일의 범위는 추천 하나에 ranges 여러 개로 묶는다 (추천은 최대 1개).\n"
+    "- confidence는 이 파일이 티켓 증상의 직접 원인일 가능성이다. 원인 값을 쓰기만 하는 호출부·주변 코드는 낮게 준다. "
+    "티켓의 발생 조건(예: 운동 중)과 증상에 직접 이어지지 않는 코드(다른 상황·다른 증상의 원인일 수 있는 코드)는 0.5 미만으로 준다.\n"
+    "- 표시만 하는 코드(문구·화면)는 증상 단어가 많아도 원인이 아니다.\n"
+    "- 최근 변경 이력이 증상 시작 시점과 맞으면 근거로 쓴다.\n"
+    "- 수정 코드·패치·diff는 쓰지 않는다.\n"
+    f"- reason(추천 사유)은 명사형으로 끝나는 한 문장, {config.REASON_MAX_CHARS}자 이내로 쓴다. "
+    "이모티콘·느낌표·강조 표현(매우, 반드시, 핵심 등)은 쓰지 않는다."
+)
+
+
+def select_files(state: Stage2State) -> dict:
+    """상위 폴더 2개의 .py 중 (키워드 + 함수 의미) 점수가 높은 파일 최대 TOP_FILES_FOR_LINES개를 고른다."""
     if not state.get("repo_candidates"):
-        return {"line_recs": [], "errors": state.get("errors", []) + ["레포 후보 없음"]}
+        return {"line_repo": "", "files": [], "errors": ["레포 후보 없음"]}
     repo_name, files = pick_files(state)
+    return {"line_repo": repo_name, "files": files}
+
+
+def dispatch_files(state: Stage2State):
+    """후보 파일마다 search_file 가지를 하나씩 만든다 (동시 실행). 후보가 없으면 merge_lines로 바로."""
+    if not state.get("files"):
+        return "merge_lines"
+    return [Send("search_file", {"file": rel, "repo": state["line_repo"], "ticket": state["ticket"]})
+            for rel in state["files"]]
+
+
+def ask_lines(ticket: Ticket, repo_name: str, rel: str, failed: list[str] | None = None) -> list[LineRec]:
+    """파일 하나를 LLM에 보내 추천 줄 범위를 받는다 (검증 전)."""
     repo = repo_dir(repo_name)
-    blocks = []
-    for rel in files:
-        numbered = "\n".join(f"{n:>4}| {line}" for n, line in enumerate(read_lines(repo, rel), start=1))
-        blocks.append(f"### 파일: {rel}\n{numbered}\n\n### {rel} 최근 30일 변경\n"
-                      f"{recent_patch(repo, rel, config.ANALYSIS_START)}")
-    system = (
-        "너는 시니어 개발자다. 개발 티켓의 증상을 일으키는 코드 줄을 찾아 '어디를 봐야 하는지'만 알려 준다. "
-        f"{DATA_GUARD}\n"
-        "- 각 줄 앞의 'NNNN| '은 줄 번호다. 범위는 그 번호로 쓰고, 범위마다 code에 start 줄 코드를 번호 없이 글자 그대로 복사한다.\n"
-        "- 원인으로 의심되는 값이 정의된 줄과, 그 값이 실제 동작(반복·대기 등)에 쓰이는 블록을 각각 범위로 고른다.\n"
-        "- 범위는 실행 코드 줄만 최소로 잡는다. 주석·docstring·def·try·finally 줄과 준비·정리 코드는 넣지 않는다.\n"
-        "  예) 상수 `RETRY_LIMIT = 3`은 그 대입 한 줄만 → (12, 12). "
-        "반복 블록은 `for`/`while` 줄부터 블록 안 마지막 대기·호출 줄까지만 → (30, 36).\n"
-        "- 같은 파일의 범위는 하나의 추천에 ranges 여러 개로 묶는다. 가장 유력한 파일 1~2개만 추천한다.\n"
-        "- 표시만 하는 코드(문구·화면)는 증상 단어가 많아도 원인이 아니다.\n"
-        "- 최근 변경 이력이 증상 시작 시점과 맞으면 근거로 쓴다.\n"
-        "- 수정 코드·패치·diff는 쓰지 않는다.\n"
-        f"- reason(추천 사유)은 명사형으로 끝나는 한 문장, {config.REASON_MAX_CHARS}자 이내로 쓴다. "
-        "이모티콘·느낌표·강조 표현(매우, 반드시, 핵심 등)은 쓰지 않는다."
-    )
-    user = f"[티켓]\n{ticket_brief(ticket)}\n\n[후보 파일 — 저장소 {repo_name}]\n\n" + "\n\n".join(blocks)
-    if state.get("retry"):
-        user += ("\n\n[주의] 이전 답은 검증에 실패했다: " + " / ".join(state.get("errors", [])[-3:])
+    numbered = "\n".join(f"{n:>4}| {line}" for n, line in enumerate(read_lines(repo, rel), start=1))
+    user = (f"[티켓]\n{ticket_brief(ticket)}\n\n[후보 파일 — 저장소 {repo_name}]\n\n### 파일: {rel}\n{numbered}\n\n"
+            f"### {rel} 최근 30일 변경\n{recent_patch(repo, rel, config.ANALYSIS_START)}")
+    if failed:
+        user += ("\n\n[주의] 이전 답은 검증에 실패했다: " + " / ".join(failed[-3:])
                  + "\n줄 번호와 snippet을 파일 내용과 정확히 맞춰 다시 답한다.")
+
     def reason_short(res: LineRecDraftList):
         long = [d.reason for d in res.recs if len(d.reason.strip()) > config.REASON_MAX_CHARS]
         if long:
             raise ValueError(f"추천 사유가 {config.REASON_MAX_CHARS}자를 넘음: {long[0][:30]}…")
 
     try:
-        res = call_structured(LineRecDraftList, system, user, reason_short)
+        res = call_structured(LineRecDraftList, LINE_SEARCH_SYSTEM, user, reason_short)
     except RuntimeError:  # 길이 조건만 계속 못 맞추면 길이 검사 없이 받는다 (라인 검증은 뒤에서 그대로)
-        res = call_structured(LineRecDraftList, system, user)
+        res = call_structured(LineRecDraftList, LINE_SEARCH_SYSTEM, user)
 
     voc_ev = Evidence(kind="voc", ref=ticket.ticket_id,
                       detail=f"{ticket.count}건 · {ticket.cluster_label} ({ticket.trend}) · {', '.join(ticket.conditions)}")
     recs = []
     for d in res.recs:
         path = normalize_path(d.path, repo_name)
+        if path != rel:  # 이 가지는 파일 하나만 본다 — 다른 경로를 답하면 버린다
+            continue
         ev = [voc_ev]
-        file = repo / path
-        if file.is_file():
-            hit = term_hits(file.read_text(encoding="utf-8"), ticket.code_terms)
-            if hit:
-                ev.append(Evidence(kind="keyword", ref=path, detail=", ".join(hit)))
+        hit = term_hits((repo / rel).read_text(encoding="utf-8"), ticket.code_terms)
+        if hit:
+            ev.append(Evidence(kind="keyword", ref=rel, detail=", ".join(hit)))
         recs.append(LineRec(
-            repo=repo_name, path=path, ranges=[(r.start, r.end) for r in d.ranges],
+            repo=repo_name, path=rel, ranges=[(r.start, r.end) for r in d.ranges],
             snippet=d.ranges[0].code if d.ranges else "", range_snippets=[r.code for r in d.ranges],
             reason=d.reason, confidence=round(d.confidence, 2), evidence=ev,
         ))
-    return {"line_recs": recs}
+    return recs
+
+
+def search_file(payload: dict) -> dict:
+    """파일 하나: 라인 탐색(LLM) → 검증. 하나도 통과 못 하면 이 파일 안에서 MAX_LINE_RETRY회만 다시 탐색.
+    통과한 추천(verified=True)만 file_recs로 돌려준다 (병렬 가지 결과는 reducer로 합쳐진다)."""
+    t0 = time.perf_counter()
+    rel, repo_name, ticket = payload["file"], payload["repo"], payload["ticket"]
+    errors: list[str] = []
+    passed: list[LineRec] = []
+    try:
+        for attempt in range(config.MAX_LINE_RETRY + 1):
+            recs = ask_lines(ticket, repo_name, rel, errors if attempt else None)
+            if not recs:  # 이 파일에는 원인 없음 — 다시 묻지 않는다
+                break
+            passed, errs = verify_recs(recs)
+            errors += errs
+            if passed:
+                break
+    except Exception as e:  # noqa: BLE001 — 한 파일 실패가 다른 파일 탐색을 멈추지 않게
+        errors.append(f"{rel}: 라인 탐색 실패 ({str(e)[:60]})")
+    return {"file_recs": passed, "errors": errors,
+            "timings": {f"search_file:{rel}": round(time.perf_counter() - t0, 2)}}
+
+
+def merge_lines(state: Stage2State) -> dict:
+    """모든 파일의 추천을 confidence 높은 순으로 합친다. 같은 파일·같은 범위는 하나로 (파일당 신뢰도 높은 추천 하나).
+    파일마다 따로 물으면 관련이 약한 파일도 낮은 신뢰도로 답하므로 LINE_MIN_CONFIDENCE 미만은 뺀다
+    (예전처럼 파일 여러 개를 한 번에 보고 유력한 1~2개만 고르던 결과와 맞춘다)."""
+    merged: list[LineRec] = []
+    seen: set[str] = set()
+    for rec in sorted(state.get("file_recs", []), key=lambda r: (-r.confidence, r.path)):
+        if rec.path in seen or rec.confidence < config.LINE_MIN_CONFIDENCE:
+            continue
+        seen.add(rec.path)
+        merged.append(rec)
+    return {"line_recs": merged}
 
 
 def squash(text: str) -> str:
@@ -634,13 +691,14 @@ def trim_range(lines: list[str], s: int, e: int) -> tuple[int, int]:
     return s, e
 
 
-def verify_lines(state: Stage2State) -> dict:
-    """범위마다 파일 존재 · 1 ≤ 시작 ≤ 끝 ≤ 줄 수 · snippet이 범위 텍스트에 포함인지 확인. 실패분은 버린다."""
-    errors = list(state.get("errors", []))
+def verify_recs(recs: list[LineRec]) -> tuple[list[LineRec], list[str]]:
+    """범위마다 파일 존재 · 1 ≤ 시작 ≤ 끝 ≤ 줄 수 · snippet이 범위 텍스트에 포함인지 확인. 실패분은 버린다.
+    (통과한 추천, 실패 사유) — 같은 파일은 신뢰도 높은 추천 하나만."""
+    errors: list[str] = []
     passed = []
     seen_paths = set()
-    for rec in sorted(state.get("line_recs", []), key=lambda r: -r.confidence):
-        if rec.path in seen_paths:  # 같은 파일은 신뢰도 높은 추천 하나만
+    for rec in sorted(recs, key=lambda r: -r.confidence):
+        if rec.path in seen_paths:
             continue
         repo = repo_dir(rec.repo)
         file = (repo / rec.path).resolve()
@@ -665,16 +723,7 @@ def verify_lines(state: Stage2State) -> dict:
         seen_paths.add(rec.path)
         passed.append(rec.model_copy(update={
             "ranges": ok_ranges, "range_snippets": ok_snippets, "snippet": ok_snippets[0], "verified": True}))
-    update: dict[str, Any] = {"line_recs": passed, "errors": errors}
-    if not passed:
-        update["retry"] = state.get("retry", 0) + 1
-    return update
-
-
-def after_verify(state: Stage2State) -> str:
-    if not state.get("line_recs") and state.get("retry", 0) <= config.MAX_LINE_RETRY:
-        return "search_lines"
-    return "add_commit_evidence"
+    return passed, errors
 
 
 def parse_blame(porcelain: str) -> dict[int, dict]:
@@ -892,24 +941,26 @@ def build_stage2_graph():
     g = StateGraph(Stage2State)
     g.add_node("route_repos", timed("route_repos", route_repos_node))
     g.add_node("score_folders", timed("score_folders", score_folders_node))
-    g.add_node("search_lines", timed("search_lines", search_lines))
-    g.add_node("verify_lines", timed("verify_lines", verify_lines))
+    g.add_node("select_files", timed("select_files", select_files))
+    g.add_node("search_file", search_file)  # 파일별 소요 시간은 노드 안에서 "search_file:<경로>"로 기록
+    g.add_node("merge_lines", timed("merge_lines", merge_lines))
     g.add_node("add_commit_evidence", timed("add_commit_evidence", add_commit_evidence))
     g.add_node("analyze_impact", timed("analyze_impact", analyze_impact))
     g.add_edge(START, "route_repos")
     g.add_edge("route_repos", "score_folders")
-    g.add_edge("score_folders", "search_lines")
-    g.add_edge("search_lines", "verify_lines")
-    g.add_conditional_edges("verify_lines", after_verify,
-                            {"search_lines": "search_lines", "add_commit_evidence": "add_commit_evidence"})
+    g.add_edge("score_folders", "select_files")
+    # 후보 파일 수만큼 search_file을 동시에 (없으면 merge_lines로 바로) — 동시 LLM 수는 max_concurrency로 제한
+    g.add_conditional_edges("select_files", dispatch_files, ["search_file", "merge_lines"])
+    g.add_edge("search_file", "merge_lines")
+    g.add_edge("merge_lines", "add_commit_evidence")
     g.add_edge("add_commit_evidence", "analyze_impact")
     g.add_edge("analyze_impact", END)
     return g.compile()
 
 
 def initial_state(ticket: Ticket) -> Stage2State:
-    return {"ticket": ticket, "repo_sources": {}, "repo_candidates": [], "folder_scores": [], "line_recs": [],
-            "impacts": [], "retry": 0, "errors": [], "timings": {}}
+    return {"ticket": ticket, "repo_sources": {}, "repo_candidates": [], "folder_scores": [], "line_repo": "",
+            "files": [], "file_recs": [], "line_recs": [], "impacts": [], "errors": [], "timings": {}}
 
 
 RESULT_LIST_MODELS = {"repo_candidates": RepoCandidate, "folder_scores": FolderScore,
@@ -950,17 +1001,18 @@ def load_result(ticket: Ticket) -> dict | None:
 
 
 def stream_stage2(graph, ticket: Ticket) -> Iterator[tuple]:
-    """("node", 노드명, 소요초) … ("done", 최종 state)."""
-    state = initial_state(ticket)
-    final: dict = dict(state)
-    for update in graph.stream(state, stream_mode="updates"):
-        for node, upd in update.items():
-            upd = upd or {}
-            prev = final["timings"].get(node, 0.0)
-            timings = {**final["timings"], **upd.get("timings", {})}
-            final.update(upd)
-            final["timings"] = timings
-            yield ("node", node, round(timings.get(node, 0.0) - prev, 2))
+    """("node", 노드명, 소요초) … ("done", 최종 state).
+    병렬 가지(search_file)의 업데이트는 노드별로 하나씩 나오고, 최종 state는 그래프가 reducer로 합친 값("values")을 쓴다
+    (업데이트를 직접 덮어쓰면 마지막 가지 결과만 남는다). 동시 LLM 수는 MAX_PARALLEL_LLM으로 제한."""
+    final: dict = initial_state(ticket)
+    for mode, chunk in graph.stream(initial_state(ticket), stream_mode=["updates", "values"],
+                                    config={"max_concurrency": config.MAX_PARALLEL_LLM}):
+        if mode == "values":
+            final = chunk
+            continue
+        for node, upd in chunk.items():
+            secs = sum((upd or {}).get("timings", {}).values())
+            yield ("node", node, round(secs, 2))
     yield ("done", final)
 
 
