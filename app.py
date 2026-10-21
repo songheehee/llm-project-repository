@@ -36,7 +36,7 @@ CSS = """
 [data-testid="stMetricDelta"], [data-testid="stMetricDelta"] > div {
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 [data-testid="stMetricValue"] {font-size:1.9rem;}
-/* 근거 표: 흰 배경, 긴 내용은 줄바꿈 그대로 (마지막 수정자는 범위마다 한 행) */
+/* 근거 표: 흰 배경, 긴 내용은 줄바꿈 그대로 (마지막 수정자는 한 줄 요약 · 범위별은 아래 접힌 상자) */
 [class*="st-key-card_evidence"] table, [class*="st-key-card_evidence"] th, [class*="st-key-card_evidence"] td {background:#FFFFFF;}
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
 /* 티켓 카드 마지막 줄: [처리 완료](담당 카드만, 오른쪽 끝) — 버튼 없는 카드도 같은 높이의 빈 줄 */
@@ -56,15 +56,16 @@ CSS = """
    그 -1rem도 0으로 돌려야 칸 높이가 찌그러져(약 4px) 다음 줄과 겹치지 않는다 */
 [class*="st-key-sbcard_"] [data-testid="stMarkdownContainer"], [class*="st-key-sbcard_"] [data-testid="stCaptionContainer"],
 [class*="st-key-tprob_"] [data-testid="stMarkdownContainer"],
-[class*="st-key-tline_"] [data-testid="stMarkdownContainer"], [class*="st-key-repvoc_"] [data-testid="stMarkdownContainer"] {margin-bottom:0 !important;}
+[class*="st-key-tline_"] [data-testid="stMarkdownContainer"], [class*="st-key-repvoc_"] [data-testid="stMarkdownContainer"],
+[class*="st-key-lastauth_"] [data-testid="stMarkdownContainer"] {margin-bottom:0 !important;}
 [class*="st-key-sbcard_"] p {font-size:0.85rem; line-height:1.4; margin:0; text-align:left;}
 [class*="st-key-sbcard_"] [data-testid="stCaptionContainer"] p {font-size:0.75rem;}
 [class*="st-key-sbprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
 [class*="st-key-sbpick_"] button {min-height:24px; height:24px; padding:0 8px; font-size:0.75rem; line-height:1;}
-/* 대표 VOC: expander 제목과 같은 본문 크기, 항목 사이 4px */
-[class*="st-key-repvoc_"] p, [class*="st-key-repvoc_"] li {font-size:14px; line-height:1.4;}
-[class*="st-key-repvoc_"] ul {margin:0; padding-left:1.2rem;}
-[class*="st-key-repvoc_"] li {margin:0 0 4px 0; padding:0;}
+/* 대표 VOC · 마지막 수정자 상세: expander 제목과 같은 본문 크기, 항목 사이 4px */
+[class*="st-key-repvoc_"] p, [class*="st-key-repvoc_"] li, [class*="st-key-lastauth_"] p, [class*="st-key-lastauth_"] li {font-size:14px; line-height:1.4;}
+[class*="st-key-repvoc_"] ul, [class*="st-key-lastauth_"] ul {margin:0; padding-left:1.2rem;}
+[class*="st-key-repvoc_"] li, [class*="st-key-lastauth_"] li {margin:0 0 4px 0; padding:0;}
 </style>
 """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
@@ -165,6 +166,7 @@ ss.setdefault("stage2", {})          # {ticket_id: 최종 state} — outputs/sta
 # 코드 찾기 대기 상태(폴더 확인에서 멈춤): {ticket_id: {"thread_id", "payload", "state"}} — 티켓별로 따로 둔다
 ss.setdefault("stage2_wait", {})
 ss.setdefault("stage2_run_no", {})   # {ticket_id: 실행 번호} — thread_id = f"{ticket_id}:{번호}"
+ss.setdefault("stage2_notice", {})   # {ticket_id: 안내 문구} — 수정 라인 찾기 실패·0건 (2️⃣ 탭에 한 번 표시)
 ss.setdefault("current_ticket", None)
 ss.setdefault("editor_nonce", 0)        # 발행 후 유형 표(data_editor)를 체크 없이 새로 그리기 위한 번호
 ss.setdefault("voc_view", VIEW_RAW)
@@ -562,7 +564,12 @@ with st.sidebar:
                     st.markdown(t.problem)
                 st.caption(":red[기한 지남]" if left < 0 else f"~{due:%m/%d} · D-{left}")
 
-tab1, tab2, tab3 = st.tabs(["1️⃣ VOC 대시보드", "2️⃣ 의심 위치", "3️⃣ 수정 라인"])
+TAB_LABELS = ["1️⃣ VOC 대시보드", "2️⃣ 의심 위치", "3️⃣ 수정 라인"]
+# 수정 라인 탐색이 끝나면 3️⃣ 탭으로 — st.tabs(key=…)의 선택 탭은 위젯을 그리기 전에만 바꿀 수 있어서
+# 탐색 직후에는 표시만 남기고 st.rerun(), 다음 실행에서 탭을 그리기 전에 바꾼다
+if ss.pop("goto_lines_tab", False):
+    ss["active_tab"] = TAB_LABELS[2]
+tab1, tab2, tab3 = st.tabs(TAB_LABELS, key="active_tab", on_change="rerun")  # key로 선택 탭을 코드에서 바꾼다
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
@@ -779,7 +786,8 @@ def folder_option(f: dict) -> str:
 
 
 def render_folder_pick(sel: str, wait: dict) -> None:
-    """폴더 확인(interrupt 대기): '수정 라인을 찾을 폴더'를 고르고 [이 폴더에서 수정 라인 찾기]로 그래프를 재개한다.
+    """폴더 확인(interrupt 대기): '수정 라인을 찾을 폴더'를 고르고 [수정 라인 찾기]로 그래프를 재개한다.
+    끝나서 검증된 수정 라인이 있으면 3️⃣ 탭으로 이동, 실패하거나 0건이면 2️⃣ 탭에 남아 안내.
     기본 선택 = 1위 레포지토리에서 감점되지 않은 의심도 상위 2개 폴더, 최대 MAX_SELECTED_FOLDERS개."""
     st.markdown("#### 수정 라인을 찾을 폴더")
     graph = cached_graph()
@@ -797,15 +805,27 @@ def render_folder_pick(sel: str, wait: dict) -> None:
                             label_visibility="collapsed")
     st.caption(f"고른 폴더 안의 파일에서만 수정 라인을 찾습니다 · 최대 {config.MAX_SELECTED_FOLDERS}개 · "
                "기본은 1위 레포지토리에서 감점되지 않은 의심도 상위 2개")
-    if st.button("이 폴더에서 수정 라인 찾기", type="primary", disabled=not picked,
+    if st.button("수정 라인 찾기", type="primary", disabled=not picked,
                  key=f"resume_{wait['thread_id']}") and has_api_key():
         chosen = [{"repo": by_label[o]["repo"], "path": by_label[o]["path"]} for o in picked]
-        with st.spinner("수정 라인을 찾는 중…"):
-            for event in stage2.resume_stage2(graph, wait["thread_id"], chosen):
-                if event[0] == "done":  # 끝까지 완료됐을 때만 저장
-                    ss["stage2"][sel] = event[1]
-                    stage2.save_result(sel, event[1])
-                    ss["stage2_wait"].pop(sel, None)
+        found = 0
+        try:
+            with st.spinner("수정 라인을 찾는 중…"):
+                for event in stage2.resume_stage2(graph, wait["thread_id"], chosen):
+                    if event[0] == "done":  # 끝까지 완료됐을 때만 저장
+                        ss["stage2"][sel] = event[1]
+                        stage2.save_result(sel, event[1])
+                        ss["stage2_wait"].pop(sel, None)
+                        found = sum(r.verified for r in event[1].get("line_recs", []))
+        except Exception as e:  # noqa: BLE001 — 오류 화면 대신 2️⃣ 탭에 안내
+            ss["stage2_wait"].pop(sel, None)
+            ss["stage2_notice"][sel] = f"수정 라인 찾기에 실패했습니다. 다시 [코드 찾기]를 눌러 주세요 ({str(e)[:80]})"
+        else:
+            if found:
+                ss["goto_lines_tab"] = True  # 다음 실행에서 3️⃣ 탭을 연다
+            else:
+                ss["stage2_notice"][sel] = ("고른 폴더에서 검증된 수정 라인을 찾지 못했습니다. "
+                                            "[코드 찾기]를 다시 눌러 다른 폴더를 골라 보세요")
         st.rerun()  # 폴더 카드에 원인 후보·함께 확인 색을 칠해 다시 그린다
 
 
@@ -839,6 +859,9 @@ with tab2:
                         ss["stage2"][sel] = event[1]
                         stage2.save_result(sel, event[1])
 
+        notice = ss["stage2_notice"].pop(sel, None)  # 수정 라인 찾기가 실패했거나 0건이면 3️⃣로 가지 않고 여기서 안내
+        if notice:
+            st.warning(notice)
         wait = ss["stage2_wait"].get(sel)  # 폴더 확인 대기 중이면 그 시점 state(수정 라인·영향 범위 없음)를 보여 준다
         result = wait["state"] if wait else get_result(ticket)
         if not result:
@@ -939,6 +962,10 @@ with tab3:
                     render_code(stage2.read_lines(stage2.repo_dir(r.repo), r.path), r.ranges)
                     with st.container(key=f"card_evidence_{idx}"):  # 흰 배경 카드 안 근거 표
                         st.table(pd.DataFrame(stage2.evidence_rows(ticket, r), columns=["항목", "내용"]).set_index("항목"))
+                    if len(r.last_authors) > 1:  # 근거 표의 마지막 수정자는 한 줄 요약 — 범위별은 접어 둔다
+                        with st.expander(f"마지막 수정자 상세 ({len(r.last_authors)}개 범위)", expanded=False):
+                            with st.container(key=f"lastauth_{idx}"):  # 같은 사람·날짜끼리, 최근 날짜 순
+                                st.markdown("\n".join(f"- {md_escape(g)}" for g in stage2.last_author_groups(r)))
             st.markdown("#### 함께 확인할 곳")
             impacts = result.get("impacts", [])  # 티켓 전체 기준 (파일별로 나누지 않음)
             if impacts:

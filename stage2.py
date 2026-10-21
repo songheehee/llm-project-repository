@@ -1103,13 +1103,39 @@ def fmt_line_ranges(ranges) -> str:
     return ", ".join(f"L{s}" if s == e else f"L{s}–{e}" for s, e in ranges)
 
 
-def last_author_rows(rec: LineRec) -> list[tuple[str, str]]:
-    """마지막 수정자: 추천 범위마다 한 행 "L17 · 김민준 · 2026-10-02"(라인 번호 순). 항목 칸은 첫 행만 "마지막 수정자".
-    값은 git blame 결과(add_commit_evidence)에서만. 없으면 "확인 불가" 한 행."""
-    if not rec.last_authors:
-        return [("마지막 수정자", "확인 불가")]
-    ordered = sorted(rec.last_authors, key=lambda a: int(re.match(r"L(\d+)", a).group(1)) if re.match(r"L(\d+)", a) else 0)
-    return [("마지막 수정자" if i == 0 else "", a) for i, a in enumerate(ordered)]
+def parse_last_authors(rec: LineRec) -> list[tuple[str, int, str, str]]:
+    """last_authors("L17 · 김센서 · 2026-10-02")를 (범위, 시작 줄, 이름, 날짜)로, 라인 번호 순.
+    값은 git blame 결과(add_commit_evidence)에서만 나온다."""
+    out = []
+    for a in rec.last_authors:
+        parts = a.split(" · ")
+        if len(parts) < 3:
+            continue
+        m = re.match(r"L(\d+)", parts[0])
+        out.append((parts[0], int(m.group(1)) if m else 0, " · ".join(parts[1:-1]), parts[-1]))
+    return sorted(out, key=lambda x: x[1])
+
+
+def last_author_summary(rec: LineRec) -> str:
+    """근거 표의 한 줄 요약. 범위 1개 → "L17 · 김센서 · 2026-10-02",
+    여러 개 → 가장 최근에 수정한 사람·날짜 + "외 N개 범위" (예: "장하은 · 2026-08-27 외 4개 범위"). 없으면 "확인 불가"."""
+    items = parse_last_authors(rec)
+    if not items:
+        return "확인 불가"
+    if len(items) == 1:
+        rng, _, name, day = items[0]
+        return f"{rng} · {name} · {day}"
+    _, _, name, day = max(items, key=lambda x: (x[3], -x[1]))  # 최근 날짜, 같으면 앞 줄
+    return f"{name} · {day} 외 {len(items) - 1}개 범위"
+
+
+def last_author_groups(rec: LineRec) -> list[str]:
+    """펼쳐 보기용: 같은 사람·같은 날짜끼리 범위를 묶어 최근 날짜 순 — "박서연 · 2026-08-01 — L6, L8–9"."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for rng, _, name, day in parse_last_authors(rec):
+        groups.setdefault((name, day), []).append(rng)
+    ordered = sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][0]), reverse=True)
+    return [f"{name} · {day} — {', '.join(rngs)}" for (name, day), rngs in ordered]
 
 
 def evidence_rows(ticket: Ticket, rec: LineRec) -> list[tuple[str, str]]:
@@ -1121,7 +1147,7 @@ def evidence_rows(ticket: Ticket, rec: LineRec) -> list[tuple[str, str]]:
         ("발생 조건", ", ".join(ticket.conditions) or "–"),
         ("매칭 키워드", ", ".join(keywords) or "–"),
         ("관련 커밋", " / ".join(commits) or "해당 기간 변경 없음"),
-        *last_author_rows(rec),
+        ("마지막 수정자", last_author_summary(rec)),  # 한 줄 요약 — 범위가 여러 개면 화면은 아래 접힌 상자
         ("추천 사유", rec.reason),
     ]
 
@@ -1156,6 +1182,9 @@ def ticket_to_markdown(ticket: Ticket, result: dict | None) -> str:
                f"- 기준 커밋: `{r.commit_sha}`", "", "### 근거", ""]
         md += md_table(["항목", "내용"], [list(x) for x in evidence_rows(ticket, r)])
         md.append("")
+        if len(r.last_authors) > 1:  # 화면의 '마지막 수정자 상세' 상자와 같은 내용
+            md += [f"마지막 수정자 상세 ({len(r.last_authors)}개 범위)", ""]
+            md += [f"- {g}" for g in last_author_groups(r)] + [""]
     if result.get("impacts"):
         md += ["## 함께 확인할 곳", ""]
         md += md_table(["레포지토리", "파일", "라인", "심볼", "관계"],
