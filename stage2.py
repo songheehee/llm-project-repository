@@ -23,8 +23,10 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import Command, Send, interrupt
 from pydantic import BaseModel, Field
 
 import config
@@ -143,8 +145,8 @@ class Stage2State(TypedDict, total=False):
     repo_sources: dict[str, str]   # {레포 이름: 원격 미러 / 로컬 sample_repos}
     repo_candidates: list[RepoCandidate]
     folder_scores: list[FolderScore]
-    line_repo: str                 # 라인을 찾는 레포 (레포 후보 1위)
-    files: list[str]               # select_files가 고른 후보 파일 (최대 TOP_FILES_FOR_LINES개)
+    selected_folders: list[dict]   # 사람이 고른 '수정 라인을 찾을 폴더' [{repo, path}] (confirm_folders의 interrupt 재개 값)
+    files: list[dict]              # select_files가 고른 후보 파일 [{repo, file}] (최대 TOP_FILES_FOR_LINES개)
     file_recs: Annotated[list, operator.add]   # 파일별 search_file 가지의 검증된 추천을 모은다 (가지끼리 덮어쓰지 않게)
     line_recs: list[LineRec]       # merge_lines가 정렬·중복 제거한 결과 → add_commit_evidence가 근거를 붙여 다시 씀
     impacts: list[Impact]
@@ -532,20 +534,39 @@ def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_
 
 # ════════════════════════════ ⑥ 라인 탐색 · 검증 · 커밋 근거 ════════════════════════════
 
-def pick_files(state: Stage2State) -> tuple[str, list[str]]:
-    """상위 레포의 의심도 상위 폴더 2개에서 (키워드 + 함수 의미) 점수가 높은 .py 3개."""
-    repo_name = state["repo_candidates"][0].name
-    repo = repo_dir(repo_name)
+def default_folders(state: Stage2State) -> list[dict]:
+    """기존 규칙: 1위 레포지토리의 의심도 상위 TOP_FOLDERS_FOR_LINES(2)개 폴더 (재개 값이 비었을 때)."""
+    cands = state.get("repo_candidates") or []
+    if not cands:
+        return []
+    top = cands[0].name
+    return [{"repo": f.repo, "path": f.path} for f in state.get("folder_scores", [])
+            if f.repo == top][:config.TOP_FOLDERS_FOR_LINES]
+
+
+def pick_files(state: Stage2State) -> list[dict]:
+    """사람이 고른 폴더(selected_folders) 안의 .py 중 (키워드 + 함수 의미) 점수가 높은 파일 최대 TOP_FILES_FOR_LINES개.
+    폴더가 여러 레포지토리에 걸쳐도 되도록 [{repo, file}]로 돌려준다. 점수는 레포지토리마다 계산해 함께 순위를 매긴다."""
     ticket = state["ticket"]
-    folders = [f.path for f in state["folder_scores"] if f.repo == repo_name][:config.TOP_FOLDERS_FOR_LINES]
-    files = [rel for f in folders for rel in py_files(repo, f)]
-    hits = {rel: count_terms((repo / rel).read_text(encoding="utf-8"), ticket.code_terms) for rel in files}
-    max_hits = max(hits.values(), default=0) or 1
-    sims = unit_similarities(repo_name, ticket)  # 캐시된 벡터 사용
-    sem = minmax({rel: max((s["sim"] for s in sims if s["unit"].path == rel), default=0.0) for rel in files})
-    score = {rel: config.W_KEYWORD * hits[rel] / max_hits + config.W_SEMANTIC * sem.get(rel, 0.0) for rel in files}
-    ranked = sorted(files, key=lambda rel: -score[rel])
-    return repo_name, ranked[:config.TOP_FILES_FOR_LINES]
+    by_repo: dict[str, list[str]] = {}
+    for f in state.get("selected_folders") or default_folders(state):
+        by_repo.setdefault(f["repo"], []).append(f["path"])
+    scored: list[tuple[float, str, str]] = []
+    for repo_name, folders in by_repo.items():
+        if repo_name not in load_registry():  # 레지스트리 밖 레포는 버린다
+            continue
+        repo = repo_dir(repo_name)
+        files = [rel for f in folders for rel in py_files(repo, f)]
+        if not files:
+            continue
+        hits = {rel: count_terms((repo / rel).read_text(encoding="utf-8"), ticket.code_terms) for rel in files}
+        max_hits = max(hits.values(), default=0) or 1
+        sims = unit_similarities(repo_name, ticket)  # 캐시된 벡터 사용
+        sem = minmax({rel: max((s["sim"] for s in sims if s["unit"].path == rel), default=0.0) for rel in files})
+        scored += [(config.W_KEYWORD * hits[rel] / max_hits + config.W_SEMANTIC * sem.get(rel, 0.0), repo_name, rel)
+                   for rel in files]
+    ranked = sorted(scored, key=lambda x: (-x[0], x[1], x[2]))[:config.TOP_FILES_FOR_LINES]
+    return [{"repo": r, "file": rel} for _, r, rel in ranked]
 
 
 def recent_patch(repo: Path, rel: str, start: date) -> str:
@@ -572,7 +593,8 @@ LINE_SEARCH_SYSTEM = (
     "- 범위는 실행 코드 줄만 최소로 잡는다. 주석·docstring·def·try·finally 줄과 준비·정리 코드는 넣지 않는다.\n"
     "  예) 상수 `RETRY_LIMIT = 3`은 그 대입 한 줄만 → (12, 12). "
     "반복 블록은 `for`/`while` 줄부터 블록 안 마지막 대기·호출 줄까지만 → (30, 36). "
-    "반복 블록의 start는 반드시 `for`/`while` 줄 자체이고, 그 앞의 전원 켜기·초기화·try 줄은 넣지 않는다.\n"
+    "반복 블록의 start는 반드시 `for`/`while` 줄 자체이고, 그 앞의 전원 켜기·초기화·try 줄은 넣지 않는다. "
+    "예) `def _run(self):` → docstring → `self.dev.open()` → `try:` → `while self.on:` 순서라면 반복 블록 start는 `while` 줄.\n"
     "- 이 파일의 범위는 추천 하나에 ranges 여러 개로 묶는다 (추천은 최대 1개).\n"
     "- confidence는 이 파일이 티켓 증상의 직접 원인일 가능성이다. 원인 값을 쓰기만 하는 호출부·주변 코드는 낮게 준다. "
     "티켓의 발생 조건(예: 운동 중)과 증상에 직접 이어지지 않는 코드(다른 상황·다른 증상의 원인일 수 있는 코드)는 0.5 미만으로 준다.\n"
@@ -584,20 +606,40 @@ LINE_SEARCH_SYSTEM = (
 )
 
 
+def folder_payload(state: Stage2State) -> dict:
+    """interrupt로 화면에 넘기는 값 — 레포지토리 후보와 폴더 후보(레포지토리·경로·의심도·감점 여부)."""
+    return {
+        "repos": [{"name": c.name, "score": c.score} for c in state.get("repo_candidates", [])],
+        "folders": [{"repo": f.repo, "path": f.path, "score": f.score, "penalized": f.role in config.ROLE_FACTORS}
+                    for f in state.get("folder_scores", [])],
+    }
+
+
+def confirm_folders(state: Stage2State) -> dict:
+    """폴더 후보까지 보여 주고 멈춘다(interrupt). 개발자가 '수정 라인을 찾을 폴더'를 고르면 그 값으로 재개한다.
+    재개 값 {"folders": [{repo, path}, …]}가 비어 있으면 기존 규칙(1위 레포지토리의 의심도 상위 2개 폴더)으로 채운다.
+    재개되면 이 노드는 처음부터 다시 실행되므로 interrupt 앞에는 부작용 있는 코드를 두지 않는다."""
+    payload = folder_payload(state)
+    if not payload["folders"]:  # 고를 폴더가 없으면 멈추지 않는다
+        return {"selected_folders": []}
+    resume = interrupt(payload) or {}
+    folders = [{"repo": f["repo"], "path": f["path"]} for f in resume.get("folders", [])][:config.MAX_SELECTED_FOLDERS]
+    return {"selected_folders": folders or default_folders(state)}
+
+
 def select_files(state: Stage2State) -> dict:
-    """상위 폴더 2개의 .py 중 (키워드 + 함수 의미) 점수가 높은 파일 최대 TOP_FILES_FOR_LINES개를 고른다."""
+    """사람이 고른 폴더 안의 .py 중 (키워드 + 함수 의미) 점수가 높은 파일 최대 TOP_FILES_FOR_LINES개를 고른다."""
     if not state.get("repo_candidates"):
-        return {"line_repo": "", "files": [], "errors": ["레포 후보 없음"]}
-    repo_name, files = pick_files(state)
-    return {"line_repo": repo_name, "files": files}
+        return {"files": [], "errors": ["레포 후보 없음"]}
+    return {"files": pick_files(state)}
 
 
 def dispatch_files(state: Stage2State):
     """후보 파일마다 search_file 가지를 하나씩 만든다 (동시 실행). 후보가 없으면 merge_lines로 바로."""
     if not state.get("files"):
         return "merge_lines"
-    return [Send("search_file", {"file": rel, "repo": state["line_repo"], "ticket": state["ticket"]})
-            for rel in state["files"]]
+    return [Send("search_file", {"file": f["file"], "repo": f["repo"], "ticket": state["ticket"]})
+            for f in state["files"]]
 
 
 def ask_lines(ticket: Ticket, repo_name: str, rel: str, failed: list[str] | None = None) -> list[LineRec]:
@@ -680,10 +722,11 @@ def squash(text: str) -> str:
 
 
 def trim_range(lines: list[str], s: int, e: int) -> tuple[int, int]:
-    """범위 앞뒤의 빈 줄·주석 줄을 잘라낸다."""
+    """범위 앞뒤의 빈 줄·주석·docstring·def·try·finally 줄을 잘라낸다 (프롬프트의 '실행 코드 줄만' 규칙을 검증에서도)."""
     def skip(n: int) -> bool:
         t = lines[n - 1].strip()
-        return not t or t.startswith("#")
+        return (not t or t.startswith(("#", '"""', "'''", "def ", "async def ", "class "))
+                or t in ("try:", "finally:", "else:"))
     while s < e and skip(s):
         s += 1
     while e > s and skip(e):
@@ -937,10 +980,16 @@ def score_folders_node(state: Stage2State) -> dict:
     return {"folder_scores": scores}
 
 
+# 체크포인터가 state를 다시 읽을 때 허용할 모델 (등록하지 않으면 경고, 이후 버전에서는 차단)
+CHECKPOINT_TYPES = [("stage1", "Ticket"), *(("stage2", n) for n in (
+    "RepoCandidate", "FolderScore", "Evidence", "LineRec", "Impact"))]
+
+
 def build_stage2_graph():
     g = StateGraph(Stage2State)
     g.add_node("route_repos", timed("route_repos", route_repos_node))
     g.add_node("score_folders", timed("score_folders", score_folders_node))
+    g.add_node("confirm_folders", confirm_folders)  # interrupt — 사람이 폴더를 고를 때까지 멈춤
     g.add_node("select_files", timed("select_files", select_files))
     g.add_node("search_file", search_file)  # 파일별 소요 시간은 노드 안에서 "search_file:<경로>"로 기록
     g.add_node("merge_lines", timed("merge_lines", merge_lines))
@@ -948,18 +997,20 @@ def build_stage2_graph():
     g.add_node("analyze_impact", timed("analyze_impact", analyze_impact))
     g.add_edge(START, "route_repos")
     g.add_edge("route_repos", "score_folders")
-    g.add_edge("score_folders", "select_files")
+    g.add_edge("score_folders", "confirm_folders")
+    g.add_edge("confirm_folders", "select_files")
     # 후보 파일 수만큼 search_file을 동시에 (없으면 merge_lines로 바로) — 동시 LLM 수는 max_concurrency로 제한
     g.add_conditional_edges("select_files", dispatch_files, ["search_file", "merge_lines"])
     g.add_edge("search_file", "merge_lines")
     g.add_edge("merge_lines", "add_commit_evidence")
     g.add_edge("add_commit_evidence", "analyze_impact")
     g.add_edge("analyze_impact", END)
-    return g.compile()
+    # 체크포인터: 멈춘 지점(thread_id별)을 메모리에 둔다. 앱은 그래프를 @st.cache_resource로 한 번만 만들어 rerun 사이에 유지
+    return g.compile(checkpointer=InMemorySaver(serde=JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_TYPES)))
 
 
 def initial_state(ticket: Ticket) -> Stage2State:
-    return {"ticket": ticket, "repo_sources": {}, "repo_candidates": [], "folder_scores": [], "line_repo": "",
+    return {"ticket": ticket, "repo_sources": {}, "repo_candidates": [], "folder_scores": [], "selected_folders": [],
             "files": [], "file_recs": [], "line_recs": [], "impacts": [], "errors": [], "timings": {}}
 
 
@@ -1000,20 +1051,50 @@ def load_result(ticket: Ticket) -> dict | None:
         return None
 
 
-def stream_stage2(graph, ticket: Ticket) -> Iterator[tuple]:
-    """("node", 노드명, 소요초) … ("done", 최종 state).
+def run_config(thread_id: str) -> dict:
+    """thread_id = f"{ticket_id}:{실행 번호}" — [코드 찾기]를 다시 누르면 번호를 올려 새 thread로 처음부터."""
+    return {"configurable": {"thread_id": thread_id}, "max_concurrency": config.MAX_PARALLEL_LLM}
+
+
+def _run(graph, inp, thread_id: str) -> Iterator[tuple]:
+    """("node", 노드명, 소요초) … 그리고 끝에 ("interrupt", payload) 또는 ("done", 최종 state).
     병렬 가지(search_file)의 업데이트는 노드별로 하나씩 나오고, 최종 state는 그래프가 reducer로 합친 값("values")을 쓴다
     (업데이트를 직접 덮어쓰면 마지막 가지 결과만 남는다). 동시 LLM 수는 MAX_PARALLEL_LLM으로 제한."""
-    final: dict = initial_state(ticket)
-    for mode, chunk in graph.stream(initial_state(ticket), stream_mode=["updates", "values"],
-                                    config={"max_concurrency": config.MAX_PARALLEL_LLM}):
+    final: dict = {}
+    for mode, chunk in graph.stream(inp, config=run_config(thread_id), stream_mode=["updates", "values"]):
         if mode == "values":
             final = chunk
             continue
+        if "__interrupt__" in chunk:  # confirm_folders에서 멈춤 — 화면이 폴더를 고른 뒤 resume_stage2로 이어 간다
+            yield ("interrupt", chunk["__interrupt__"][0].value)
+            return
         for node, upd in chunk.items():
             secs = sum((upd or {}).get("timings", {}).values())
             yield ("node", node, round(secs, 2))
     yield ("done", final)
+
+
+def stream_stage2(graph, ticket: Ticket, thread_id: str | None = None) -> Iterator[tuple]:
+    """새 thread로 처음부터 실행. 폴더 후보까지 돌고 ("interrupt", payload)로 멈춘다."""
+    yield from _run(graph, initial_state(ticket), thread_id or f"{ticket.ticket_id}:1")
+
+
+def resume_stage2(graph, thread_id: str, folders: list[dict]) -> Iterator[tuple]:
+    """멈춘 thread를 고른 폴더 [{repo, path}]로 재개 → 수정 라인 · 영향 범위까지. stream_stage2와 같은 이벤트."""
+    yield from _run(graph, Command(resume={"folders": folders}), thread_id)
+
+
+def is_waiting(graph, thread_id: str) -> bool:
+    """그 thread가 체크포인터에 있고 폴더 확인에서 멈춰 있는지 (서버 재시작 등으로 없어졌으면 False)."""
+    try:
+        return bool(graph.get_state(run_config(thread_id)).next)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def waiting_state(graph, thread_id: str) -> dict:
+    """멈춘 시점의 state (레포지토리 후보 · 폴더 의심도 — 수정 라인·영향 범위는 아직 없음)."""
+    return dict(graph.get_state(run_config(thread_id)).values)
 
 
 # ════════════════════════════ 티켓 Markdown ════════════════════════════
