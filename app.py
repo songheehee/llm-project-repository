@@ -700,9 +700,6 @@ with tab1:
         with k4.container(key="kpi_done"):
             st.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
                       delta_color="off", delta_arrow="off", help="처리율 = 처리 완료 VOC ÷ VOC 건수")
-            # st.metric 값에는 HTML을 못 넣어서, 유형 수 글자만 실행마다 바꿔 넣는다 (모양은 위 CSS 한 곳의 kpi_done 규칙)
-            st.html(f'<style>[class*="st-key-kpi_done"] [data-testid="stMetric"]::after'
-                    f'{{content:"{cards["done_types"]}개 유형";}}</style>')
 
         if view == VIEW_RAW:
             daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
