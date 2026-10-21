@@ -709,101 +709,107 @@ with tab1:
             st.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
                       delta_color="off", delta_arrow="off", help="처리율 = 처리 완료 VOC ÷ VOC 건수")
 
-        if view == VIEW_RAW:
-            daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
-            st.subheader("VOC 원문")
-            raw = data_utils.voc_table(cur)  # 최신순
-            if len(raw) > config.TABLE_MAX_ROWS:  # 대용량 대비: 최신 N행만 표에 넘긴다
-                st.caption(f"최신 {config.TABLE_MAX_ROWS:,}건 표시 (전체 {len(raw):,}건)")
-                raw = raw.head(config.TABLE_MAX_ROWS)
-            show_table(raw, key="tbl_raw",
-                       height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
-        elif full_period:
-            st.info("전체 기간은 조회만 가능합니다. 분석하려면 기간을 줄여 주세요")
-        elif not s1:
-            st.info("유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
-        else:
-            all_clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순 (의미 공간용 전체)
-
-            # 1. 일별 VOC 건수 차트 (유형별 누적)
-            cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
-            # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다
-            unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
-            chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
-                                                                keep=(config.UNASSIGNED_LABEL,)))
-            daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
-            st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
-                       f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
-
-            # 2. VOC 유형별 처리 우선순위 표 — 제목 줄 오른쪽 [티켓 발행] (버튼은 표의 체크 결과를 본 뒤 채운다)
-            c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
-            c_title.subheader("VOC 유형별 처리 우선순위")
-            st.caption("체크한 유형만 티켓 발행")
-            # 처리 전 유형만 — 진행 중(티켓 카드에만 보임) · 처리 완료 유형은 표에서 빠진다
-            clusters = stage1.table_clusters(s1["clusters"], ss["tickets"], period_txt)
-            # 열: 우선순위·처리 시급도를 건수보다 앞에, 그 뒤는 시급도 계산식 순서(건수 → 증가율(추세) → 심각도)
-            columns = ["발행", "우선순위", "유형", "처리 시급도", "이번 기간", "이전 기간", "추세", "심각도", "카테고리 · 제품"]
-            table = pd.DataFrame([{
-                "발행": False,
-                "우선순위": f"{config.PRIORITY_BADGE[c.priority]} {c.priority}",
-                "유형": c.label,
-                "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
-                "이번 기간": c.count,
-                "이전 기간": c.prev_count,
-                "추세": c.trend,
-                "심각도": c.severity,
-                "카테고리 · 제품": f"{c.category} · {c.product}",
-            } for c in clusters], columns=columns)
-            if clusters:
-                edited = st.data_editor(
-                    table, hide_index=True, width="stretch", key=f"editor_{start}_{end}_{ss['editor_nonce']}",
-                    height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
-                    column_config={
-                        "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
-                        "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
-                        "이번 기간": st.column_config.NumberColumn(format="%d건"),
-                        "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
-                    },
-                    disabled=[c for c in table.columns if c != "발행"],
-                )
-                to_issue = [c for c, flag in zip(clusters, edited["발행"]) if flag]
+        # 보기 영역은 칸 하나(st.empty)에. 새 보기에 없는 자리의 이전 요소(예: 분석 전 '유형 분석 결과'로 바꿨을 때
+        # VOC 원문 표)는 스크립트가 끝날 때까지 남아 보이므로, 원본 VOC 보기는 아래에서 묶음 하나로 그린다
+        view_slot = st.empty()
+        with view_slot.container():
+            if view == VIEW_RAW:
+                # 원본 VOC 보기 전체를 묶음(container) 하나로 — 다른 보기의 첫 요소가 이 자리를 차지하면 차트·표가 함께 바로 사라진다
+                with st.container():
+                    daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
+                    st.subheader("VOC 원문")
+                    raw = data_utils.voc_table(cur)  # 최신순
+                    if len(raw) > config.TABLE_MAX_ROWS:  # 대용량 대비: 최신 N행만 표에 넘긴다
+                        st.caption(f"최신 {config.TABLE_MAX_ROWS:,}건 표시 (전체 {len(raw):,}건)")
+                        raw = raw.head(config.TABLE_MAX_ROWS)
+                    show_table(raw, key="tbl_raw",
+                               height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
+            elif full_period:
+                st.info("전체 기간은 조회만 가능합니다. 분석하려면 기간을 줄여 주세요")
+            elif not s1:
+                st.info("유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
             else:
-                st.caption("이 기간의 유형은 모두 티켓으로 발행되었거나 처리 완료되었습니다.")
-                to_issue = []
-            issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch", disabled=not to_issue)
+                all_clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순 (의미 공간용 전체)
 
-            if issue_clicked and has_api_key():
-                # 현재 개발자(me)를 담당자로 바로 발행 → outputs/tickets.json. 그사이 다른 개발자가 발행한 유형은 건너뛴다
-                tickets, next_no = stage1.load_tickets()
-                # 처리 전이 아닌 유형은 건너뛴다 ('취소' 티켓만 걸린 유형은 처리 전 → 다시 발행 가능)
-                taken = {cid for cid, state in stage1.cluster_states(tickets, period_txt).items()
-                         if state != config.CLUSTER_STATE_NEW}
-                chosen = sorted((c for c in to_issue if c.cluster_id not in taken),
-                                key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
-                with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):
-                    for c in chosen:
-                        samples = stage1.sample_texts(df_all, c, config.TICKET_SAMPLE_VOCS)
-                        ticket = stage1.ticketize(c, samples, period_txt, next_no, assignee=me)
-                        tickets[ticket.ticket_id] = ticket
-                        next_no += 1
-                        stage1.save_tickets(tickets, next_no)
-                        ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
-                ss["editor_nonce"] += 1  # 표를 체크 없이 새로 그린다 (발행된 유형은 표에서 빠진다)
-                st.rerun()
-            thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
-            st.caption(
-                f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d})  \n"
-                f"· 처리 시급도 = 건수 {config.W_COUNT:.0%} + 증가율 {config.W_SURGE:.0%} + 심각도 {config.W_SEVERITY:.0%}를 합친 점수 "
-                f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
-                "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
-            )
+                # 1. 일별 VOC 건수 차트 (유형별 누적)
+                cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
+                # 차트에서는 LLM 미분류('기타')를 '미분류'로 따로 두고, 상위 N개 밖 유형만 '기타'로 묶는다
+                unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
+                chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
+                                                                    keep=(config.UNASSIGNED_LABEL,)))
+                daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
+                st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
+                           f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
 
-            # 3. 발행된 티켓 카드
-            render_ticket_cards()
-            # 4. 대표 VOC 보기 (내 티켓의 유형만)
-            render_representative_vocs()
-            # 5. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
-            render_voc_map(cur, all_clusters)
+                # 2. VOC 유형별 처리 우선순위 표 — 제목 줄 오른쪽 [티켓 발행] (버튼은 표의 체크 결과를 본 뒤 채운다)
+                c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
+                c_title.subheader("VOC 유형별 처리 우선순위")
+                st.caption("체크한 유형만 티켓 발행")
+                # 처리 전 유형만 — 진행 중(티켓 카드에만 보임) · 처리 완료 유형은 표에서 빠진다
+                clusters = stage1.table_clusters(s1["clusters"], ss["tickets"], period_txt)
+                # 열: 우선순위·처리 시급도를 건수보다 앞에, 그 뒤는 시급도 계산식 순서(건수 → 증가율(추세) → 심각도)
+                columns = ["발행", "우선순위", "유형", "처리 시급도", "이번 기간", "이전 기간", "추세", "심각도", "카테고리 · 제품"]
+                table = pd.DataFrame([{
+                    "발행": False,
+                    "우선순위": f"{config.PRIORITY_BADGE[c.priority]} {c.priority}",
+                    "유형": c.label,
+                    "처리 시급도": round(c.priority_score * 100),  # 내부 0~1 → 화면 0~100
+                    "이번 기간": c.count,
+                    "이전 기간": c.prev_count,
+                    "추세": c.trend,
+                    "심각도": c.severity,
+                    "카테고리 · 제품": f"{c.category} · {c.product}",
+                } for c in clusters], columns=columns)
+                if clusters:
+                    edited = st.data_editor(
+                        table, hide_index=True, width="stretch", key=f"editor_{start}_{end}_{ss['editor_nonce']}",
+                        height=(config.TABLE_VISIBLE_ROWS + 1) * config.TABLE_ROW_PX + 3,
+                        column_config={
+                            "발행": st.column_config.CheckboxColumn("발행", help="체크한 유형만 티켓 발행"),
+                            "처리 시급도": st.column_config.NumberColumn(help="0~100, 높을수록 먼저 처리"),
+                            "이번 기간": st.column_config.NumberColumn(format="%d건"),
+                            "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
+                        },
+                        disabled=[c for c in table.columns if c != "발행"],
+                    )
+                    to_issue = [c for c, flag in zip(clusters, edited["발행"]) if flag]
+                else:
+                    st.caption("이 기간의 유형은 모두 티켓으로 발행되었거나 처리 완료되었습니다.")
+                    to_issue = []
+                issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch", disabled=not to_issue)
+
+                if issue_clicked and has_api_key():
+                    # 현재 개발자(me)를 담당자로 바로 발행 → outputs/tickets.json. 그사이 다른 개발자가 발행한 유형은 건너뛴다
+                    tickets, next_no = stage1.load_tickets()
+                    # 처리 전이 아닌 유형은 건너뛴다 ('취소' 티켓만 걸린 유형은 처리 전 → 다시 발행 가능)
+                    taken = {cid for cid, state in stage1.cluster_states(tickets, period_txt).items()
+                             if state != config.CLUSTER_STATE_NEW}
+                    chosen = sorted((c for c in to_issue if c.cluster_id not in taken),
+                                    key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
+                    with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):
+                        for c in chosen:
+                            samples = stage1.sample_texts(df_all, c, config.TICKET_SAMPLE_VOCS)
+                            ticket = stage1.ticketize(c, samples, period_txt, next_no, assignee=me)
+                            tickets[ticket.ticket_id] = ticket
+                            next_no += 1
+                            stage1.save_tickets(tickets, next_no)
+                            ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
+                    ss["editor_nonce"] += 1  # 표를 체크 없이 새로 그린다 (발행된 유형은 표에서 빠진다)
+                    st.rerun()
+                thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
+                st.caption(
+                    f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d})  \n"
+                    f"· 처리 시급도 = 건수 {config.W_COUNT:.0%} + 증가율 {config.W_SURGE:.0%} + 심각도 {config.W_SEVERITY:.0%}를 합친 점수 "
+                    f"({thresholds} · 그 아래 {config.PRIORITY_THRESHOLDS[-1][1]})  \n"
+                    "· 심각도: 5 신체 위해(발열·화상) · 4 기능 불가 · 3 성능 저하(배터리 등) · 2 부정확·불편 · 1 단순 불만"
+                )
+
+                # 3. 발행된 티켓 카드
+                render_ticket_cards()
+                # 4. 대표 VOC 보기 (내 티켓의 유형만)
+                render_representative_vocs()
+                # 5. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
+                render_voc_map(cur, all_clusters)
 
 # ════════════════════════════ 탭 2: 의심 위치 ════════════════════════════
 
