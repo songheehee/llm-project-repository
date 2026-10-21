@@ -260,8 +260,9 @@ def render_ticket_cards() -> None:
                     st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
                 st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
                            f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
-                # 마지막 줄: 오른쪽 끝 [발행 취소] [처리 완료] (현재 개발자가 담당자인 카드에만). 다른 카드는 같은 높이의 빈 줄
-                actions = st.container(horizontal=True, horizontal_alignment="right", gap="small",
+                # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
+                # distribute = 두 버튼을 양 끝으로 벌린다. 다른 카드는 같은 높이의 빈 줄
+                actions = st.container(horizontal=True, horizontal_alignment="distribute",
                                        key=f"tact_{t.ticket_id}")
                 if mine:
                     if actions.button("발행 취소", type="secondary", key=f"cancel_card_{t.ticket_id}"):
@@ -289,7 +290,7 @@ def confirm_complete(ticket_id: str) -> None:
 def confirm_cancel(ticket_id: str) -> None:
     """발행 취소(담당 해제) 확인 창. [발행 취소]하면 status "취소" · canceled_at 저장 + 코드 찾기 결과 삭제 →
     티켓은 화면에서 사라지고 유형은 유형 표로(처리 전) 돌아가 누구나 다시 발행할 수 있다 (되돌리기 없음)."""
-    st.write(f"{ticket_id} 발행을 취소할까요? 이 유형은 다시 유형 표로 돌아가고, 다른 개발자가 발행할 수 있습니다.")
+    st.write(f"{ticket_id} 발행을 취소할까요?")
     row = st.container(horizontal=True, gap="small")  # [발행 취소] [닫기] 바로 옆에
     if row.button("발행 취소", type="primary", key="dlg_cancel_ticket"):
         stage1.cancel_ticket(ticket_id)
