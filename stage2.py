@@ -970,16 +970,13 @@ def fmt_line_ranges(ranges) -> str:
     return ", ".join(f"L{s}" if s == e else f"L{s}–{e}" for s, e in ranges)
 
 
-def last_author_text(rec: LineRec) -> str:
-    """범위가 하나면 "김민준 · 2026-10-02", 여러 개면 범위마다 한 줄 "L17 · 김민준 · 2026-10-02". 없으면 "확인 불가"."""
+def last_author_rows(rec: LineRec) -> list[tuple[str, str]]:
+    """마지막 수정자: 추천 범위마다 한 행 "L17 · 김민준 · 2026-10-02"(라인 번호 순). 항목 칸은 첫 행만 "마지막 수정자".
+    값은 git blame 결과(add_commit_evidence)에서만. 없으면 "확인 불가" 한 행."""
     if not rec.last_authors:
-        return "확인 불가"
-    if len(rec.ranges) == 1:
-        return rec.last_authors[0].split(" · ", 1)[1]
-    return NEWLINE.join(rec.last_authors)
-
-
-NEWLINE = chr(10)
+        return [("마지막 수정자", "확인 불가")]
+    ordered = sorted(rec.last_authors, key=lambda a: int(re.match(r"L(\d+)", a).group(1)) if re.match(r"L(\d+)", a) else 0)
+    return [("마지막 수정자" if i == 0 else "", a) for i, a in enumerate(ordered)]
 
 
 def evidence_rows(ticket: Ticket, rec: LineRec) -> list[tuple[str, str]]:
@@ -991,14 +988,14 @@ def evidence_rows(ticket: Ticket, rec: LineRec) -> list[tuple[str, str]]:
         ("발생 조건", ", ".join(ticket.conditions) or "–"),
         ("매칭 키워드", ", ".join(keywords) or "–"),
         ("관련 커밋", " / ".join(commits) or "해당 기간 변경 없음"),
-        ("마지막 수정자", last_author_text(rec)),
+        *last_author_rows(rec),
         ("추천 사유", rec.reason),
     ]
 
 
 def md_table(header: list[str], rows: list[list]) -> list[str]:
     def cell(v) -> str:
-        return str(v).replace("|", "\\|").replace("\n", "<br>")  # 범위별 여러 줄(마지막 수정자 등)
+        return str(v).replace("|", "\\|").replace("\n", "<br>")
     return ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|",
             *["| " + " | ".join(cell(v) for v in r) + " |" for r in rows]]
 

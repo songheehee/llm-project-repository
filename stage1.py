@@ -14,7 +14,7 @@ import json
 import math
 import re
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Type, TypeVar
 
@@ -67,7 +67,8 @@ class Ticket(BaseModel):
     assignee_id: str            # 발행한(=담당) 개발자 id — 사이드바 '현재 개발자'가 "내가 맡겠다"로 발행
     assignee: str               # 담당 개발자 이름 (users.yaml)
     owner_part: str             # 담당 개발자의 파트 (users.yaml)
-    status: str = config.TICKET_STATUS_OPEN  # "진행 중" (완료 처리 기능 없음)
+    status: str = config.TICKET_STATUS_OPEN  # "진행 중" → 담당 개발자가 [처리 완료]하면 "완료"
+    completed_at: str | None = None          # 처리 완료 일시 YYYY-MM-DD HH:MM (진행 중이면 None)
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름
@@ -547,6 +548,18 @@ def sort_tickets(tickets) -> list[Ticket]:
     return sorted(tickets, key=lambda t: (config.PRIORITY_ORDER.get(t.priority, 9), t.ticket_id))
 
 
+def open_tickets(tickets: dict[str, Ticket]) -> dict[str, Ticket]:
+    """처리 완료되지 않은(진행 중) 티켓만 — 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC가 쓴다."""
+    return {k: t for k, t in tickets.items() if t.status != config.TICKET_STATUS_DONE}
+
+
+def active_clusters(clusters: list[Cluster], tickets: dict[str, Ticket], period: str) -> list[Cluster]:
+    """처리 완료되지 않은 유형 = 발행 전 + 발행됨(진행 중). 같은 기간에 '완료' 티켓이 있는 유형만 뺀다.
+    요약 카드(VOC 유형·긴급 유형·긴급 건수)와 유형 표가 같이 쓰는 기준 (유형 표는 여기서 진행 중 티켓 유형을 더 뺀다)."""
+    done = {t.cluster_id for t in tickets.values() if t.period == period and t.status == config.TICKET_STATUS_DONE}
+    return [c for c in clusters if c.cluster_id not in done]
+
+
 # ════════════════════════════ 발행된 티켓 저장 (outputs/tickets.json) ════════════════════════════
 
 def load_tickets() -> tuple[dict[str, Ticket], int]:
@@ -566,6 +579,17 @@ def load_tickets() -> tuple[dict[str, Ticket], int]:
     used = [int(t.ticket_id.split("-")[-1]) for t in tickets.values()]
     next_no = max([data.get("next_ticket_no", config.FIRST_TICKET_NO), *(n + 1 for n in used)])
     return tickets, next_no
+
+
+def complete_ticket(ticket_id: str, now: datetime | None = None) -> None:
+    """티켓을 처리 완료로 바꿔 tickets.json에 저장한다. 기록은 지우지 않는다(status로만 구분, 완료 이력 보존)."""
+    tickets, next_no = load_tickets()  # 파일 기준으로 다시 읽어 그사이 다른 발행을 덮어쓰지 않는다
+    t = tickets.get(ticket_id)
+    if t is None or t.status == config.TICKET_STATUS_DONE:
+        return
+    tickets[ticket_id] = t.model_copy(update={"status": config.TICKET_STATUS_DONE,
+                                              "completed_at": f"{now or datetime.now():%Y-%m-%d %H:%M}"})
+    save_tickets(tickets, next_no)
 
 
 def save_tickets(tickets: dict[str, Ticket], next_no: int) -> None:

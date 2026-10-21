@@ -36,9 +36,11 @@ CSS = """
 [data-testid="stMetricDelta"], [data-testid="stMetricDelta"] > div {
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 [data-testid="stMetricValue"] {font-size:1.9rem;}
-/* 근거 표: 흰 배경, 마지막 수정자처럼 범위별 여러 줄은 줄바꿈 그대로 */
+/* 근거 표: 흰 배경, 긴 내용은 줄바꿈 그대로 (마지막 수정자는 범위마다 한 행) */
 [class*="st-key-card_evidence"] table, [class*="st-key-card_evidence"] th, [class*="st-key-card_evidence"] td {background:#FFFFFF;}
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
+/* 티켓 카드 안 [처리 완료]: 작은 버튼 (담당 티켓 카드에만) */
+[class*="st-key-done_card_"] button {min-height:28px; height:28px; padding:0 10px; font-size:0.8rem; line-height:1;}
 /* 현재 개발자의 티켓 카드: primaryColor 테두리 */
 [class*="st-key-card_mine"] {border:2px solid #1428A0 !important;}
 /* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
@@ -152,6 +154,8 @@ ss = st.session_state
 ss.setdefault("stage1", {})          # {(start, end): {"clusters", "assignments", "secs"}}
 # 발행된 티켓은 outputs/tickets.json이 기준 — 매 실행마다 읽어 개발자를 바꾸거나 새로고침해도 남고, 번호도 이어진다
 ss["tickets"], ss["next_ticket_no"] = stage1.load_tickets()
+# 화면(티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC)에는 처리 완료되지 않은 티켓만. 완료 기록은 파일에 남는다
+OPEN_TICKETS = stage1.open_tickets(ss["tickets"])
 ss.setdefault("stage2", {})          # {ticket_id: 최종 state} — outputs/stage2/{ticket_id}.json에도 저장
 ss.setdefault("current_ticket", None)
 ss.setdefault("editor_nonce", 0)        # 발행 후 유형 표(data_editor)를 체크 없이 새로 그리기 위한 번호
@@ -234,7 +238,7 @@ def render_ticket_cards() -> None:
     """발행된 티켓(모든 개발자에게 전체 표시): 카드 한 줄 3장, 우선순위 순, 높이 모두 같음(TICKET_CARD_HEIGHT).
     항목: ID · 우선순위 배지 / 문제점(최대 2줄) / 건수·담당 부서·담당자 / 발행일→예상 완료일.
     현재 개발자의 티켓은 글자 없이 테두리만 primaryColor로 강조. 티켓이 없으면 숨긴다."""
-    tickets = stage1.sort_tickets(ss["tickets"].values())
+    tickets = stage1.sort_tickets(OPEN_TICKETS.values())
     if not tickets:
         return
     st.subheader("발행된 티켓")
@@ -246,15 +250,32 @@ def render_ticket_cards() -> None:
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
             # 흰 배경 · 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓은 primaryColor 테두리
             with col.container(border=True, height=config.TICKET_CARD_HEIGHT, key=card_key):
-                c_id, c_badge = st.columns([2, 1], vertical_alignment="center")
-                c_id.markdown(f"**{t.ticket_id}**")
-                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+                # 1줄: ID + 우선순위 배지 · 오른쪽 [처리 완료] (현재 개발자가 담당자인 카드에만)
+                c_id, c_done = st.columns([3, 2], vertical_alignment="center")
+                c_id.markdown(f"**{t.ticket_id}** {badge(t.priority)}", unsafe_allow_html=True)
+                if mine and c_done.button("처리 완료", key=f"done_card_{t.ticket_id}"):
+                    confirm_complete(t.ticket_id)
                 with st.container(key=f"tprob_{t.ticket_id}"):   # 문제점: 최대 2줄, 넘치면 … (CSS line-clamp)
                     st.markdown(f"**{t.problem}**")
                 with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
                     st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
                 st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
                            f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
+
+
+@st.dialog("처리 완료")
+def confirm_complete(ticket_id: str) -> None:
+    """처리 완료 확인 창. [완료]하면 status "완료" · completed_at을 tickets.json에 저장하고 화면에서 뺀다 (되돌리기 없음).
+    커밋을 감지해 자동으로 완료하지 않는다 — 수정 여부는 담당 개발자가 판단한다."""
+    st.write(f"{ticket_id}을 처리 완료할까요? 완료한 티켓은 화면에서 사라집니다.")
+    row = st.container(horizontal=True, gap="small")  # [완료] [취소] 바로 옆에
+    if row.button("완료", type="primary", key="dlg_done"):
+        stage1.complete_ticket(ticket_id)
+        if ss.get("current_ticket") == ticket_id:
+            ss["current_ticket"] = None  # 다음 실행에서 남은 내 티켓 중 첫 번째로
+        st.rerun()
+    if row.button("취소", key="dlg_cancel"):
+        st.rerun()
 
 
 def shorten(text, n: int = config.CELL_MAX_CHARS):
@@ -485,7 +506,7 @@ with st.sidebar:
     me = USER_BY_ID[ss["current_user_id"]]
 
     st.markdown("**내 티켓**")
-    my_tickets = [t for t in stage1.sort_tickets(ss["tickets"].values()) if t.assignee_id == me["id"]]
+    my_tickets = [t for t in stage1.sort_tickets(OPEN_TICKETS.values()) if t.assignee_id == me["id"]]
     # 현재 티켓은 항상 내 티켓 중 하나 (개발자를 바꾸면 그 사람의 첫 티켓)
     if ss["current_ticket"] not in {t.ticket_id for t in my_tickets}:
         ss["current_ticket"] = my_tickets[0].ticket_id if my_tickets else None
@@ -586,11 +607,14 @@ with tab1:
                       delta=f"{kpi['change_pct']:+.1f}%" if kpi["change_pct"] is not None else None,
                       delta_color="inverse",
                       help=f"이전 기간({ps:%m/%d}~{pe:%m/%d}) 대비 · 이전 기간 {kpi['prev_total']:,}건")
+        period_txt = f"{start}~{end}"
+        # 처리 완료되지 않은 유형 = 발행 전 + 발행됨(진행 중) — 요약 카드와 유형 표가 같은 기준을 쓴다
+        active = stage1.active_clusters(s1["clusters"], ss["tickets"], period_txt) if s1 else []
         if s1:
-            urgent = [c for c in s1["clusters"] if c.priority == "긴급"]
-            k2.metric("VOC 유형", f"{len(s1['clusters'])}개", help="유형 수 (발행 여부와 상관없이 전체)")
-            k3.metric("긴급 유형", f"{len(urgent)}개", help="우선순위가 '긴급'인 VOC 유형 수")
-            k4.metric("긴급 건수", f"{sum(c.count for c in urgent):,}건", help="긴급 유형에 속한 VOC 건수 합계")
+            urgent = [c for c in active if c.priority == "긴급"]
+            k2.metric("VOC 유형", f"{len(active)}개", help="처리 완료되지 않은 유형 수 (발행 전 + 진행 중 티켓)")
+            k3.metric("긴급 유형", f"{len(urgent)}개", help="처리 완료되지 않은 유형 중 우선순위가 '긴급'인 유형 수")
+            k4.metric("긴급 건수", f"{sum(c.count for c in urgent):,}건", help="위 긴급 유형에 속한 VOC 건수 합계")
         else:
             for col, label in [(k2, "VOC 유형"), (k3, "긴급 유형"), (k4, "긴급 건수")]:
                 col.metric(label, "–", help="유형 분석 후 표시")
@@ -609,10 +633,10 @@ with tab1:
         elif not s1:
             st.info("유형 분석을 누르면 이 기간의 VOC 유형과 우선순위가 여기에 나옵니다.")
         else:
-            period_txt = f"{start}~{end}"
-            # 이미 발행된 유형(누가 발행했든, 같은 기간의 cluster_id)은 표에서 빼고 아래 티켓 카드에서만 보인다
-            issued = {t.cluster_id for t in ss["tickets"].values() if t.period == period_txt}
-            all_clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순 (전체)
+            # 진행 중 티켓의 유형(누가 발행했든, 같은 기간의 cluster_id)은 표에서 빼고 아래 티켓 카드에서만 보인다.
+            # 처리 완료된 유형은 active_clusters에서 이미 빠져 있다
+            issued = {t.cluster_id for t in OPEN_TICKETS.values() if t.period == period_txt}
+            all_clusters = sorted(s1["clusters"], key=lambda c: -c.priority_score)  # 처리 시급도 높은 순 (의미 공간용 전체)
 
             # 1. 일별 VOC 건수 차트 (유형별 누적)
             cur = cur.assign(cluster=cur["voc_id"].map(s1["assignments"]).fillna(config.OTHER_LABEL))
@@ -628,7 +652,7 @@ with tab1:
             c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
             c_title.subheader("VOC 유형별 처리 우선순위")
             st.caption("체크한 유형만 티켓 발행")
-            clusters = [c for c in all_clusters if c.cluster_id not in issued]
+            clusters = [c for c in sorted(active, key=lambda c: -c.priority_score) if c.cluster_id not in issued]
             # 열: 우선순위·처리 시급도를 건수보다 앞에, 그 뒤는 시급도 계산식 순서(건수 → 증가율(추세) → 심각도)
             columns = ["발행", "우선순위", "유형", "처리 시급도", "이번 기간", "이전 기간", "추세", "심각도", "카테고리 · 제품"]
             table = pd.DataFrame([{
@@ -656,7 +680,7 @@ with tab1:
                 )
                 to_issue = [c for c, flag in zip(clusters, edited["발행"]) if flag]
             else:
-                st.caption("이 기간의 유형은 모두 티켓으로 발행되었습니다.")
+                st.caption("이 기간의 유형은 모두 티켓으로 발행되었거나 처리 완료되었습니다.")
                 to_issue = []
             issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch", disabled=not to_issue)
 
@@ -831,5 +855,8 @@ with tab3:
                                           "관계": i.relation} for i in impacts]), key=f"tbl_impacts_{sel}")
             else:
                 st.caption("같은 레포지토리의 다른 파일에서 참조하는 곳이 없습니다.")
-        st.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
-                           file_name=f"{ticket.ticket_id}.md", mime="text/markdown")
+        actions = st.container(horizontal=True, gap="small")  # [티켓 Markdown 다운로드] [처리 완료] 나란히
+        actions.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
+                                file_name=f"{ticket.ticket_id}.md", mime="text/markdown")
+        if actions.button("처리 완료", key=f"done_tab3_{ticket.ticket_id}"):
+            confirm_complete(ticket.ticket_id)
