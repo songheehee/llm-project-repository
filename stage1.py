@@ -116,15 +116,18 @@ class TicketDraft(BaseModel):
 
 # ════════════════════════════ LLM 공통 ════════════════════════════
 
-@lru_cache(maxsize=1)
-def get_llm() -> ChatOpenAI:
-    return ChatOpenAI(model=config.CHAT_MODEL)
+@lru_cache(maxsize=4)
+def get_llm(temperature: float | None = None) -> ChatOpenAI:
+    """채팅 모델 (temperature를 주면 그 값으로 — 예: 레포지토리 라우팅은 0). 같은 값이면 한 번만 만든다."""
+    if temperature is None:
+        return ChatOpenAI(model=config.CHAT_MODEL)
+    return ChatOpenAI(model=config.CHAT_MODEL, temperature=temperature)
 
 
-def call_structured(schema: Type[T], system: str, user: str, validate=None) -> T:
+def call_structured(schema: Type[T], system: str, user: str, validate=None, temperature: float | None = None) -> T:
     """with_structured_output 호출. 실패(예외·검증 실패 · 429 요청 한도 · 일시 오류)하면
     LLM_RETRY_WAITS(1초 → 2초) 쉬고 최대 LLM_MAX_RETRIES회 재시도. 병렬 가지에서 동시에 불려도 된다."""
-    llm = get_llm().with_structured_output(schema)
+    llm = get_llm(temperature).with_structured_output(schema)
     last_err: Exception | None = None
     for attempt in range(config.LLM_MAX_RETRIES + 1):
         if attempt:

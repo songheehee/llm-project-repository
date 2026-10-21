@@ -39,6 +39,8 @@ PREV_END = date(2026, 10, 2)
 
 # ── 모델 ─────────────────────────────────────────────
 CHAT_MODEL = "gpt-5.4-mini"
+ROUTE_TEMPERATURE = 0       # 레포지토리 라우팅(이유 문장) LLM temperature — 실행마다 문장이 흔들리지 않게
+REPO_REASON_MAX_CHARS = 80  # 레포지토리 후보 이유: 한국어 한 문장 최대 글자 수
 EMBEDDING_MODEL = "text-embedding-3-small"
 LLM_MAX_RETRIES = 2  # 구조화 출력 실패 시 재시도 횟수
 LLM_RETRY_WAITS = (1, 2)  # 재시도 전 대기(초): 1회차 1초 → 2회차 2초 (429 요청 한도·일시 오류 대비)
@@ -89,7 +91,9 @@ TICKET_CARD_HEIGHT = 262      # 티켓 카드 높이(px) 고정 — ID 줄 + 문
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
 RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
 CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이전 기간 VOC 수 (LLM 호출 수가 건수에 비례)
-TABLE_MAX_ROWS = 1000         # VOC 원문 표에 넘기는 최대 행 수 (최신순)
+RAW_SEARCH_WIDTH = 400       # VOC 원문 검색 칸 폭(px)
+RAW_PAGE_PICK_WIDTH = 100    # VOC 원문 페이지 선택 칸 폭(px)
+RAW_PAGE_SIZE = 100          # VOC 원문 표 한 페이지 행 수 (최신순, 표 아래 이전·다음으로 전체를 넘겨 본다)
 WEEKLY_CHART_MIN_DAYS = 90    # 선택 기간이 이 일수를 넘으면 주별로 묶어 그린다
 SIMILARITY_MAX_POINTS = 2000  # VOC 유사도(의미 공간)에 그리는 최대 VOC 수 — 넘으면 무작위 표본(PROJECTION_SEED)
 CELL_MAX_CHARS = 40           # 표(st.dataframe) 셀 글자 수 상한 — 넘으면 화면용 복사본만 앞 N자 + '…' (행 클릭 시 표 아래 전체)

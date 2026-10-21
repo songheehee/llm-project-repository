@@ -114,7 +114,7 @@ class FolderCard(BaseModel):
 class RepoScore(BaseModel):
     name: str = Field(description="레지스트리의 저장소 이름 그대로")
     score: float = Field(ge=0, le=1, description="이 티켓의 원인 코드가 이 저장소에 있을 가능성 0~1")
-    reason: str = Field(description="판단 이유 한 줄 (한국어)")
+    reason: str = Field(description=f"판단 이유: 한국어 한 문장, {config.REPO_REASON_MAX_CHARS}자 이내, '~다.'로 끝나는 평서문")
 
 
 class RepoScoreList(BaseModel):
@@ -321,8 +321,26 @@ def ticket_brief(t: Ticket) -> str:
     )
 
 
-def route_repos(ticket: Ticket) -> list[RepoCandidate]:
-    """RAG 근거 + 레지스트리로 저장소마다 점수를 매긴다. 레지스트리 밖 이름은 버린다."""
+# 레포지토리 후보 이유에 허용하는 글자: 한글 · 영문 · 숫자 · 공백 · 기본 문장부호
+REASON_ALLOWED = re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9\s.,·:;!?()\[\]'\"/_\-~%+&]")
+
+
+def reason_problems(reason: str) -> list[str]:
+    """이유 문장 검사: 80자 초과 · 허용 밖 문자. (영어를 한글 소리로 옮긴 단어는 글자로 못 잡아 프롬프트 규칙으로 막는다)"""
+    problems = []
+    text = reason.strip()
+    if len(text) > config.REPO_REASON_MAX_CHARS:
+        problems.append(f"{len(text)}자 (최대 {config.REPO_REASON_MAX_CHARS}자)")
+    bad = sorted(set(REASON_ALLOWED.sub("", text)))  # 허용 글자를 지우고 남는 글자
+    if bad:
+        problems.append("허용 밖 문자 " + "".join(bad))
+    return problems
+
+
+def route_repos(ticket: Ticket) -> tuple[list[RepoCandidate], list[str]]:
+    """RAG 근거 + 레지스트리로 저장소마다 점수를 매긴다. 레지스트리 밖 이름은 버린다.
+    이유 문장은 temperature 0(ROUTE_TEMPERATURE)으로 받고, 80자 초과·허용 밖 문자가 있으면 1회 다시 요청한다
+    (그래도 어기면 그대로 쓰고 errors에 기록). (후보 목록, errors)"""
     registry = load_registry()
     docs = search_docs(f"{ticket.problem} {' '.join(ticket.conditions)} {' '.join(ticket.tech_keywords)}")
     repo_text = "\n".join(
@@ -333,11 +351,23 @@ def route_repos(ticket: Ticket) -> list[RepoCandidate]:
         "너는 사내 저장소 라우터다. 개발 티켓을 보고 원인 코드가 있을 저장소에 점수를 매긴다. "
         f"{DATA_GUARD}\n"
         "- 저장소 목록에 있는 이름만 쓴다. 목록의 모든 저장소에 대해 답한다.\n"
-        "- 사내 문서 근거와 담당 파트를 보고 판단하고, 이유에 근거를 한 줄로 쓴다.\n"
-        "- 이유(화면에 그대로 보임)에서는 '레포지토리'라는 말만 쓴다. '레포', '저장소', 'repo'라고 쓰지 않는다."
+        "- 사내 문서 근거와 담당 파트를 보고 판단하고, 이유에 근거를 쓴다.\n"
+        "- 이유(화면에 그대로 보임) 규칙:\n"
+        f"  · 한국어 한 문장, {config.REPO_REASON_MAX_CHARS}자 이내, '~다.'로 끝나는 평서문.\n"
+        "  · 영어 단어를 한글 소리로 옮겨 쓰지 않는다 (예: '레지오널', '리포지터리', '센서 파트 오너' X). "
+        "알맞은 한국어 낱말로 쓰고, 레포지토리 이름·폴더명·코드 이름(예: pulsefit-py, sensor/, POLL_INTERVAL_S)은 원문 그대로 쓴다.\n"
+        "  · '레포지토리'라는 단어는 이 표기로만 쓴다. '레포', '저장소', '리포지토리', 'repo'라고 쓰지 않는다."
     )
     user = f"[티켓]\n{ticket_brief(ticket)}\n\n[저장소 목록]\n{repo_text}\n\n[사내 문서 검색 결과]\n{docs}"
-    res = call_structured(RepoScoreList, system, user)
+    res = call_structured(RepoScoreList, system, user, temperature=config.ROUTE_TEMPERATURE)
+    errors: list[str] = []
+    bad = {r.name: reason_problems(r.reason) for r in res.repos if reason_problems(r.reason)}
+    if bad:  # 1회 다시 요청 — 어긴 내용을 알려 준다
+        note = "\n".join(f"- {n}: {', '.join(p)}" for n, p in bad.items())
+        res = call_structured(RepoScoreList, system, user + f"\n\n[주의] 이전 답의 이유가 규칙을 어겼다:\n{note}\n"
+                              "모든 이유를 규칙대로 다시 쓴다.", temperature=config.ROUTE_TEMPERATURE)
+        errors = [f"레포지토리 이유 규칙 위반({r.name}): {', '.join(reason_problems(r.reason))}"
+                  for r in res.repos if r.name in registry and reason_problems(r.reason)]
 
     best: dict[str, RepoCandidate] = {}
     for r in res.repos:
@@ -348,7 +378,7 @@ def route_repos(ticket: Ticket) -> list[RepoCandidate]:
         if r.name not in best or r.score > best[r.name].score:
             best[r.name] = RepoCandidate(name=r.name, score=round(r.score, 2), reason=r.reason)
     ranked = sorted(best.values(), key=lambda c: -c.score)
-    return ranked[:config.REPO_MAX_CANDIDATES]
+    return ranked[:config.REPO_MAX_CANDIDATES], errors
 
 
 # ════════════════════════════ ⑤ 폴더 의심도 ════════════════════════════
@@ -1200,7 +1230,8 @@ def timed(name: str, fn):
 
 def route_repos_node(state: Stage2State) -> dict:
     sources = sync_repos()  # 분석 전마다 원격 미러를 최신으로 맞춘다
-    return {"repo_sources": sources, "repo_candidates": route_repos(state["ticket"])}
+    candidates, errors = route_repos(state["ticket"])
+    return {"repo_sources": sources, "repo_candidates": candidates, "errors": errors}
 
 
 def score_folders_node(state: Stage2State) -> dict:

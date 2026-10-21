@@ -719,11 +719,36 @@ with tab1:
                     daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
                     st.subheader("VOC 원문")
                     raw = data_utils.voc_table(cur)  # 최신순
-                    if len(raw) > config.TABLE_MAX_ROWS:  # 대용량 대비: 최신 N행만 표에 넘긴다
-                        st.caption(f"최신 {config.TABLE_MAX_ROWS:,}건 표시 (전체 {len(raw):,}건)")
-                        raw = raw.head(config.TABLE_MAX_ROWS)
-                    show_table(raw, key="tbl_raw",
+                    # 검색은 페이지가 아니라 기간 전체에서 — 표에 넘기기 전에 거르고, 그 결과를 페이징한다
+                    # (st.dataframe 자체 검색은 지금 페이지 RAW_PAGE_SIZE건 안에서만 찾는다)
+                    query = st.text_input("VOC 검색", key="raw_search", width=config.RAW_SEARCH_WIDTH,
+                                          placeholder="VOC ID · 원문 검색",
+                                          label_visibility="collapsed").strip()
+                    total = len(raw)
+                    if query:
+                        hit = pd.Series(False, index=raw.index)
+                        for col in ("VOC ID", "채널", "원문"):
+                            hit |= raw[col].astype(str).str.contains(query, case=False, regex=False)
+                        raw = raw[hit]
+                    # 페이징: 한 페이지 RAW_PAGE_SIZE건만 표에 넘기고, 표 아래 [‹ 이전] [다음 ›]로 전체를 넘겨 본다
+                    pages = max(1, -(-len(raw) // config.RAW_PAGE_SIZE))
+                    page_key = f"raw_page_{start}_{end}_{query}"  # 기간·검색어가 바뀌면 1페이지부터
+                    # 페이지 번호 = 아래 페이지 선택 칸(selectbox, key=page_key)의 값. [‹ 이전]·[다음 ›]은 콜백에서 같은 값을 ±1
+                    page = min(max(1, ss.get(page_key, 1)), pages)
+                    ss[page_key] = page  # 위젯을 그리기 전이라 바꿔도 된다 (범위 밖 값 정리)
+                    lo = (page - 1) * config.RAW_PAGE_SIZE
+                    show_table(raw.iloc[lo:lo + config.RAW_PAGE_SIZE], key="tbl_raw",
                                height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
+                    pager = st.container(horizontal=True, horizontal_alignment="center", vertical_alignment="center")
+                    pager.button("‹ 이전", key="raw_prev", disabled=page <= 1,
+                                 on_click=lambda: ss.update({page_key: page - 1}))
+                    pager.selectbox("페이지", list(range(1, pages + 1)), key=page_key, format_func=lambda p: f"{p}페이지",
+                                    label_visibility="collapsed", width=config.RAW_PAGE_PICK_WIDTH)
+                    pager.button("다음 ›", key="raw_next", disabled=page >= pages,
+                                 on_click=lambda: ss.update({page_key: page + 1}))
+                    found = f"'{query}' 검색 {len(raw):,}건 (전체 {total:,}건)" if query else f"전체 {total:,}건"
+                    shown = f"{lo + 1:,}~{min(lo + config.RAW_PAGE_SIZE, len(raw)):,} / " if len(raw) else ""
+                    pager.caption(f"{shown}{found} · 총 {pages}페이지", width="content")
             elif full_period:
                 st.info("전체 기간은 조회만 가능합니다. 분석하려면 기간을 줄여 주세요")
             elif not s1:
