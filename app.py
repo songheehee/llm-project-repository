@@ -25,7 +25,7 @@ CSS = """
 .block-container {padding-top: 4.5rem;}  /* Streamlit 상단 바에 헤더가 가리지 않게 */
 .vocai-header {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 20px; margin-bottom:10px;}
 .vocai-title {font-size:1.5rem; font-weight:800; color:#1428A0;}
-.vocai-badge {display:inline-block; color:#FFFFFF; border-radius:6px; padding:1px 8px; font-size:0.8rem; font-weight:700;}
+.vocai-badge {display:inline-block; color:#FFFFFF; border-radius:6px; padding:1px 8px; font-size:0.8rem; font-weight:700; white-space:nowrap;}
 [class*="st-key-card"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 16px;}
 /* 요약 카드: 모두 같은 높이, 글자가 길면 한 줄 말줄임(…) */
 [data-testid="stMetric"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:12px 16px;
@@ -47,6 +47,8 @@ CSS = """
 [class*="st-key-tact_"] {min-height:40px;}
 /* 현재 개발자의 티켓 카드: primaryColor 테두리 */
 [class*="st-key-card_mine"] {border:2px solid #1428A0 !important;}
+/* 발행된 티켓 카드: 아래 버튼 줄 밑 여백을 줄인다 (높이 TICKET_CARD_HEIGHT와 함께 맞춤) */
+[class*="st-key-card_mine_"], [class*="st-key-card_ticket_"] {padding-bottom:6px !important;}
 /* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
 [class*="st-key-tprob_"] p {display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0;}
 [class*="st-key-tprob_"] {min-height:3.2em;}  /* 한 줄이어도 두 줄 자리 → 모든 카드의 마지막 줄(처리 완료)이 카드 바닥에 맞춰진다 */
@@ -75,7 +77,12 @@ CSS = """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
 FONT_CSS = (f"<style>html, body, .stApp, .vocai-header {{font-family: {config.APP_FONT};}} "
             ".vocai-code pre {font-family: ui-monospace, Consolas, 'Courier New', monospace;}</style>")
-st.markdown(CSS + FONT_CSS, unsafe_allow_html=True)
+# 발행된 티켓 카드 grid: 넓으면 한 줄 TICKET_CARDS_PER_ROW장, 카드가 TICKET_CARD_MIN_WIDTH보다 좁아지면 줄 수를 줄인다
+_N, _GAP = config.TICKET_CARDS_PER_ROW, 16
+CARD_GRID_CSS = ('<style>[class*="st-key-tcards"] {display:grid !important; gap:%dpx; '
+                 'grid-template-columns:repeat(auto-fill, minmax(max(%dpx, calc((100%% - %dpx) / %d)), 1fr));}</style>'
+                 % (_GAP, config.TICKET_CARD_MIN_WIDTH, _GAP * (_N - 1), _N))
+st.markdown(CSS + FONT_CSS + CARD_GRID_CSS, unsafe_allow_html=True)
 
 VIEW_RAW = "원본 VOC"
 VIEW_CLUSTER = "유형 분석 결과"
@@ -256,17 +263,18 @@ def render_ticket_cards() -> None:
     if not tickets:
         return
     st.subheader("발행된 티켓")
-    n = config.TICKET_CARDS_PER_ROW
-    for i in range(0, len(tickets), n):
-        cols = st.columns(n)
-        for col, t in zip(cols, tickets[i:i + n]):
+    # 카드 전체를 한 container에 — CSS grid로 넓으면 한 줄 TICKET_CARDS_PER_ROW(3)장, 좁으면 카드 최소 폭
+    # (TICKET_CARD_MIN_WIDTH)을 지키며 2장·1장으로 줄인다 (좁은 화면에서 버튼이 밀려 카드 밖으로 잘리지 않게)
+    with st.container(key="tcards"):
+        for t in tickets:
             mine = t.assignee_id == me["id"]
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
             # 흰 배경 · 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓은 primaryColor 테두리
-            with col.container(border=True, height=config.TICKET_CARD_HEIGHT, key=card_key):
-                c_id, c_badge = st.columns([2, 1], vertical_alignment="center")
-                c_id.markdown(f"**{t.ticket_id}**")
-                c_badge.markdown(f'<div style="text-align:right">{badge(t.priority)}</div>', unsafe_allow_html=True)
+            with st.container(border=True, height=config.TICKET_CARD_HEIGHT, key=card_key):
+                # 1줄: ID(왼쪽) · 우선순위 배지(오른쪽) — st.columns는 좁은 화면(640px 미만)에서 세로로 쌓여 카드가 넘치므로 가로 container
+                head = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center")
+                head.markdown(f"**{t.ticket_id}**")
+                head.markdown(badge(t.priority), unsafe_allow_html=True)
                 with st.container(key=f"tprob_{t.ticket_id}"):   # 문제점: 최대 2줄, 넘치면 … (CSS line-clamp)
                     st.markdown(f"**{t.problem}**")
                 with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
