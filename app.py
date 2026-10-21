@@ -72,6 +72,9 @@ CSS = """
 [class*="st-key-repvoc_"] p, [class*="st-key-repvoc_"] li, [class*="st-key-lastauth_"] p, [class*="st-key-lastauth_"] li {font-size:14px; line-height:1.4;}
 [class*="st-key-repvoc_"] ul, [class*="st-key-lastauth_"] ul {margin:0; padding-left:1.2rem;}
 [class*="st-key-repvoc_"] li, [class*="st-key-lastauth_"] li {margin:0 0 4px 0; padding:0;}
+/* 대표 VOC 보기: 접히는 상자의 제목 줄만 흰 바탕, 펼친 내용은 투명 그대로 */
+[class*="st-key-repvocs"] [data-testid="stExpander"] summary {background:#FFFFFF; border-radius:0.5rem;}
+[class*="st-key-repvocs"] [data-testid="stExpander"] details[open] > summary {border-bottom-left-radius:0; border-bottom-right-radius:0;}
 </style>
 """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
@@ -386,10 +389,11 @@ def render_representative_vocs() -> None:
     if not my_tickets:
         st.info("티켓을 발행하면 해당 유형의 대표 VOC를 볼 수 있습니다")
         return
-    for t in my_tickets:
-        with st.expander(f"{t.ticket_id} · {t.problem}", expanded=False):
-            with st.container(key=f"repvoc_{t.ticket_id}"):  # 3건을 마크다운 목록 하나로 (간격 좁게)
-                st.markdown("\n".join(f"- {md_escape(v)}" for v in cached_rep_vocs(tuple(t.voc_ids))))
+    with st.container(key="repvocs"):  # 이 묶음의 접히는 상자만 제목 줄 흰 바탕 (CSS st-key-repvocs)
+        for t in my_tickets:
+            with st.expander(f"{t.ticket_id} · {t.problem}", expanded=False):
+                with st.container(key=f"repvoc_{t.ticket_id}"):  # 3건을 마크다운 목록 하나로 (간격 좁게)
+                    st.markdown("\n".join(f"- {md_escape(v)}" for v in cached_rep_vocs(tuple(t.voc_ids))))
 
 
 def stage2_result_ok(result: dict) -> bool:
