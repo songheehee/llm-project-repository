@@ -11,6 +11,9 @@ VOC 1,000건 생성 (주제 13개).
 추가 주제(EXTRA_TOPICS): 기존 1,000건(V0001~V1000)은 한 글자도 바꾸지 않고, 따로 만든 VOC를 V1001부터 뒤에 붙인다.
   - 충전 중 과열·화상: 10/3 업데이트 이후 새로 생긴 긴급 유형 (이전 기간 0건, 분석 기간 하루 평균 7.5건)
   - 기존 1,000건과 별도 난수(EXTRA_SEED)를 써서, 추가해도 기존 문장·ID·티켓 voc_ids가 그대로다
+연장(LATE_*): 10/15~10/21 VOC를 그 뒤(V1107부터)에 붙인다 — 화면 기본 기간 '최근 2주'(오늘 기준)에도 데이터가 차도록.
+  - 기존 주제 + 충전 중 과열은 10/3 이후 하루 평균 그대로 이어 간다 (10/03~10/14 구간은 한 줄도 바뀌지 않음)
+  - 10/15부터 새로 생기는 위험 유형 2개: 수면 중 발열 · 배터리 부풂·과열 → 최근 2주에서 '새로 생김' 긴급
 
   python generate_vocs.py  ->  vocs.csv, vocs_labels.csv
 """
@@ -231,6 +234,39 @@ EXTRA_SUFFIXES = {
     "heat_charge": ["화상 입을까 봐 무서워요.", "이거 위험한 거 아닌가요?", "교환해 주세요.", "충전하기가 겁나요.",
                     "빨리 확인해 주세요."],
 }
+# ── 연장 10/15~10/21 (V1107부터) ──
+LATE_SEED = 20261022
+LATE_START, LATE_END = date(2026, 10, 15), date(2026, 10, 21)
+# 10/15부터 새로 생기는 주제: (한글 이름, 하루 평균, 말투 세기 분포)
+LATE_TOPICS = {
+    "heat_sleep":    ("수면 중 발열",       18.0, {1: .80, 2: .20}),
+    "battery_swell": ("배터리 부풂·과열",   17.0, {1: .85, 2: .15}),
+}
+# 수면 중 발열: '운동'·'연결'·'충전'·'수면 측정/점수' 말 없이 '자는 동안' 상황만
+# 배터리 부풂: '충전'·'운동' 말 없이 몸체가 부풀고 뜨거움 (닳는 속도 얘기는 하지 않음 — 배터리 소모와 구분).
+#  문장마다 '부풀'·'불룩'을 넣는다 — 틈·들뜸만 말하면 '외관 변형·파손' 같은 별도 묶음이 생겼다
+EXTRA_CORES.update({
+    "heat_sleep": [
+        "자고 일어나니 시계 찬 손목이 뜨끈뜨끈해요.", "밤에 자다가 손목이 뜨거워서 깼어요.",
+        "잘 때 차고 자면 아침에 손목에 빨간 자국이 있어요.", "새벽에 시계가 너무 뜨거워서 풀어 버렸어요.",
+        "자는 동안 시계가 데워져서 손목에 땀이 차요.", "누워서 자려고 하면 손목에서 열이 올라와요.",
+        "아침에 일어나면 시계 뒷면이 뜨겁게 달아올라 있어요.", "밤새 차고 잤더니 손목이 화끈거려요.",
+        "아이가 시계를 차고 자다가 뜨겁다고 울면서 깼어요.", "자는 동안 시계가 뜨거워져서 이불 속이 후끈해요.",
+        "업데이트 후로 밤에 차고 자면 시계가 뜨거워요.", "잠들고 한두 시간 지나면 시계가 뜨거워져요.",
+    ],
+    "battery_swell": [
+        "시계 뒷면이 부풀어 올라서 손목에 안 붙어요.", "배터리가 부푼 것 같아요. 뒤판이 들떠 있어요.",
+        "시계가 뜨거워지더니 뒷면이 볼록하게 튀어나왔어요.", "화면이 들떠서 틈이 생겼어요. 안에서 부풀어 오른 것 같아요.",
+        "뒷면이 부풀어서 책상에 올려 두면 빙글빙글 돌아요.", "시계가 뜨겁고 몸체가 부풀어서 터질까 봐 무서워요.",
+        "뒤판이 부풀어 벌어지면서 이상한 냄새가 나요.", "안쪽이 부풀어서 시계 옆면 틈이 점점 벌어져요.",
+        "배터리 쪽이 불룩해져서 화면이 밀려 올라왔어요.", "손목에 차면 볼록한 뒷면이 뜨겁게 눌려요.",
+        "업데이트 후 며칠 만에 시계 몸체가 부풀었어요.", "안에서 부풀어 화면 유리가 들려서 손톱이 들어가요.",
+    ],
+})
+EXTRA_SUFFIXES.update({
+    "heat_sleep": ["잘 때 못 차겠어요.", "화상 입을까 봐 무서워요.", "빨리 고쳐 주세요.", "이거 정상인가요?"],
+    "battery_swell": ["터질까 봐 무서워요.", "교환해 주세요.", "이거 위험한 거 아닌가요?", "당장 확인해 주세요."],
+})
 CORES.update(EXTRA_CORES)
 SUFFIXES.update(EXTRA_SUFFIXES)
 
@@ -306,6 +342,38 @@ def extra_rows(start_no: int) -> list[dict]:
     return rows
 
 
+def late_rows(start_no: int) -> list[dict]:
+    """10/15~10/21 연장분 (별도 난수 · 날짜순 · voc_id는 start_no부터).
+    기존 주제는 기존 1,000건과 같은 비율(10/3 이후 하루 평균 × 1,000건 맞춤 배율), 충전 중 과열은 하루 평균 그대로,
+    LATE_TOPICS는 10/15부터 새로 생긴다."""
+    rng = random.Random(LATE_SEED)
+    base_days = (END - START).days + 1
+    pre_days = (SPIKE - START).days
+    expected_total = sum(pre_days * v[1] + (base_days - pre_days) * v[2] for v in TOPICS.values())
+    scale = TOTAL / expected_total  # daily_counts와 같은 배율
+    rates = {t: (v[2] * scale, v[3]) for t, v in TOPICS.items()}
+    rates.update({t: (v[2], v[3]) for t, v in EXTRA_TOPICS.items()})
+    rates.update({t: (v[1], v[2]) for t, v in LATE_TOPICS.items()})
+    rows = []
+    for i in range((LATE_END - LATE_START).days + 1):
+        d = LATE_START + timedelta(days=i)
+        for topic, (lam, dist) in rates.items():
+            for _ in range(poisson(rng, lam)):
+                ts = datetime(d.year, d.month, d.day) + timedelta(seconds=rng.randrange(86400))
+                tone = rng.choices(list(dist), list(dist.values()))[0]
+                rows.append({
+                    "created_at": ts.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "channel": "call_center" if rng.random() < CALL_CENTER_RATE else "review",
+                    "text": make_text(rng, topic, tone),
+                    "topic": topic,
+                })
+    rows.sort(key=lambda r: r["created_at"])
+    for i, r in enumerate(rows, start_no):
+        r["voc_id"] = f"V{i:04d}"
+        assert "," not in r["text"] and '"' not in r["text"]
+    return rows
+
+
 def main():
     rng = random.Random(SEED)
     rows = []
@@ -325,7 +393,8 @@ def main():
         r["voc_id"] = f"V{i:04d}"
         assert "," not in r["text"] and '"' not in r["text"]
     rows += extra_rows(len(rows) + 1)  # 기존 1,000건 뒤에 V1001부터 (기존 행은 그대로)
-    names = {k: v[0] for k, v in {**TOPICS, **EXTRA_TOPICS}.items()}
+    rows += late_rows(len(rows) + 1)   # 그 뒤에 10/15~10/21 연장분
+    names = {k: v[0] for k, v in {**TOPICS, **EXTRA_TOPICS, **LATE_TOPICS}.items()}
 
     with open("vocs.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\r\n")

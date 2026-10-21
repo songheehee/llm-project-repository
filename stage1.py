@@ -69,6 +69,7 @@ class Ticket(BaseModel):
     owner_part: str             # 담당 개발자의 파트 (users.yaml)
     status: str = config.TICKET_STATUS_OPEN  # "진행 중" → 담당 개발자가 [처리 완료]하면 "완료"
     completed_at: str | None = None          # 처리 완료 일시 YYYY-MM-DD HH:MM (진행 중이면 None)
+    canceled_at: str | None = None           # 발행 취소 일시 YYYY-MM-DD HH:MM (취소 아니면 None)
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름
@@ -158,9 +159,10 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
         "- 나누는 기준은 '증상 + 발생 상황' 두 가지뿐이다. 같은 증상을 다른 표현·다른 시점(아침, 충전 직후, 여행 중 등)으로 "
         "말한 VOC는 하나로 합친다 (예: '빨리 닳음', '충전해도 금방 꺼짐', '잔량이 뚝뚝 떨어짐'은 같은 묶음).\n"
         "- 증상이 비슷해도 발생 상황이 확실히 다르면(예: 특정 활동 중 vs 특정 연결 상태에서) 별도 묶음으로 나눈다.\n"
-        "  특히 뜨거워짐(발열)은 '운동 중', '폰 연결이 끊겼을 때', '충전하는 동안(충전기·거치대 위)'을 반드시 서로 따로 묶는다 "
+        "  특히 뜨거워짐(발열)은 '운동 중', '폰 연결이 끊겼을 때', '충전하는 동안(충전기·거치대 위)', '자는 동안'을 반드시 서로 따로 묶는다 "
         "— 원인 코드가 다르다. 충전 중 뜨거워짐은 '충전이 안 됨·느림' 같은 충전 불량과도 따로 묶는다. "
-        "운동하는 동안과 운동 직후(운동 끝나고도 식지 않음 등)에 뜨거운 것은 같은 '운동 중' 묶음이다.\n"
+        "운동하는 동안과 운동 직후(운동 끝나고도 식지 않음 등)에 뜨거운 것은 같은 '운동 중' 묶음이다. "
+        "몸체·뒷면이 부풀거나 들뜨는 것(배터리 부풂)은 배터리가 빨리 닳는 것과 따로 묶는다.\n"
         "- 묶음 하나는 개발 티켓 하나로 넘어간다. 같은 기능 영역 안의 묶음은 발생 상황이 다르지 않으면 "
         "하나로 합친다 (예: 글씨 크기·버튼 크기·메뉴 찾기 어려움은 모두 한 묶음).\n"
         f"- 묶음 수는 꼭 필요한 만큼만 만든다 (최소 {config.MIN_CLUSTERS}개).\n"
@@ -551,28 +553,53 @@ def sort_tickets(tickets) -> list[Ticket]:
 
 
 def open_tickets(tickets: dict[str, Ticket]) -> dict[str, Ticket]:
-    """처리 완료되지 않은(진행 중) 티켓만 — 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC가 쓴다."""
-    return {k: t for k, t in tickets.items() if not is_done(t)}
+    """'진행 중' 티켓만 — 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC가 쓴다 ('완료'·'취소' 제외)."""
+    return {k: t for k, t in tickets.items() if is_open(t)}
 
 
-# ── 요약 카드 · 유형 표가 쓰는 목록 — 용도별로 따로 만든다 (같은 목록을 같이 쓰지 않는다) ──
-# 티켓 status: "완료"만 처리 완료. 그 외(Round 22 전 티켓처럼 status 필드가 없어 기본값 "진행 중"인 것 포함)는 진행 중
+# ── 티켓·유형 상태 판정 (한 곳) — 요약 카드 · 유형 표 · 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 목록 · 대표 VOC가 모두 쓴다 ──
+# 티켓 status: "진행 중" / "완료" / "취소". status 필드가 없는 예전 티켓(Round 22 전)은 기본값 "진행 중"
 
 def is_done(t: Ticket) -> bool:
     return t.status == config.TICKET_STATUS_DONE
 
 
+def is_open(t: Ticket) -> bool:
+    """화면에 보이는 티켓은 '진행 중'뿐 ('완료'·'취소'는 어디에도 보이지 않는다)."""
+    return t.status == config.TICKET_STATUS_OPEN
+
+
+def cluster_states(tickets: dict[str, Ticket], period: str) -> dict[str, str]:
+    """{cluster_id: 유형 상태} — 같은 기간 티켓이 하나라도 걸린 유형만 담는다(없으면 처리 전).
+    '완료' 티켓이 있으면 처리 완료 → 아니고 '진행 중' 티켓이 있으면 진행 중 → 그 외('취소'만)는 처리 전."""
+    states: dict[str, str] = {}
+    for t in tickets.values():
+        if t.period != period:
+            continue
+        if is_done(t):
+            state = config.CLUSTER_STATE_DONE
+        elif is_open(t):
+            state = config.CLUSTER_STATE_OPEN
+        else:
+            state = config.CLUSTER_STATE_NEW
+        rank = [config.CLUSTER_STATE_NEW, config.CLUSTER_STATE_OPEN, config.CLUSTER_STATE_DONE]
+        prev = states.get(t.cluster_id, config.CLUSTER_STATE_NEW)
+        states[t.cluster_id] = max(prev, state, key=rank.index)
+    return states
+
+
 def open_clusters(clusters: list[Cluster], tickets: dict[str, Ticket], period: str) -> list[Cluster]:
-    """처리 완료되지 않은 유형 = 처리 전 + 진행 중 → 요약 카드 VOC 유형 · 긴급.
-    같은 기간에 '완료' 티켓이 있는 유형만 뺀다 (진행 중 티켓의 유형은 남긴다)."""
-    done = {t.cluster_id for t in tickets.values() if t.period == period and is_done(t)}
-    return [c for c in clusters if c.cluster_id not in done]
+    """처리 완료되지 않은 유형 = 처리 전 + 진행 중 → 요약 카드 VOC 유형 · 긴급 유형.
+    발행 취소한 유형은 처리 전이라 그대로 포함된다(취소 전후 요약 카드 같음)."""
+    states = cluster_states(tickets, period)
+    return [c for c in clusters if states.get(c.cluster_id, config.CLUSTER_STATE_NEW) != config.CLUSTER_STATE_DONE]
 
 
 def table_clusters(clusters: list[Cluster], tickets: dict[str, Ticket], period: str) -> list[Cluster]:
-    """처리 전 유형만(같은 기간에 티켓이 하나도 없는 유형) → VOC 유형별 처리 우선순위 표. 처리 시급도 높은 순."""
-    ticketed = {t.cluster_id for t in tickets.values() if t.period == period}
-    return sorted((c for c in clusters if c.cluster_id not in ticketed), key=lambda c: -c.priority_score)
+    """처리 전 유형만(티켓 없음 또는 '취소' 티켓만) → VOC 유형별 처리 우선순위 표. 처리 시급도 높은 순."""
+    states = cluster_states(tickets, period)
+    return sorted((c for c in clusters if states.get(c.cluster_id, config.CLUSTER_STATE_NEW) == config.CLUSTER_STATE_NEW),
+                  key=lambda c: -c.priority_score)
 
 
 def completed_voc_ids(tickets: dict[str, Ticket], period_voc_ids) -> set[str]:
@@ -632,6 +659,19 @@ def complete_ticket(ticket_id: str, now: datetime | None = None) -> None:
     tickets[ticket_id] = t.model_copy(update={"status": config.TICKET_STATUS_DONE,
                                               "completed_at": f"{now or datetime.now():%Y-%m-%d %H:%M}"})
     save_tickets(tickets, next_no)
+
+
+def cancel_ticket(ticket_id: str, now: datetime | None = None) -> None:
+    """발행 취소(담당 해제): status "취소" · canceled_at을 tickets.json에 저장. 기록은 지우지 않고 번호도 다시 쓰지 않는다
+    (같은 유형을 다시 발행하면 새 번호). 그 티켓의 코드 찾기 결과 파일(outputs/stage2/{id}.json)은 지운다."""
+    tickets, next_no = load_tickets()  # 파일 기준으로 다시 읽어 그사이 다른 발행을 덮어쓰지 않는다
+    t = tickets.get(ticket_id)
+    if t is None or not is_open(t):
+        return
+    tickets[ticket_id] = t.model_copy(update={"status": config.TICKET_STATUS_CANCELED,
+                                              "canceled_at": f"{now or datetime.now():%Y-%m-%d %H:%M}"})
+    save_tickets(tickets, next_no)
+    (config.STAGE2_RESULTS_DIR / f"{ticket_id}.json").unlink(missing_ok=True)
 
 
 def save_tickets(tickets: dict[str, Ticket], next_no: int) -> None:

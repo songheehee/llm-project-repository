@@ -63,7 +63,11 @@ LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. �
 기간: 분석 **2026-10-03 ~ 2026-10-14**(12일), 이전 **2026-09-21 ~ 2026-10-02**(12일, 분석 기간과 같은 길이로 자동 계산).
 
 **VOC 건수는 고정이 아니다.** `config.VOCS_CSV`의 CSV를 읽을 때 정해진다. 코드에 건수를 하드코딩하지 않는다.
-지금은 큰 건수 테스트용으로 `data/vocs.csv`(1,106건, 주제 14개)를 쓴다. 기존 1,000건(V0001~V1000, 주제 13개) 뒤에 긴급 유형 '충전 중 과열·화상' 106건(V1001~V1106, 10/03 이후만)을 붙였다 — `generate_vocs.py`의 `EXTRA_TOPICS`(별도 난수, 기존 행·ID 그대로).
+지금은 큰 건수 테스트용으로 `data/vocs.csv`(1,761건, 주제 16개, 09/21~10/21)를 쓴다. `generate_vocs.py`가 세 덩어리를 차례로 붙인다(뒤 덩어리는 별도 난수 — 앞 행·ID는 그대로):
+  1. V0001~V1000: 기존 1,000건(주제 13개, 09/21~10/14)
+  2. V1001~V1106: 긴급 유형 '충전 중 과열·화상' 106건(10/03~10/14, `EXTRA_TOPICS`)
+  3. V1107~V1761: 10/15~10/21 연장분(`late_rows`) — 기존 주제·충전 중 과열은 10/3 이후 하루 평균 그대로, 10/15부터 새로 생긴 '수면 중 발열'(하루 18건)·'배터리 부풂·과열'(하루 17건). 화면 기본 기간 '최근 2주'(오늘 기준)에도 긴급이 나오도록
+  10/03~10/14 구간은 1·2만 들어 있어 아래 표·§정답이 그대로다.
 
 | 파일                         | 내용                                                                                                                       |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -89,6 +93,8 @@ LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. �
 | **합계**               | **741**   | **365**   |                      |           |           |
 
 - 문장은 고객 말투, 코드 용어 금지. '연결 끊김 시 발열'은 반드시 '연결 끊김'을 언급한다.
+- 최근 2주 확인 실행: 10/07~10/21 · 10/08~10/22 모두 긴급 3개(운동 중 발열 · 수면 중 발열 · 배터리 부풂). 날짜가 더 지나면 이전 기간에 급증분이 들어가 긴급이 줄 수 있다.
+- '수면 중 발열'은 '자는 동안'만, '배터리 부풂·과열'은 문장마다 '부풀'·'불룩'을 넣는다(틈·들뜸만 말하면 '외관 변형' 묶음이 따로 생겼다).
 - '충전 중 과열·화상'은 '충전하는 동안'(충전기·거치대 위)만 말한다. '운동'·'연결' 단어와 '충전 끝나고 찼더니' 같은 직후 표현은 쓰지 않는다(쓰면 '운동 후 발열' 같은 별도 묶음이 생겼다).
 
 `repos.yaml`의 `pulsefit-py`에는 `folder_roles: {"ui/": display_only}`를 둔다.
@@ -235,8 +241,9 @@ class Ticket(BaseModel):    # stage1
     assignee_id: str            # 발행한(=담당) 개발자 id — 사이드바 '현재 개발자' (users.yaml)
     assignee: str               # 담당 개발자 이름
     owner_part: str             # 담당 개발자의 파트 (users.yaml)
-    status: str                 # "진행 중"(TICKET_STATUS_OPEN) → [처리 완료]하면 "완료"(TICKET_STATUS_DONE). 되돌리기 없음
+    status: str                 # "진행 중"(TICKET_STATUS_OPEN) → [처리 완료] "완료"(TICKET_STATUS_DONE) / [발행 취소] "취소"(TICKET_STATUS_CANCELED). 되돌리기 없음
     completed_at: str | None    # 처리 완료 일시 YYYY-MM-DD HH:MM (진행 중이면 None)
+    canceled_at: str | None     # 발행 취소 일시 YYYY-MM-DD HH:MM (취소 아니면 None)
     issued_on: str              # 발행일 YYYY-MM-DD
     due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름 — 근거 표 '관련 VOC'에 사용
@@ -247,10 +254,12 @@ class Ticket(BaseModel):    # stage1
 #   티켓 ID · 우선순위 · 상태 · 문제점 · 건수 · 담당 부서 · 담당자 · 발행일 · 예상 완료일 (sort_tickets: 우선순위 순)
 # stage1.load_tickets() / save_tickets(): outputs/tickets.json {next_ticket_no, tickets} — 앱이 매 실행 읽는다(새로고침·개발자 변경에도 유지)
 # stage1.complete_ticket(id): 파일을 다시 읽어 status "완료" · completed_at 저장 (기록은 지우지 않음)
-# stage1.open_tickets(tickets): 완료 아닌 티켓만 — 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 선택 목록 · 대표 VOC
-# 요약 카드·유형 표 목록은 용도별로 따로 (같은 목록을 같이 쓰지 않음). 티켓은 status == "완료"만 처리 완료(is_done), 필드 없는 예전 티켓은 진행 중
+# stage1.cancel_ticket(id): 발행 취소(담당 해제) — status "취소" · canceled_at 저장 + outputs/stage2/{id}.json 삭제. 기록·번호는 그대로(재발행은 새 번호)
+# stage1.open_tickets(tickets): "진행 중" 티켓만(is_open) — 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 선택 목록 · 대표 VOC. "완료"·"취소"는 어디에도 안 보임
+# stage1.cluster_states(tickets, period) → {cluster_id: 유형 상태} — 판정 한 곳: "완료" 티켓 있으면 처리 완료(CLUSTER_STATE_DONE) → "진행 중" 있으면 진행 중 → 그 외("취소"만)는 처리 전(없는 id도 처리 전)
+# 요약 카드·유형 표 목록은 용도별로 따로 (같은 목록을 같이 쓰지 않음). 유형 상태는 cluster_states로만 판정, 필드 없는 예전 티켓은 진행 중
 # stage1.open_clusters(clusters, tickets, period): 처리 완료되지 않은 유형(처리 전 + 진행 중) → VOC 유형 · 긴급 카드
-# stage1.table_clusters(clusters, tickets, period): 처리 전 유형만(같은 기간 티켓 없는 유형), 시급도 순 → 유형 표
+# stage1.table_clusters(clusters, tickets, period): 처리 전 유형만(티켓 없음 또는 "취소"만), 시급도 순 → 유형 표. 발행 취소한 유형은 다시 여기로
 # stage1.completed_voc_ids(tickets, period_voc_ids): 처리 완료 티켓 voc_ids 합집합 ∩ 선택 기간 VOC → 처리 완료 카드
 # stage1.summary_cards(period_voc_ids, clusters|None, tickets, period) → {total, types, urgent_types, urgent_count, done_count, done_rate, done_types}
 # stage2.save_result / load_result(ticket): outputs/stage2/{ticket_id}.json — 같은 id라도 cluster_id·기간·발행일이 다르면 쓰지 않음
@@ -299,7 +308,7 @@ LangGraph state는 `TypedDict`: ticket, repo*candidates, folder_scores, line_rec
 - 레포지토리 후보: 점수 < 0.1 제외, 최대 3개
 - 예상 완료일 = 발행일 + `DUE_DAYS`: 긴급 3일 · 높음 7일 · 보통 14일 · 낮음 30일
 - 처리 시급도(화면) = `round(priority_score × 100)` (0~100). 내부 계산·임계값은 0~1 그대로
-- 요약 카드: 총 VOC = 선택 기간 VOC 전체 · VOC 유형 = `open_clusters` 수 · 긴급 = 그중 "긴급" 유형 수 / 그 count 합 · 처리 완료 = `completed_voc_ids` 수, 처리율 = 처리 완료 ÷ 총 VOC × 100(소수 첫째 자리). 발행(진행 중)해도 4개 모두 그대로, 처리 완료하면 VOC 유형·긴급이 줄고 처리 완료가 늘며 총 VOC는 그대로
+- 요약 카드: 총 VOC = 선택 기간 VOC 전체 · VOC 유형 = `open_clusters` 수 · 긴급 유형 = 그중 "긴급" 유형 수(건수는 표시하지 않음) · 처리 완료 = `completed_voc_ids` 수, 처리율 = 처리 완료 ÷ 총 VOC × 100(소수 첫째 자리). 발행(진행 중)해도 4개 모두 그대로, 처리 완료하면 VOC 유형·긴급이 줄고 처리 완료가 늘며 총 VOC는 그대로
 - 일별 차트: 건수 상위 `CHART_TOP_TYPES`(5)개 유형만 색, 나머지는 "기타" · VOC 유형별 처리 우선순위 표 높이 = (`TABLE_VISIBLE_ROWS`(5) + 1) × `TABLE_ROW_PX`
 
 ## 정답 (현재 데이터 `vocs.csv` 기준 — 데이터를 바꾸면 다시 계산)
@@ -309,7 +318,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 
 **꼭 맞아야 하는 것**
 - 분석 기간 총 VOC **741건** (이전 365건, **+103.0%**) — LLM과 무관, 항상 같음
-- 요약 카드: 총 VOC **741건(+103.0%)** · 처리 완료 0건(처리율 0.0%, 완료 티켓 없을 때) · 긴급 **2개 / 운동 중 발열 + 충전 중 발열 유형 건수**(확인 실행 309건) (분석 전에는 VOC 유형·긴급 "–")
+- 요약 카드: 총 VOC **741건(+103.0%)** · 처리 완료 0건(처리율 0.0%, 완료 티켓 없을 때) · 긴급 유형 **2개**(운동 중 발열 · 충전 중 발열) (분석 전에는 VOC 유형·긴급 유형 "–")
 - 우선순위 (유형은 다수 정답 주제로 대응):
 
 | 정답 주제         | 이번 기간 (참고 범위) | 추세 (참고)   | 처리 시급도 (참고) | 우선순위 |
@@ -336,7 +345,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 
 ## 구현 힌트
 
-- **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc_id 없이 텍스트만)를 주고 `MIN_CLUSTERS`~`MAX_CLUSTERS`개 라벨을 받는다(발열은 '운동 중'·'연결 끊김'·'충전 중'을 반드시 따로, 충전 중 발열은 충전 불량과도 따로, 운동 직후 발열은 '운동 중'에 포함). `assign_clusters`는 분석+이전 기간 VOC를 50건씩 `[{voc_id, text}]`로 넘겨 `{voc_id: label}`을 받는다.
+- **클러스터링**: `propose_clusters`에 분석 기간 VOC 전체(voc_id 없이 텍스트만)를 주고 `MIN_CLUSTERS`~`MAX_CLUSTERS`개 라벨을 받는다(발열은 '운동 중'·'연결 끊김'·'충전 중'·'자는 동안'을 반드시 따로, 충전 중 발열은 충전 불량과도 따로, 운동 직후 발열은 '운동 중'에 포함, 배터리 부풂은 배터리 소모와 따로). `assign_clusters`는 분석+이전 기간 VOC를 50건씩 `[{voc_id, text}]`로 넘겨 `{voc_id: label}`을 받는다.
   `dissolve_small_clusters`: 분석 기간 건수가 `max(MIN_CLUSTER_SIZE, 분석 기간 VOC 수 × MIN_CLUSTER_SHARE(2%))` 미만인 묶음을 **가장 작은 것부터 하나씩** 해체하고 그 VOC만 남은 묶음 중 하나로 다시 분류한다(같은 증상이 작은 조각으로 갈라지는 것 방지, 기준은 데이터 건수에 따라 동적). 결과는 `outputs/clusters_{데이터셋}_{시작}_{끝}.json`에 캐시해 같은 기간이면 LLM을 다시 부르지 않는다.
 - **티켓 ID**: 발행 순서대로 TKT-0001, TKT-0002 … (`st.session_state["next_ticket_no"]`는 1부터). 우선순위 높은 순으로 발행. 개별 VOC ID(V0001…)는 그대로 `voc_ids`에.
 - **RAG**: `data/rag/*.md` → `RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)` → `Chroma.from_documents(docs, OpenAIEmbeddings(...))`(persist_directory 없음). stage2에서는 `functools.lru_cache`로 한 번만 만든다.
@@ -350,14 +359,15 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - **코드 뷰**: 추천 범위 앞뒤 5줄만 잘라 `HtmlFormatter(linenos="table", linenostart=시작줄, hl_lines=[...], noclasses=True)`. `hl_lines`는 **잘라낸 조각 기준 1부터** 번호다(절대 줄 번호 아님).
 - **1️⃣ 보기 전환**: `st.segmented_control(["원본 VOC", "유형 분석 결과"], key="voc_view", required=True)` — 보기 전환 줄 `st.columns([4, 1])` 오른쪽에 [유형 분석]. 1️⃣ 탭 버튼·제목에 이모티콘 없음. 버튼의 `on_click`에서 `voc_view`를 결과 보기로 바꾼다. 결과는 `st.session_state["stage1"]`에서 읽어 전환해도 LLM을 다시 부르지 않는다.
 - **유형 분석 결과 순서**: 일별 차트(유형별 누적) → VOC 유형별 처리 우선순위 표(+ [티켓 발행] · 안내 · 비고) → `render_ticket_cards()` → `render_representative_vocs()` → `render_voc_map(cur, all_clusters)`. 의미 공간에는 발행 여부와 상관없이 **전체 유형**(`all_clusters`)을 넘긴다(표의 발행 안 된 목록을 넘기면 발행된 유형의 점이 빠진다).
-- **요약 카드**(왼쪽부터): 총 VOC · 처리 완료("0건", delta "처리율 0.0%" + `delta_color="off"`·`delta_arrow="off"`, help에 처리 완료 유형 수) · VOC 유형 · 긴급("1개 / 200건"). 숫자는 `stage1.summary_cards(period_vocs["voc_id"], clusters 또는 None, ss["tickets"], period)` 하나로. 분석 전 VOC 유형·긴급은 "–", 총 VOC·처리 완료는 분석 전에도 표시. 유형 표는 따로 `stage1.table_clusters`. 총 VOC help에 이전 기간 날짜. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
+- **요약 카드**(왼쪽부터): 총 VOC · 처리 완료("0건", delta "처리율 0.0%" + `delta_color="off"`·`delta_arrow="off"`, help에 처리 완료 유형 수) · VOC 유형 · 긴급 유형("2개", 유형 수만). 숫자는 `stage1.summary_cards(period_vocs["voc_id"], clusters 또는 None, ss["tickets"], period)` 하나로. 분석 전 VOC 유형·긴급 유형은 "–", 총 VOC·처리 완료는 분석 전에도 표시. 유형 표는 따로 `stage1.table_clusters`. 총 VOC help에 이전 기간 날짜. CSS로 `[data-testid="stMetric"]` 높이 고정 + 한 줄 말줄임.
 - **헤더**: "VOCAI"만. `.block-container` padding-top을 늘려 Streamlit 상단 바에 가리지 않게 한다.
 - **VOC 유형별 처리 우선순위 표**: `st.data_editor` + `st.column_config.CheckboxColumn("발행")`, 체크 외 열은 `disabled`. 열(왼쪽부터): 발행 · 우선순위 · 유형 · 처리 시급도(×100) · 이번 기간 · 이전 기간 · 추세 · 심각도 · 카테고리 · 제품. 처리 시급도 순, 이미 발행된 유형은 제외, `height=(TABLE_VISIBLE_ROWS + 1) × TABLE_ROW_PX`. 제목 줄 `st.columns([4, 1])` 왼쪽 "VOC 유형별 처리 우선순위" · 오른쪽 [티켓 발행](체크 없으면 `disabled`, 누르면 확인 없이 바로 발행). 제목 아래 `st.caption("체크한 유형만 티켓 발행")`. 발행 후 `ss["editor_nonce"]`를 올려 표를 체크 없이 새로 그린다. 비고 첫 줄 "· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 (MM/DD~MM/DD)".
 - **대표 VOC 보기**: `render_representative_vocs()` — 내 티켓마다 `st.expander(f"{id} · {문제점}", expanded=False)` 안 `container(key="repvoc_…")`에 마크다운 목록 하나("- 원문1\n- 원문2\n- 원문3"). 내용 = `cached_rep_vocs(voc_ids)`: 의미 공간과 같은 VOC 임베딩 캐시로 `stage1.nearest_to_center` 최대 `REP_VOC_MAX`(3)건, `md_escape`로 원문 그대로. CSS: 글자 14px(= expander 제목) · line-height 1.4 · 항목 사이 4px. API 키가 없으면 유형 목록에서 고르게. 내 티켓이 없으면 안내.
 - **일별 차트**: 범례 `orientation="h"` 차트 위, x축 제목 "날짜"(`title=dict(text="날짜", standoff=20)`) · `tickformat="%m/%d"`, 아래 margin 90px. 상위 `CHART_TOP_TYPES`개 + "기타"(회색).
 - **사이드바**(탭보다 먼저 그림, 이모티콘 없음): 현재 개발자 `st.selectbox(key="current_user_label")`(`user_label(u)` = "김서준 (센서 파트)") → `ss["current_user_id"]` (index로 그리지 않고 key로 상태 고정 — index 방식은 바꾼 직후 다시 바꾸면 선택이 무시됨). 내 티켓 = 압축 카드: `container(key="sbcards")`(카드 사이 6px) 안 티켓마다 `container(key="sbcard_…" / 현재 티켓 "sbcard_sel_…")` — 흰 배경 · 옅은 테두리 · 모서리 8px · 여백 10px · 높이 auto, 현재 티켓은 왼쪽 primaryColor 3px. 1줄 `st.columns([3, 1.4])` = ID(굵게) + 우선순위 배지 · 오른쪽 위 작은 버튼 "선택"(`sbpick_…`, 현재 티켓은 "현재" disabled, 누르면 `ss["current_ticket"]`) / 문제점(`sbprob_`, `-webkit-line-clamp: 2`) / 캡션 "~10/23 · D-3" 또는 `:red[기한 지남]`. 카드 전체를 덮는 투명 버튼·radio 방식은 쓰지 않는다(글자가 겹쳤음). 없으면 "맡은 티켓이 없습니다". 사이드바 CSS도 app.py CSS 한 곳.
 - **마크다운 여백 주의**: Streamlit은 문단 아래 여백 1rem을 `stMarkdownContainer`·`stCaptionContainer`의 `margin-bottom:-1rem`으로 상쇄한다. CSS로 문단 `margin:0`을 준 곳(sbcard_ · tprob_ · tline_ · repvoc_)은 그 칸의 `margin-bottom`도 0으로 돌려야 한다 — 안 그러면 칸 높이가 약 4px로 찌그러져 다음 줄과 겹친다.
-- **발행된 티켓 카드**(1️⃣, VOC 유형별 처리 우선순위 표·비고 아래, 모든 개발자에게 전체): `render_ticket_cards()` — `st.columns(TICKET_CARDS_PER_ROW=3)`, 카드 = `container(border=True, height=TICKET_CARD_HEIGHT, key=…)`(모든 카드 같은 높이), key `card_ticket_…`(흰 배경) / 현재 개발자 것은 `card_mine_…`(primaryColor 2px 테두리, 글자 표시 없음). 카드: ID · 우선순위 배지 / 문제점(`tprob_` 컨테이너 CSS `-webkit-line-clamp: 2`) / 건수 · 담당 부서 · 담당자(`tline_` 한 줄) / 발행일 → 예상 완료일. "내 티켓"·"진행 중" 글자 없음. 1줄 `st.columns([2, 1])` = ID(왼쪽) · 우선순위 배지(오른쪽). 마지막 줄 `st.container(horizontal=True, horizontal_alignment="right", key="tact_…")`(CSS min-height 40px) — 담당 카드에만 [처리 완료](`done_card_…`, 기본 크기 secondary), 다른 카드는 빈 줄. `tprob_` min-height 3.2em(한 줄이어도 두 줄 자리) → 마지막 줄 위치가 모든 카드에서 같음. `TICKET_CARD_HEIGHT`=270. 처리 완료 티켓은 그리지 않음(`OPEN_TICKETS`).
+- **발행된 티켓 카드**(1️⃣, VOC 유형별 처리 우선순위 표·비고 아래, 모든 개발자에게 전체): `render_ticket_cards()` — `st.columns(TICKET_CARDS_PER_ROW=3)`, 카드 = `container(border=True, height=TICKET_CARD_HEIGHT, key=…)`(모든 카드 같은 높이), key `card_ticket_…`(흰 배경) / 현재 개발자 것은 `card_mine_…`(primaryColor 2px 테두리, 글자 표시 없음). 카드: ID · 우선순위 배지 / 문제점(`tprob_` 컨테이너 CSS `-webkit-line-clamp: 2`) / 건수 · 담당 부서 · 담당자(`tline_` 한 줄) / 발행일 → 예상 완료일. "내 티켓"·"진행 중" 글자 없음. 1줄 `st.columns([2, 1])` = ID(왼쪽) · 우선순위 배지(오른쪽). 마지막 줄 `st.container(horizontal=True, horizontal_alignment="right", key="tact_…")`(CSS min-height 40px) (gap small) — 담당 카드에만 [발행 취소](`cancel_card_…`) [처리 완료](`done_card_…`) 나란히(둘 다 기본 크기 secondary), 다른 카드는 빈 줄. `tprob_` min-height 3.2em(한 줄이어도 두 줄 자리) → 마지막 줄 위치가 모든 카드에서 같음. `TICKET_CARD_HEIGHT`=270. 진행 중 티켓만 그림(`OPEN_TICKETS`).
+- **발행 취소**: `@st.dialog("발행 취소") confirm_cancel(ticket_id)` — 문구 "TKT-0001 발행을 취소할까요? 이 유형은 다시 유형 표로 돌아가고, 다른 개발자가 발행할 수 있습니다.", `st.container(horizontal=True)`에 [발행 취소](primary, `dlg_cancel_ticket`) [닫기](`dlg_close`). [발행 취소] → `stage1.cancel_ticket` + 세션 `ss["stage2"]`에서도 삭제 + `editor_nonce` 올림 → `st.rerun()`. 발행 시 중복 확인(`taken`)도 `cluster_states`로 — "취소"만 걸린 유형은 다시 발행 가능. 요약 카드는 취소 전후 같음.
 - **처리 완료**: `@st.dialog("처리 완료") confirm_complete(ticket_id)` — 문구 "TKT-0001을 처리 완료할까요? 완료한 티켓은 화면에서 사라집니다.", `st.container(horizontal=True)`에 [완료](primary, `dlg_done`) [취소](`dlg_cancel`). [완료] → `stage1.complete_ticket` → `st.rerun()`(현재 티켓이었으면 `current_ticket=None`). 버튼은 1️⃣ 담당 카드 · 3️⃣ 다운로드 옆(`done_tab3_…`)뿐. 자동 완료(커밋 감지)·되돌리기 없음. 화면 목록은 모두 `OPEN_TICKETS = stage1.open_tickets(ss["tickets"])`에서 만든다.
 - **표 열 너비**: 고정 너비를 주지 않는다(Streamlit 기본 자동, `width="stretch"`).
 - **표 말줄임**(모든 `st.dataframe`): `show_table(df, key, **kwargs)` 하나로 — 화면용 복사본만 `shorten(text, CELL_MAX_CHARS=40)`(앞 40자 + "…"), 원본은 그대로. 행 선택(`on_select`)은 쓰지 않는다(VOC 원문 표 포함).

@@ -260,10 +260,14 @@ def render_ticket_cards() -> None:
                     st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
                 st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
                            f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
-                # 마지막 줄: 오른쪽 끝 [처리 완료] (현재 개발자가 담당자인 카드에만). 다른 카드는 같은 높이의 빈 줄
-                actions = st.container(horizontal=True, horizontal_alignment="right", key=f"tact_{t.ticket_id}")
-                if mine and actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}"):
-                    confirm_complete(t.ticket_id)
+                # 마지막 줄: 오른쪽 끝 [발행 취소] [처리 완료] (현재 개발자가 담당자인 카드에만). 다른 카드는 같은 높이의 빈 줄
+                actions = st.container(horizontal=True, horizontal_alignment="right", gap="small",
+                                       key=f"tact_{t.ticket_id}")
+                if mine:
+                    if actions.button("발행 취소", type="secondary", key=f"cancel_card_{t.ticket_id}"):
+                        confirm_cancel(t.ticket_id)
+                    if actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}"):
+                        confirm_complete(t.ticket_id)
 
 
 @st.dialog("처리 완료")
@@ -278,6 +282,23 @@ def confirm_complete(ticket_id: str) -> None:
             ss["current_ticket"] = None  # 다음 실행에서 남은 내 티켓 중 첫 번째로
         st.rerun()
     if row.button("취소", key="dlg_cancel"):
+        st.rerun()
+
+
+@st.dialog("발행 취소")
+def confirm_cancel(ticket_id: str) -> None:
+    """발행 취소(담당 해제) 확인 창. [발행 취소]하면 status "취소" · canceled_at 저장 + 코드 찾기 결과 삭제 →
+    티켓은 화면에서 사라지고 유형은 유형 표로(처리 전) 돌아가 누구나 다시 발행할 수 있다 (되돌리기 없음)."""
+    st.write(f"{ticket_id} 발행을 취소할까요? 이 유형은 다시 유형 표로 돌아가고, 다른 개발자가 발행할 수 있습니다.")
+    row = st.container(horizontal=True, gap="small")  # [발행 취소] [닫기] 바로 옆에
+    if row.button("발행 취소", type="primary", key="dlg_cancel_ticket"):
+        stage1.cancel_ticket(ticket_id)
+        ss["stage2"].pop(ticket_id, None)  # 세션에 남은 코드 찾기 결과도 버린다 (파일은 cancel_ticket이 지움)
+        if ss.get("current_ticket") == ticket_id:
+            ss["current_ticket"] = None
+        ss["editor_nonce"] += 1  # 유형 표를 새로 그려 돌아온 유형이 체크 없이 보이게
+        st.rerun()
+    if row.button("닫기", key="dlg_close"):
         st.rerun()
 
 
@@ -619,11 +640,11 @@ with tab1:
                            "처리 전 + 진행 중 + 처리 완료 모두 포함")
         if cards["types"] is not None:
             k2.metric("VOC 유형", f"{cards['types']}개", help="처리 완료되지 않은 유형 수 (처리 전 + 진행 중)")
-            k3.metric("긴급", f"{cards['urgent_types']}개 / {cards['urgent_count']:,}건",
-                      help="처리 완료되지 않은 긴급 유형 수 / 그 유형들의 VOC 건수 합")
+            k3.metric("긴급 유형", f"{cards['urgent_types']}개",
+                      help="처리 완료되지 않은 유형(처리 전 + 진행 중) 중 우선순위가 '긴급'인 유형 수")
         else:
             k2.metric("VOC 유형", "–", help="유형 분석 후 표시")
-            k3.metric("긴급", "–", help="유형 분석 후 표시")
+            k3.metric("긴급 유형", "–", help="유형 분석 후 표시")
         # 처리 완료: 티켓 voc_ids로 계산하므로 분석 전에도 표시. 처리율은 증감이 아니라서 화살표·색 없음
         k4.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
                   delta_color="off", delta_arrow="off",
@@ -695,7 +716,9 @@ with tab1:
             if issue_clicked and has_api_key():
                 # 현재 개발자(me)를 담당자로 바로 발행 → outputs/tickets.json. 그사이 다른 개발자가 발행한 유형은 건너뛴다
                 tickets, next_no = stage1.load_tickets()
-                taken = {t.cluster_id for t in tickets.values() if t.period == period_txt}
+                # 처리 전이 아닌 유형은 건너뛴다 ('취소' 티켓만 걸린 유형은 처리 전 → 다시 발행 가능)
+                taken = {cid for cid, state in stage1.cluster_states(tickets, period_txt).items()
+                         if state != config.CLUSTER_STATE_NEW}
                 chosen = sorted((c for c in to_issue if c.cluster_id not in taken),
                                 key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
                 with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):

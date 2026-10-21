@@ -63,6 +63,11 @@ GRADES = {                      # users.yaml grade 코드 ↔ 뜻 (이번 범위
 }
 TICKET_STATUS_OPEN = "진행 중"  # 발행 직후 상태
 TICKET_STATUS_DONE = "완료"     # 담당 개발자가 [처리 완료]로 직접 바꾼 상태 (커밋 감지 자동 완료 없음 · 되돌리기 없음)
+TICKET_STATUS_CANCELED = "취소"  # 담당 개발자가 [발행 취소]한 상태 = "내가 맡지 않겠다" (유형은 처리 전으로 · 되돌리기 없음)
+# 유형 상태 — 그 유형(같은 기간 cluster_id)에 걸린 티켓들로 정한다 (stage1.cluster_states 한 곳)
+CLUSTER_STATE_NEW = "처리 전"      # 티켓 없음, 또는 '취소' 티켓만
+CLUSTER_STATE_OPEN = "진행 중"     # '진행 중' 티켓이 있음
+CLUSTER_STATE_DONE = "처리 완료"   # '완료' 티켓이 있음 (진행 중보다 우선)
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}  # 예상 완료일 = 발행일 + 우선순위별 기한(일)
 
 # ── 1️⃣ 대시보드 표시 ─────────────────────────────────

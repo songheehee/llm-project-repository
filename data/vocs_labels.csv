@@ -1105,3 +1105,658 @@ V1103,heat_charge,충전 중 과열·화상
 V1104,heat_charge,충전 중 과열·화상
 V1105,heat_charge,충전 중 과열·화상
 V1106,heat_charge,충전 중 과열·화상
+V1107,battery_swell,배터리 부풂·과열
+V1108,heat_work,운동 중 기기 발열
+V1109,heat_sleep,수면 중 발열
+V1110,gps,GPS 거리 오차
+V1111,battery,배터리 소모
+V1112,heat_sleep,수면 중 발열
+V1113,heat_work,운동 중 기기 발열
+V1114,step_count,걸음 수 부정확
+V1115,battery_swell,배터리 부풂·과열
+V1116,heat_sleep,수면 중 발열
+V1117,battery_swell,배터리 부풂·과열
+V1118,heat_sleep,수면 중 발열
+V1119,battery_swell,배터리 부풂·과열
+V1120,battery,배터리 소모
+V1121,heat_work,운동 중 기기 발열
+V1122,menu,메뉴·UI 사용성
+V1123,battery_swell,배터리 부풂·과열
+V1124,hr_accuracy,심박·센서 측정 부정확
+V1125,heat_work,운동 중 기기 발열
+V1126,menu,메뉴·UI 사용성
+V1127,sync_phone,폰 앱 동기화 지연·누락
+V1128,heat_sleep,수면 중 발열
+V1129,heat_sleep,수면 중 발열
+V1130,charging,충전 불량
+V1131,heat_work,운동 중 기기 발열
+V1132,battery_swell,배터리 부풂·과열
+V1133,app_crash,앱 멈춤·강제 종료
+V1134,heat_work,운동 중 기기 발열
+V1135,gps,GPS 거리 오차
+V1136,battery_swell,배터리 부풂·과열
+V1137,battery,배터리 소모
+V1138,heat_charge,충전 중 과열·화상
+V1139,battery_swell,배터리 부풂·과열
+V1140,heat_sleep,수면 중 발열
+V1141,battery,배터리 소모
+V1142,battery_swell,배터리 부풂·과열
+V1143,heat_sleep,수면 중 발열
+V1144,heat_sleep,수면 중 발열
+V1145,sync_phone,폰 앱 동기화 지연·누락
+V1146,battery,배터리 소모
+V1147,battery_swell,배터리 부풂·과열
+V1148,battery_swell,배터리 부풂·과열
+V1149,battery_swell,배터리 부풂·과열
+V1150,gps,GPS 거리 오차
+V1151,battery_swell,배터리 부풂·과열
+V1152,battery,배터리 소모
+V1153,sleep,수면 측정 오류
+V1154,battery,배터리 소모
+V1155,heat_charge,충전 중 과열·화상
+V1156,step_count,걸음 수 부정확
+V1157,menu,메뉴·UI 사용성
+V1158,battery_swell,배터리 부풂·과열
+V1159,notification,알림 지연·누락
+V1160,battery,배터리 소모
+V1161,battery,배터리 소모
+V1162,sleep,수면 측정 오류
+V1163,menu,메뉴·UI 사용성
+V1164,heat_sleep,수면 중 발열
+V1165,heat_sleep,수면 중 발열
+V1166,battery,배터리 소모
+V1167,battery,배터리 소모
+V1168,heat_sleep,수면 중 발열
+V1169,gps,GPS 거리 오차
+V1170,battery_swell,배터리 부풂·과열
+V1171,heat_sleep,수면 중 발열
+V1172,heat_charge,충전 중 과열·화상
+V1173,battery,배터리 소모
+V1174,heat_work,운동 중 기기 발열
+V1175,heat_work,운동 중 기기 발열
+V1176,heat_sleep,수면 중 발열
+V1177,battery,배터리 소모
+V1178,heat_work,운동 중 기기 발열
+V1179,heat_sleep,수면 중 발열
+V1180,step_count,걸음 수 부정확
+V1181,heat_charge,충전 중 과열·화상
+V1182,heat_sleep,수면 중 발열
+V1183,heat_sleep,수면 중 발열
+V1184,heat_sleep,수면 중 발열
+V1185,heat_sleep,수면 중 발열
+V1186,battery_swell,배터리 부풂·과열
+V1187,heat_work,운동 중 기기 발열
+V1188,heat_sleep,수면 중 발열
+V1189,heat_sleep,수면 중 발열
+V1190,heat_sleep,수면 중 발열
+V1191,heat_charge,충전 중 과열·화상
+V1192,heat_work,운동 중 기기 발열
+V1193,heat_sleep,수면 중 발열
+V1194,gps,GPS 거리 오차
+V1195,strap_skin,착용감·스트랩·피부
+V1196,heat_sleep,수면 중 발열
+V1197,heat_charge,충전 중 과열·화상
+V1198,menu,메뉴·UI 사용성
+V1199,sleep,수면 측정 오류
+V1200,menu,메뉴·UI 사용성
+V1201,strap_skin,착용감·스트랩·피부
+V1202,heat_work,운동 중 기기 발열
+V1203,heat_charge,충전 중 과열·화상
+V1204,menu,메뉴·UI 사용성
+V1205,heat_work,운동 중 기기 발열
+V1206,heat_sleep,수면 중 발열
+V1207,heat_charge,충전 중 과열·화상
+V1208,heat_sleep,수면 중 발열
+V1209,battery_swell,배터리 부풂·과열
+V1210,sync_phone,폰 앱 동기화 지연·누락
+V1211,gps,GPS 거리 오차
+V1212,heat_sleep,수면 중 발열
+V1213,battery_swell,배터리 부풂·과열
+V1214,heat_work,운동 중 기기 발열
+V1215,battery,배터리 소모
+V1216,heat_work,운동 중 기기 발열
+V1217,heat_charge,충전 중 과열·화상
+V1218,battery_swell,배터리 부풂·과열
+V1219,battery_swell,배터리 부풂·과열
+V1220,sleep,수면 측정 오류
+V1221,battery_swell,배터리 부풂·과열
+V1222,battery,배터리 소모
+V1223,sync_phone,폰 앱 동기화 지연·누락
+V1224,hr_accuracy,심박·센서 측정 부정확
+V1225,notification,알림 지연·누락
+V1226,heat_work,운동 중 기기 발열
+V1227,hr_accuracy,심박·센서 측정 부정확
+V1228,heat_work,운동 중 기기 발열
+V1229,heat_sleep,수면 중 발열
+V1230,heat_sleep,수면 중 발열
+V1231,battery,배터리 소모
+V1232,sleep,수면 측정 오류
+V1233,heat_charge,충전 중 과열·화상
+V1234,heat_sleep,수면 중 발열
+V1235,heat_sleep,수면 중 발열
+V1236,heat_work,운동 중 기기 발열
+V1237,battery_swell,배터리 부풂·과열
+V1238,sync_phone,폰 앱 동기화 지연·누락
+V1239,app_crash,앱 멈춤·강제 종료
+V1240,battery_swell,배터리 부풂·과열
+V1241,sync_phone,폰 앱 동기화 지연·누락
+V1242,battery_swell,배터리 부풂·과열
+V1243,heat_work,운동 중 기기 발열
+V1244,battery,배터리 소모
+V1245,heat_sleep,수면 중 발열
+V1246,heat_charge,충전 중 과열·화상
+V1247,battery_swell,배터리 부풂·과열
+V1248,battery,배터리 소모
+V1249,step_count,걸음 수 부정확
+V1250,heat_work,운동 중 기기 발열
+V1251,battery_swell,배터리 부풂·과열
+V1252,app_crash,앱 멈춤·강제 종료
+V1253,heat_charge,충전 중 과열·화상
+V1254,heat_work,운동 중 기기 발열
+V1255,sleep,수면 측정 오류
+V1256,hr_accuracy,심박·센서 측정 부정확
+V1257,app_crash,앱 멈춤·강제 종료
+V1258,battery_swell,배터리 부풂·과열
+V1259,heat_work,운동 중 기기 발열
+V1260,heat_sleep,수면 중 발열
+V1261,battery,배터리 소모
+V1262,battery_swell,배터리 부풂·과열
+V1263,battery,배터리 소모
+V1264,battery_swell,배터리 부풂·과열
+V1265,battery,배터리 소모
+V1266,battery_swell,배터리 부풂·과열
+V1267,battery,배터리 소모
+V1268,heat_charge,충전 중 과열·화상
+V1269,app_crash,앱 멈춤·강제 종료
+V1270,heat_sleep,수면 중 발열
+V1271,menu,메뉴·UI 사용성
+V1272,battery,배터리 소모
+V1273,battery_swell,배터리 부풂·과열
+V1274,heat_sleep,수면 중 발열
+V1275,heat_work,운동 중 기기 발열
+V1276,heat_work,운동 중 기기 발열
+V1277,heat_work,운동 중 기기 발열
+V1278,heat_sleep,수면 중 발열
+V1279,heat_work,운동 중 기기 발열
+V1280,battery_swell,배터리 부풂·과열
+V1281,hr_accuracy,심박·센서 측정 부정확
+V1282,sync_phone,폰 앱 동기화 지연·누락
+V1283,heat_work,운동 중 기기 발열
+V1284,battery,배터리 소모
+V1285,heat_work,운동 중 기기 발열
+V1286,battery_swell,배터리 부풂·과열
+V1287,heat_sleep,수면 중 발열
+V1288,battery_swell,배터리 부풂·과열
+V1289,heat_work,운동 중 기기 발열
+V1290,heat_charge,충전 중 과열·화상
+V1291,battery,배터리 소모
+V1292,heat_sleep,수면 중 발열
+V1293,heat_charge,충전 중 과열·화상
+V1294,battery,배터리 소모
+V1295,battery_swell,배터리 부풂·과열
+V1296,sync_phone,폰 앱 동기화 지연·누락
+V1297,menu,메뉴·UI 사용성
+V1298,battery,배터리 소모
+V1299,heat_sleep,수면 중 발열
+V1300,app_crash,앱 멈춤·강제 종료
+V1301,sync_phone,폰 앱 동기화 지연·누락
+V1302,sleep,수면 측정 오류
+V1303,app_crash,앱 멈춤·강제 종료
+V1304,battery_swell,배터리 부풂·과열
+V1305,heat_sleep,수면 중 발열
+V1306,heat_sleep,수면 중 발열
+V1307,heat_disc,연결 끊김 시 발열
+V1308,battery,배터리 소모
+V1309,sleep,수면 측정 오류
+V1310,heat_sleep,수면 중 발열
+V1311,heat_work,운동 중 기기 발열
+V1312,heat_disc,연결 끊김 시 발열
+V1313,heat_sleep,수면 중 발열
+V1314,sleep,수면 측정 오류
+V1315,heat_work,운동 중 기기 발열
+V1316,gps,GPS 거리 오차
+V1317,charging,충전 불량
+V1318,battery,배터리 소모
+V1319,heat_charge,충전 중 과열·화상
+V1320,heat_work,운동 중 기기 발열
+V1321,battery_swell,배터리 부풂·과열
+V1322,notification,알림 지연·누락
+V1323,heat_work,운동 중 기기 발열
+V1324,heat_sleep,수면 중 발열
+V1325,battery,배터리 소모
+V1326,battery_swell,배터리 부풂·과열
+V1327,heat_work,운동 중 기기 발열
+V1328,sync_phone,폰 앱 동기화 지연·누락
+V1329,battery_swell,배터리 부풂·과열
+V1330,notification,알림 지연·누락
+V1331,heat_sleep,수면 중 발열
+V1332,heat_work,운동 중 기기 발열
+V1333,battery,배터리 소모
+V1334,step_count,걸음 수 부정확
+V1335,heat_charge,충전 중 과열·화상
+V1336,heat_work,운동 중 기기 발열
+V1337,heat_charge,충전 중 과열·화상
+V1338,heat_sleep,수면 중 발열
+V1339,sync_phone,폰 앱 동기화 지연·누락
+V1340,heat_work,운동 중 기기 발열
+V1341,strap_skin,착용감·스트랩·피부
+V1342,battery,배터리 소모
+V1343,heat_work,운동 중 기기 발열
+V1344,battery_swell,배터리 부풂·과열
+V1345,heat_charge,충전 중 과열·화상
+V1346,notification,알림 지연·누락
+V1347,heat_work,운동 중 기기 발열
+V1348,menu,메뉴·UI 사용성
+V1349,heat_sleep,수면 중 발열
+V1350,battery_swell,배터리 부풂·과열
+V1351,heat_charge,충전 중 과열·화상
+V1352,battery_swell,배터리 부풂·과열
+V1353,battery_swell,배터리 부풂·과열
+V1354,battery_swell,배터리 부풂·과열
+V1355,sleep,수면 측정 오류
+V1356,battery,배터리 소모
+V1357,notification,알림 지연·누락
+V1358,battery,배터리 소모
+V1359,heat_sleep,수면 중 발열
+V1360,heat_work,운동 중 기기 발열
+V1361,heat_sleep,수면 중 발열
+V1362,battery_swell,배터리 부풂·과열
+V1363,battery,배터리 소모
+V1364,heat_work,운동 중 기기 발열
+V1365,app_crash,앱 멈춤·강제 종료
+V1366,gps,GPS 거리 오차
+V1367,charging,충전 불량
+V1368,battery_swell,배터리 부풂·과열
+V1369,battery_swell,배터리 부풂·과열
+V1370,heat_work,운동 중 기기 발열
+V1371,heat_sleep,수면 중 발열
+V1372,heat_work,운동 중 기기 발열
+V1373,heat_sleep,수면 중 발열
+V1374,battery_swell,배터리 부풂·과열
+V1375,menu,메뉴·UI 사용성
+V1376,heat_work,운동 중 기기 발열
+V1377,sync_phone,폰 앱 동기화 지연·누락
+V1378,heat_charge,충전 중 과열·화상
+V1379,battery_swell,배터리 부풂·과열
+V1380,battery_swell,배터리 부풂·과열
+V1381,heat_disc,연결 끊김 시 발열
+V1382,heat_disc,연결 끊김 시 발열
+V1383,menu,메뉴·UI 사용성
+V1384,heat_work,운동 중 기기 발열
+V1385,heat_sleep,수면 중 발열
+V1386,gps,GPS 거리 오차
+V1387,heat_work,운동 중 기기 발열
+V1388,heat_work,운동 중 기기 발열
+V1389,battery,배터리 소모
+V1390,heat_charge,충전 중 과열·화상
+V1391,battery_swell,배터리 부풂·과열
+V1392,charging,충전 불량
+V1393,battery,배터리 소모
+V1394,heat_sleep,수면 중 발열
+V1395,heat_work,운동 중 기기 발열
+V1396,menu,메뉴·UI 사용성
+V1397,menu,메뉴·UI 사용성
+V1398,step_count,걸음 수 부정확
+V1399,heat_work,운동 중 기기 발열
+V1400,heat_disc,연결 끊김 시 발열
+V1401,heat_work,운동 중 기기 발열
+V1402,sync_phone,폰 앱 동기화 지연·누락
+V1403,heat_sleep,수면 중 발열
+V1404,battery_swell,배터리 부풂·과열
+V1405,hr_accuracy,심박·센서 측정 부정확
+V1406,app_crash,앱 멈춤·강제 종료
+V1407,heat_disc,연결 끊김 시 발열
+V1408,battery,배터리 소모
+V1409,heat_work,운동 중 기기 발열
+V1410,heat_sleep,수면 중 발열
+V1411,battery_swell,배터리 부풂·과열
+V1412,heat_work,운동 중 기기 발열
+V1413,heat_work,운동 중 기기 발열
+V1414,battery,배터리 소모
+V1415,heat_charge,충전 중 과열·화상
+V1416,gps,GPS 거리 오차
+V1417,sleep,수면 측정 오류
+V1418,heat_work,운동 중 기기 발열
+V1419,notification,알림 지연·누락
+V1420,heat_work,운동 중 기기 발열
+V1421,battery_swell,배터리 부풂·과열
+V1422,battery_swell,배터리 부풂·과열
+V1423,heat_charge,충전 중 과열·화상
+V1424,notification,알림 지연·누락
+V1425,heat_work,운동 중 기기 발열
+V1426,gps,GPS 거리 오차
+V1427,heat_sleep,수면 중 발열
+V1428,sleep,수면 측정 오류
+V1429,heat_sleep,수면 중 발열
+V1430,heat_work,운동 중 기기 발열
+V1431,heat_work,운동 중 기기 발열
+V1432,heat_work,운동 중 기기 발열
+V1433,notification,알림 지연·누락
+V1434,battery_swell,배터리 부풂·과열
+V1435,heat_disc,연결 끊김 시 발열
+V1436,heat_work,운동 중 기기 발열
+V1437,heat_work,운동 중 기기 발열
+V1438,heat_sleep,수면 중 발열
+V1439,heat_work,운동 중 기기 발열
+V1440,heat_disc,연결 끊김 시 발열
+V1441,heat_work,운동 중 기기 발열
+V1442,battery_swell,배터리 부풂·과열
+V1443,heat_sleep,수면 중 발열
+V1444,battery_swell,배터리 부풂·과열
+V1445,heat_sleep,수면 중 발열
+V1446,heat_work,운동 중 기기 발열
+V1447,battery_swell,배터리 부풂·과열
+V1448,menu,메뉴·UI 사용성
+V1449,battery,배터리 소모
+V1450,heat_work,운동 중 기기 발열
+V1451,battery_swell,배터리 부풂·과열
+V1452,gps,GPS 거리 오차
+V1453,heat_work,운동 중 기기 발열
+V1454,gps,GPS 거리 오차
+V1455,menu,메뉴·UI 사용성
+V1456,heat_charge,충전 중 과열·화상
+V1457,heat_work,운동 중 기기 발열
+V1458,heat_disc,연결 끊김 시 발열
+V1459,app_crash,앱 멈춤·강제 종료
+V1460,battery,배터리 소모
+V1461,battery_swell,배터리 부풂·과열
+V1462,heat_sleep,수면 중 발열
+V1463,battery_swell,배터리 부풂·과열
+V1464,heat_sleep,수면 중 발열
+V1465,gps,GPS 거리 오차
+V1466,charging,충전 불량
+V1467,sleep,수면 측정 오류
+V1468,battery_swell,배터리 부풂·과열
+V1469,heat_sleep,수면 중 발열
+V1470,heat_sleep,수면 중 발열
+V1471,app_crash,앱 멈춤·강제 종료
+V1472,gps,GPS 거리 오차
+V1473,heat_sleep,수면 중 발열
+V1474,battery,배터리 소모
+V1475,strap_skin,착용감·스트랩·피부
+V1476,app_crash,앱 멈춤·강제 종료
+V1477,heat_work,운동 중 기기 발열
+V1478,battery,배터리 소모
+V1479,heat_work,운동 중 기기 발열
+V1480,heat_disc,연결 끊김 시 발열
+V1481,heat_sleep,수면 중 발열
+V1482,heat_sleep,수면 중 발열
+V1483,heat_work,운동 중 기기 발열
+V1484,battery_swell,배터리 부풂·과열
+V1485,battery,배터리 소모
+V1486,battery,배터리 소모
+V1487,sleep,수면 측정 오류
+V1488,heat_work,운동 중 기기 발열
+V1489,heat_sleep,수면 중 발열
+V1490,notification,알림 지연·누락
+V1491,heat_work,운동 중 기기 발열
+V1492,heat_work,운동 중 기기 발열
+V1493,heat_disc,연결 끊김 시 발열
+V1494,heat_sleep,수면 중 발열
+V1495,heat_work,운동 중 기기 발열
+V1496,battery_swell,배터리 부풂·과열
+V1497,battery_swell,배터리 부풂·과열
+V1498,heat_sleep,수면 중 발열
+V1499,sync_phone,폰 앱 동기화 지연·누락
+V1500,heat_sleep,수면 중 발열
+V1501,step_count,걸음 수 부정확
+V1502,battery_swell,배터리 부풂·과열
+V1503,heat_charge,충전 중 과열·화상
+V1504,battery_swell,배터리 부풂·과열
+V1505,sync_phone,폰 앱 동기화 지연·누락
+V1506,heat_work,운동 중 기기 발열
+V1507,heat_work,운동 중 기기 발열
+V1508,app_crash,앱 멈춤·강제 종료
+V1509,heat_work,운동 중 기기 발열
+V1510,heat_work,운동 중 기기 발열
+V1511,heat_work,운동 중 기기 발열
+V1512,heat_sleep,수면 중 발열
+V1513,battery_swell,배터리 부풂·과열
+V1514,menu,메뉴·UI 사용성
+V1515,heat_charge,충전 중 과열·화상
+V1516,heat_work,운동 중 기기 발열
+V1517,sleep,수면 측정 오류
+V1518,battery_swell,배터리 부풂·과열
+V1519,heat_sleep,수면 중 발열
+V1520,heat_charge,충전 중 과열·화상
+V1521,battery_swell,배터리 부풂·과열
+V1522,heat_work,운동 중 기기 발열
+V1523,gps,GPS 거리 오차
+V1524,hr_accuracy,심박·센서 측정 부정확
+V1525,heat_sleep,수면 중 발열
+V1526,heat_charge,충전 중 과열·화상
+V1527,sleep,수면 측정 오류
+V1528,battery,배터리 소모
+V1529,heat_work,운동 중 기기 발열
+V1530,battery_swell,배터리 부풂·과열
+V1531,heat_sleep,수면 중 발열
+V1532,heat_sleep,수면 중 발열
+V1533,heat_work,운동 중 기기 발열
+V1534,sleep,수면 측정 오류
+V1535,heat_work,운동 중 기기 발열
+V1536,strap_skin,착용감·스트랩·피부
+V1537,heat_work,운동 중 기기 발열
+V1538,battery_swell,배터리 부풂·과열
+V1539,heat_work,운동 중 기기 발열
+V1540,battery_swell,배터리 부풂·과열
+V1541,heat_sleep,수면 중 발열
+V1542,heat_work,운동 중 기기 발열
+V1543,heat_work,운동 중 기기 발열
+V1544,gps,GPS 거리 오차
+V1545,heat_sleep,수면 중 발열
+V1546,heat_sleep,수면 중 발열
+V1547,battery,배터리 소모
+V1548,heat_sleep,수면 중 발열
+V1549,battery_swell,배터리 부풂·과열
+V1550,heat_sleep,수면 중 발열
+V1551,sync_phone,폰 앱 동기화 지연·누락
+V1552,battery_swell,배터리 부풂·과열
+V1553,battery_swell,배터리 부풂·과열
+V1554,heat_work,운동 중 기기 발열
+V1555,battery_swell,배터리 부풂·과열
+V1556,battery_swell,배터리 부풂·과열
+V1557,battery_swell,배터리 부풂·과열
+V1558,battery,배터리 소모
+V1559,heat_work,운동 중 기기 발열
+V1560,notification,알림 지연·누락
+V1561,heat_sleep,수면 중 발열
+V1562,heat_sleep,수면 중 발열
+V1563,heat_work,운동 중 기기 발열
+V1564,sync_phone,폰 앱 동기화 지연·누락
+V1565,gps,GPS 거리 오차
+V1566,heat_work,운동 중 기기 발열
+V1567,heat_work,운동 중 기기 발열
+V1568,heat_work,운동 중 기기 발열
+V1569,sleep,수면 측정 오류
+V1570,heat_sleep,수면 중 발열
+V1571,heat_disc,연결 끊김 시 발열
+V1572,sleep,수면 측정 오류
+V1573,heat_work,운동 중 기기 발열
+V1574,heat_work,운동 중 기기 발열
+V1575,heat_sleep,수면 중 발열
+V1576,battery_swell,배터리 부풂·과열
+V1577,battery_swell,배터리 부풂·과열
+V1578,battery_swell,배터리 부풂·과열
+V1579,heat_sleep,수면 중 발열
+V1580,sleep,수면 측정 오류
+V1581,battery_swell,배터리 부풂·과열
+V1582,strap_skin,착용감·스트랩·피부
+V1583,sleep,수면 측정 오류
+V1584,sleep,수면 측정 오류
+V1585,heat_sleep,수면 중 발열
+V1586,heat_sleep,수면 중 발열
+V1587,heat_charge,충전 중 과열·화상
+V1588,step_count,걸음 수 부정확
+V1589,battery_swell,배터리 부풂·과열
+V1590,battery_swell,배터리 부풂·과열
+V1591,battery_swell,배터리 부풂·과열
+V1592,sleep,수면 측정 오류
+V1593,heat_charge,충전 중 과열·화상
+V1594,battery_swell,배터리 부풂·과열
+V1595,heat_work,운동 중 기기 발열
+V1596,strap_skin,착용감·스트랩·피부
+V1597,heat_disc,연결 끊김 시 발열
+V1598,heat_charge,충전 중 과열·화상
+V1599,heat_work,운동 중 기기 발열
+V1600,heat_work,운동 중 기기 발열
+V1601,notification,알림 지연·누락
+V1602,strap_skin,착용감·스트랩·피부
+V1603,battery_swell,배터리 부풂·과열
+V1604,battery_swell,배터리 부풂·과열
+V1605,heat_work,운동 중 기기 발열
+V1606,heat_sleep,수면 중 발열
+V1607,battery,배터리 소모
+V1608,heat_disc,연결 끊김 시 발열
+V1609,battery,배터리 소모
+V1610,battery_swell,배터리 부풂·과열
+V1611,gps,GPS 거리 오차
+V1612,gps,GPS 거리 오차
+V1613,menu,메뉴·UI 사용성
+V1614,notification,알림 지연·누락
+V1615,heat_work,운동 중 기기 발열
+V1616,gps,GPS 거리 오차
+V1617,heat_sleep,수면 중 발열
+V1618,menu,메뉴·UI 사용성
+V1619,heat_disc,연결 끊김 시 발열
+V1620,heat_sleep,수면 중 발열
+V1621,charging,충전 불량
+V1622,heat_sleep,수면 중 발열
+V1623,heat_sleep,수면 중 발열
+V1624,heat_sleep,수면 중 발열
+V1625,battery_swell,배터리 부풂·과열
+V1626,battery_swell,배터리 부풂·과열
+V1627,sync_phone,폰 앱 동기화 지연·누락
+V1628,heat_work,운동 중 기기 발열
+V1629,step_count,걸음 수 부정확
+V1630,battery_swell,배터리 부풂·과열
+V1631,heat_work,운동 중 기기 발열
+V1632,heat_sleep,수면 중 발열
+V1633,heat_sleep,수면 중 발열
+V1634,heat_work,운동 중 기기 발열
+V1635,battery_swell,배터리 부풂·과열
+V1636,menu,메뉴·UI 사용성
+V1637,gps,GPS 거리 오차
+V1638,battery_swell,배터리 부풂·과열
+V1639,menu,메뉴·UI 사용성
+V1640,battery_swell,배터리 부풂·과열
+V1641,heat_disc,연결 끊김 시 발열
+V1642,heat_charge,충전 중 과열·화상
+V1643,battery,배터리 소모
+V1644,heat_work,운동 중 기기 발열
+V1645,battery_swell,배터리 부풂·과열
+V1646,battery,배터리 소모
+V1647,charging,충전 불량
+V1648,step_count,걸음 수 부정확
+V1649,battery,배터리 소모
+V1650,heat_sleep,수면 중 발열
+V1651,heat_sleep,수면 중 발열
+V1652,heat_charge,충전 중 과열·화상
+V1653,heat_charge,충전 중 과열·화상
+V1654,battery_swell,배터리 부풂·과열
+V1655,sleep,수면 측정 오류
+V1656,gps,GPS 거리 오차
+V1657,battery_swell,배터리 부풂·과열
+V1658,menu,메뉴·UI 사용성
+V1659,battery_swell,배터리 부풂·과열
+V1660,gps,GPS 거리 오차
+V1661,battery,배터리 소모
+V1662,battery,배터리 소모
+V1663,battery_swell,배터리 부풂·과열
+V1664,notification,알림 지연·누락
+V1665,menu,메뉴·UI 사용성
+V1666,gps,GPS 거리 오차
+V1667,heat_sleep,수면 중 발열
+V1668,battery_swell,배터리 부풂·과열
+V1669,heat_sleep,수면 중 발열
+V1670,gps,GPS 거리 오차
+V1671,heat_sleep,수면 중 발열
+V1672,charging,충전 불량
+V1673,notification,알림 지연·누락
+V1674,heat_sleep,수면 중 발열
+V1675,heat_sleep,수면 중 발열
+V1676,heat_work,운동 중 기기 발열
+V1677,charging,충전 불량
+V1678,menu,메뉴·UI 사용성
+V1679,heat_sleep,수면 중 발열
+V1680,heat_sleep,수면 중 발열
+V1681,heat_work,운동 중 기기 발열
+V1682,heat_work,운동 중 기기 발열
+V1683,battery_swell,배터리 부풂·과열
+V1684,battery_swell,배터리 부풂·과열
+V1685,battery,배터리 소모
+V1686,battery,배터리 소모
+V1687,heat_work,운동 중 기기 발열
+V1688,hr_accuracy,심박·센서 측정 부정확
+V1689,heat_sleep,수면 중 발열
+V1690,battery_swell,배터리 부풂·과열
+V1691,heat_sleep,수면 중 발열
+V1692,heat_disc,연결 끊김 시 발열
+V1693,step_count,걸음 수 부정확
+V1694,battery,배터리 소모
+V1695,step_count,걸음 수 부정확
+V1696,heat_work,운동 중 기기 발열
+V1697,heat_sleep,수면 중 발열
+V1698,heat_work,운동 중 기기 발열
+V1699,heat_sleep,수면 중 발열
+V1700,battery_swell,배터리 부풂·과열
+V1701,heat_charge,충전 중 과열·화상
+V1702,battery,배터리 소모
+V1703,notification,알림 지연·누락
+V1704,battery_swell,배터리 부풂·과열
+V1705,heat_disc,연결 끊김 시 발열
+V1706,heat_work,운동 중 기기 발열
+V1707,step_count,걸음 수 부정확
+V1708,notification,알림 지연·누락
+V1709,heat_work,운동 중 기기 발열
+V1710,heat_work,운동 중 기기 발열
+V1711,heat_sleep,수면 중 발열
+V1712,battery,배터리 소모
+V1713,battery,배터리 소모
+V1714,heat_sleep,수면 중 발열
+V1715,sync_phone,폰 앱 동기화 지연·누락
+V1716,heat_work,운동 중 기기 발열
+V1717,heat_charge,충전 중 과열·화상
+V1718,heat_work,운동 중 기기 발열
+V1719,heat_sleep,수면 중 발열
+V1720,sync_phone,폰 앱 동기화 지연·누락
+V1721,heat_sleep,수면 중 발열
+V1722,step_count,걸음 수 부정확
+V1723,heat_sleep,수면 중 발열
+V1724,battery,배터리 소모
+V1725,gps,GPS 거리 오차
+V1726,heat_sleep,수면 중 발열
+V1727,battery_swell,배터리 부풂·과열
+V1728,heat_sleep,수면 중 발열
+V1729,battery_swell,배터리 부풂·과열
+V1730,heat_charge,충전 중 과열·화상
+V1731,heat_sleep,수면 중 발열
+V1732,heat_charge,충전 중 과열·화상
+V1733,gps,GPS 거리 오차
+V1734,battery_swell,배터리 부풂·과열
+V1735,battery_swell,배터리 부풂·과열
+V1736,heat_sleep,수면 중 발열
+V1737,heat_work,운동 중 기기 발열
+V1738,heat_charge,충전 중 과열·화상
+V1739,heat_sleep,수면 중 발열
+V1740,heat_charge,충전 중 과열·화상
+V1741,battery_swell,배터리 부풂·과열
+V1742,heat_work,운동 중 기기 발열
+V1743,sync_phone,폰 앱 동기화 지연·누락
+V1744,battery_swell,배터리 부풂·과열
+V1745,heat_sleep,수면 중 발열
+V1746,battery,배터리 소모
+V1747,battery_swell,배터리 부풂·과열
+V1748,step_count,걸음 수 부정확
+V1749,step_count,걸음 수 부정확
+V1750,battery_swell,배터리 부풂·과열
+V1751,battery,배터리 소모
+V1752,battery_swell,배터리 부풂·과열
+V1753,battery,배터리 소모
+V1754,battery_swell,배터리 부풂·과열
+V1755,heat_sleep,수면 중 발열
+V1756,heat_work,운동 중 기기 발열
+V1757,heat_sleep,수면 중 발열
+V1758,heat_sleep,수면 중 발열
+V1759,charging,충전 불량
+V1760,heat_disc,연결 끊김 시 발열
+V1761,gps,GPS 거리 오차
