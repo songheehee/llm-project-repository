@@ -162,6 +162,9 @@ ss["tickets"], ss["next_ticket_no"] = stage1.load_tickets()
 # 화면(티켓 카드 · 사이드바 · 2️⃣·3️⃣ 티켓 선택 · 대표 VOC)에는 처리 완료되지 않은 티켓만. 완료 기록은 파일에 남는다
 OPEN_TICKETS = stage1.open_tickets(ss["tickets"])
 ss.setdefault("stage2", {})          # {ticket_id: 최종 state} — outputs/stage2/{ticket_id}.json에도 저장
+# 코드 찾기 대기 상태(폴더 확인에서 멈춤): {ticket_id: {"thread_id", "payload", "state"}} — 티켓별로 따로 둔다
+ss.setdefault("stage2_wait", {})
+ss.setdefault("stage2_run_no", {})   # {ticket_id: 실행 번호} — thread_id = f"{ticket_id}:{번호}"
 ss.setdefault("current_ticket", None)
 ss.setdefault("editor_nonce", 0)        # 발행 후 유형 표(data_editor)를 체크 없이 새로 그리기 위한 번호
 ss.setdefault("voc_view", VIEW_RAW)
@@ -299,6 +302,7 @@ def confirm_cancel(ticket_id: str) -> None:
     if row.button("발행 취소", type="primary", key="dlg_cancel_ticket"):
         stage1.cancel_ticket(ticket_id)
         ss["stage2"].pop(ticket_id, None)  # 세션에 남은 코드 찾기 결과도 버린다 (파일은 cancel_ticket이 지움)
+        ss["stage2_wait"].pop(ticket_id, None)
         if ss.get("current_ticket") == ticket_id:
             ss["current_ticket"] = None
         ss["editor_nonce"] += 1  # 유형 표를 새로 그려 돌아온 유형이 체크 없이 보이게
@@ -770,6 +774,41 @@ def get_result(ticket) -> dict | None:
     return result
 
 
+def folder_option(f: dict) -> str:
+    return f"{f['repo']} / {f['path']}"
+
+
+def render_folder_pick(sel: str, wait: dict) -> None:
+    """폴더 확인(interrupt 대기): '수정 라인을 찾을 폴더'를 고르고 [이 폴더에서 수정 라인 찾기]로 그래프를 재개한다.
+    기본 선택 = 1위 레포지토리에서 감점되지 않은 의심도 상위 2개 폴더, 최대 MAX_SELECTED_FOLDERS개."""
+    st.markdown("#### 수정 라인을 찾을 폴더")
+    graph = cached_graph()
+    if not stage2.is_waiting(graph, wait["thread_id"]):  # 서버 재시작 등으로 체크포인터에 그 실행이 없다
+        st.warning("이전 코드 찾기 상태가 없어졌습니다. 다시 [코드 찾기]를 눌러 주세요")
+        return
+    payload = wait["payload"]
+    folders = payload["folders"]
+    by_label = {folder_option(f): f for f in folders}
+    top = payload["repos"][0]["name"] if payload["repos"] else None
+    default = [folder_option(f) for f in folders
+               if f["repo"] == top and not f["penalized"]][:config.TOP_FOLDERS_FOR_LINES]
+    picked = st.multiselect("수정 라인을 찾을 폴더", list(by_label), default=default,
+                            max_selections=config.MAX_SELECTED_FOLDERS, key=f"pick_folders_{wait['thread_id']}",
+                            label_visibility="collapsed")
+    st.caption(f"고른 폴더 안의 파일에서만 수정 라인을 찾습니다 · 최대 {config.MAX_SELECTED_FOLDERS}개 · "
+               "기본은 1위 레포지토리에서 감점되지 않은 의심도 상위 2개")
+    if st.button("이 폴더에서 수정 라인 찾기", type="primary", disabled=not picked,
+                 key=f"resume_{wait['thread_id']}") and has_api_key():
+        chosen = [{"repo": by_label[o]["repo"], "path": by_label[o]["path"]} for o in picked]
+        with st.spinner("수정 라인을 찾는 중…"):
+            for event in stage2.resume_stage2(graph, wait["thread_id"], chosen):
+                if event[0] == "done":  # 끝까지 완료됐을 때만 저장
+                    ss["stage2"][sel] = event[1]
+                    stage2.save_result(sel, event[1])
+                    ss["stage2_wait"].pop(sel, None)
+        st.rerun()  # 폴더 카드에 원인 후보·함께 확인 색을 칠해 다시 그린다
+
+
 with tab2:
     if not my_tickets:  # 티켓 선택 목록에는 현재 개발자의 티켓만
         st.info(NO_MY_TICKET)
@@ -785,16 +824,26 @@ with tab2:
 
         if c_run.button("코드 찾기", type="primary", width="stretch") and has_api_key():  # 내 티켓에서만
             cached_vectorstore()
-            graph = cached_graph()
-            with st.spinner("코드 위치를 찾는 중…"):  # 단계별 소요 시간은 state timings → 사이드바에 표시
-                for event in stage2.stream_stage2(graph, ticket):
-                    if event[0] == "done":
+            graph = cached_graph()  # @st.cache_resource — 체크포인터가 rerun 사이에 유지된다
+            # 다시 누르면 실행 번호를 올려 새 thread로 처음부터 (이전 대기 상태와 섞이지 않게)
+            run_no = ss["stage2_run_no"].get(sel, 0) + 1
+            ss["stage2_run_no"][sel] = run_no
+            thread_id = f"{sel}:{run_no}"
+            ss["stage2_wait"].pop(sel, None)
+            with st.spinner("코드 위치를 찾는 중…"):  # ④ 레포지토리 라우팅 → ⑤ 폴더 의심도까지 돌고 폴더 확인에서 멈춘다
+                for event in stage2.stream_stage2(graph, ticket, thread_id):
+                    if event[0] == "interrupt":
+                        ss["stage2_wait"][sel] = {"thread_id": thread_id, "payload": event[1],
+                                                  "state": stage2.waiting_state(graph, thread_id)}
+                    elif event[0] == "done":  # 고를 폴더가 없어 멈추지 않고 끝난 경우
                         ss["stage2"][sel] = event[1]
                         stage2.save_result(sel, event[1])
 
-        result = get_result(ticket)
+        wait = ss["stage2_wait"].get(sel)  # 폴더 확인 대기 중이면 그 시점 state(수정 라인·영향 범위 없음)를 보여 준다
+        result = wait["state"] if wait else get_result(ticket)
         if not result:
-            st.caption("코드 찾기를 누르면 ④ 레포지토리 라우팅 → ⑤ 폴더 의심도 → ⑥ 라인 탐색 → ⑦ 영향 범위를 차례로 실행합니다.")
+            st.caption("코드 찾기를 누르면 ④ 레포지토리 라우팅 → ⑤ 폴더 의심도까지 실행하고 멈춥니다. "
+                       "수정 라인을 찾을 폴더를 고르면 ⑥ 라인 탐색 → ⑦ 영향 범위를 찾습니다.")
         else:
             cands = result.get("repo_candidates", [])
             sources = result.get("repo_sources", {})
@@ -835,6 +884,9 @@ with tab2:
                             "가장 비슷한 함수": f.top_unit, "함수 동작 요약 (LLM)": f.top_summary,
                         } for f in folders]), key=f"folder_breakdown_{sel}_{repo_name}")
 
+            if wait:  # 폴더 확인 — 사람이 고른 폴더에서만 수정 라인을 찾는다
+                render_folder_pick(sel, wait)
+
 # ════════════════════════════ 탭 3: 수정 라인 ════════════════════════════
 
 def code_windows(lines: list[str], ranges: list[tuple[int, int]]) -> list[tuple[int, int, list[int]]]:
@@ -865,6 +917,8 @@ with tab3:
     result = get_result(ss["tickets"][sel]) if sel in ss["tickets"] else None
     if not my_tickets:
         st.info(NO_MY_TICKET)
+    elif sel in ss["stage2_wait"]:  # 폴더 확인 전 (코드 찾기가 폴더 후보에서 멈춰 있음)
+        st.info("의심 위치 탭에서 폴더를 고르면 수정 라인이 나옵니다")
     elif not result:
         st.info("2️⃣ 탭에서 코드 찾기를 실행하면 검증된 수정 라인이 여기에 나옵니다.")
     else:

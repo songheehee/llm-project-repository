@@ -167,6 +167,7 @@ ROLE_NOTES = {"display_only": "표시 전용 폴더 → 감점"}
 # ── 라인 탐색 · 검증 · 영향 ──────────────────────────
 TOP_FOLDERS_FOR_LINES = 2
 TOP_FILES_FOR_LINES = 3
+MAX_SELECTED_FOLDERS = 3      # '수정 라인을 찾을 폴더'로 고를 수 있는 최대 개수 (2️⃣ 폴더 확인 — interrupt 재개 값)
 LINE_MIN_CONFIDENCE = 0.5     # 파일별 탐색 결과 중 이 신뢰도 미만 추천은 merge_lines에서 뺀다
 GIT_LOG_PATCH_CHARS = 1500   # 파일당 최근 변경 요약 길이
 COMMIT_EVIDENCE_DAYS = 30
@@ -177,6 +178,7 @@ CODE_CONTEXT_LINES = 5       # 코드 뷰 앞뒤 줄 수
 NODE_LABELS = {
     "route_repos": "④ 레포지토리 라우팅",
     "score_folders": "⑤ 폴더 의심도",
+    "confirm_folders": "⑤ 폴더 확인 (사람)",
     "select_files": "⑥ 후보 파일 선택",
     "search_file": "⑥ 라인 탐색·검증(파일별)",
     "merge_lines": "⑥ 라인 합치기",

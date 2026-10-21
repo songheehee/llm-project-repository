@@ -61,6 +61,11 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
 │   │[driver.py]   노랑  │ └───────────────────┘   상태 파일이 없는 폴더는 카드 없음         │
 │   │[filters.py]  노랑  │                         (폴더 이름도 본문과 같은 글꼴)          │
 │   └───────────────────┘                                                           │
+│   (폴더 확인 전에는 수정 라인·영향 범위가 아직 없어 키워드 일치·감점 색만 나온다)              │
+│ 수정 라인을 찾을 폴더                                  ← 코드 찾기가 여기서 멈춤(interrupt)   │
+│   [pulsefit-py / sensor/ ×] [pulsefit-py / power/ ×]   ▾  (st.multiselect, 최대 3개)        │
+│   고른 폴더 안의 파일에서만 수정 라인을 찾습니다 · 기본은 1위 레포지토리에서 감점 아닌 상위 2개   │
+│   [이 폴더에서 수정 라인 찾기]  → spinner "수정 라인을 찾는 중…" → 재개 → 카드에 원인 후보·함께 확인 색 │
 ├──────────────────────────────────────────────────────────────────────┤
 │ 3️⃣ (위에서 아래로 한 줄씩 · 모두 가로 폭 전체 · 이모티콘 없음)                               │
 │ 수정 위치 │ 레포지토리 │ 파일                 │ 수정 라인    │ 기준 커밋 │  (confidence 높은 순, 파일 여러 개면 여러 줄) │
@@ -244,7 +249,14 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
   - 키워드 점수: 폴더 안 `.py` 파일에서 기술 키워드(영문 변환 포함)·심볼명 매칭 수 ÷ 최대값
   - 최근 변경 점수: 분석 시작일 이전 14일 안에 커밋이 있으면 1, 30일 안이면 0.5, 없으면 0 (`git log --since`)
   - 역할 보정: `folder_roles`가 `display_only`면 ×0.5, 사유를 `note`에 기록
-- 화면(탭 2 "의심 위치", 위에서 아래로): 티켓 선택 + [코드 찾기] → 레포지토리 후보 → 폴더 후보 (폴더 의심도 막대 차트는 없음)
+- 화면(탭 2 "의심 위치", 위에서 아래로): 티켓 선택 + [코드 찾기] → 레포지토리 후보 → 폴더 후보 → **수정 라인을 찾을 폴더**(폴더 확인) (폴더 의심도 막대 차트는 없음)
+  - [코드 찾기]는 폴더 후보까지 돌고 **멈춘다**(LangGraph `interrupt`). "결정은 사람이" — 개발자가 수정 라인을 찾을 폴더를 고르면 그때 재개해 수정 라인·영향 범위를 찾는다(엉뚱한 폴더를 빼서 LLM 호출도 줄임)
+  - 폴더 선택: `st.multiselect`(라벨 숨김), 선택지 "pulsefit-py / sensor/"(모든 레포지토리 후보의 폴더 후보), 기본 = 1위 레포지토리에서 감점되지 않은 의심도 상위 2개, 최대 `MAX_SELECTED_FOLDERS`(3)개, 0개면 버튼 비활성
+  - [이 폴더에서 수정 라인 찾기](primary) → `st.spinner("수정 라인을 찾는 중…")` → `resume_stage2` → 끝나면 폴더 카드에 원인 후보·함께 확인 색
+  - 멈춘 동안 폴더 카드는 키워드 일치·감점만(수정 라인·영향 범위가 아직 없음). 3️⃣ 탭은 "의심 위치 탭에서 폴더를 고르면 수정 라인이 나옵니다"
+  - 대기 상태(thread_id · interrupt payload · 멈춘 시점 state)는 `st.session_state["stage2_wait"]`에 티켓별로 — 다른 티켓으로 바꿨다 돌아와도 그대로
+  - [코드 찾기]를 다시 누르면 실행 번호를 올려 새 thread(`f"{ticket_id}:{번호}"`)로 처음부터 (이전 대기와 섞이지 않음)
+  - 서버 재시작 등으로 체크포인터에 그 thread가 없으면 오류 대신 "이전 코드 찾기 상태가 없어졌습니다. 다시 [코드 찾기]를 눌러 주세요"
   - 화면 문구는 "레포"·"저장소" 대신 "레포지토리"로 통일 (LLM이 쓰는 이유 문장도 프롬프트로 같은 용어 지정)
   - 레포지토리 후보: 후보마다 테두리 상자 한 개 — 1줄 레포지토리 이름(굵게) + `st.progress(점수, text="0.98")` / 2줄 이유 문장만("이유:" 없음, 본문 크기·기본 글자색, 잘림 없음) / 코드 출처(캡션)
     - 블록 아래 `st.segmented_control`(이름만, 라벨 "폴더를 볼 레포지토리"는 숨김 `label_visibility="collapsed"`)로 폴더를 볼 레포지토리를 고른다. 기본은 1위
@@ -271,7 +283,11 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
 | `add_commit_evidence(state)` | 추천 줄에 `git blame -L`로 마지막 커밋을 찾아, 분석 시작일 이전 30일 안이면 sha·날짜·메시지를 근거에 추가 (LLM 아님)         |
 | `analyze_impact(state)`      | 추천 줄의 상수·함수명을 뽑아 같은 레포에서 텍스트 검색 → 호출 위치(파일:줄, 관계) 목록                                       |
 
-- `build_stage2_graph()`: LangGraph `StateGraph`로 `route_repos → score_folders → select_files → (Send × 후보 파일 수) search_file → merge_lines → add_commit_evidence → analyze_impact → END`
+- `build_stage2_graph()`: LangGraph `StateGraph`로 `route_repos → score_folders → confirm_folders → select_files → (Send × 후보 파일 수) search_file → merge_lines → add_commit_evidence → analyze_impact → END`, `checkpointer=InMemorySaver()`
+  - `confirm_folders`: `interrupt({"repos": 레포지토리 후보, "folders": [{repo, path, score, penalized}]})`로 멈춘다. 재개 값 `{"folders": [{repo, path}, …]}` → state `selected_folders`(최대 3개). 비어 있으면 기존 규칙(1위 레포지토리의 의심도 상위 2개 폴더). 고를 폴더가 없으면 멈추지 않는다
+  - `select_files`는 "상위 폴더 2개" 대신 `selected_folders` 안에서 후보 파일을 고른다(폴더가 여러 레포지토리에 걸쳐도 됨, `files: [{repo, file}]`)
+  - `stream_stage2(graph, ticket, thread_id)`: 이벤트 `("node", …)` · `("interrupt", payload)`(업데이트에 `__interrupt__`가 오면) · `("done", 최종 state)`. `resume_stage2(graph, thread_id, folders)`: `graph.stream(Command(resume={"folders": folders}), config)`로 이어 가며 같은 이벤트. `is_waiting` · `waiting_state`로 멈춘 thread 확인·그 시점 state
+  - 앱은 그래프를 `@st.cache_resource`로 한 번만 만들어 체크포인터가 rerun 사이에 유지된다
   - 분배(조건 엣지 `dispatch_files`): 후보 파일마다 `Send("search_file", {file, repo, ticket})` — 파일별로 동시에. 후보가 0개면 Send 없이 `merge_lines`로 바로
   - 예전의 `retry` 필드와 `verify_lines → search_lines` 되돌아가는 조건 엣지는 없다(재탐색은 `search_file` 안에서 파일 단위로)
   - 파일별 가지 결과는 `file_recs: Annotated[list, operator.add]`에 모으고, `merge_lines`가 `line_recs`를 한 번 쓴다(`add_commit_evidence`가 `line_recs`를 근거 붙여 다시 쓰므로 `line_recs`에는 add reducer를 달지 않음). `errors`는 `operator.add`
@@ -281,7 +297,8 @@ VOCAI는 VOC를 **개발자 티켓**으로 바꾸고, **레포 → 폴더 → �
 - `try_stage2.py`가 후보 파일별 `search_file` 소요 시간을 출력한다
 - 화면: [코드 찾기] → 실행 중에는 `st.spinner("코드 위치를 찾는 중…")` 하나만 (단계별 진행 박스 없음). 단계별 소요 시간(timings)은 내부 기록만 하고 화면에 표시하지 않는다
 - 2️⃣·3️⃣ 탭: 티켓 선택 목록에는 현재 개발자의 티켓만. [코드 찾기]도 내 티켓에서만. 내 티켓이 없으면 "내가 맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요"
-- 코드 찾기 결과는 티켓 id별로 `outputs/stage2/{ticket_id}.json`에 저장 — 현재 개발자를 바꿨다 돌아와도·새로고침해도 다시 실행하지 않는다
+- 코드 찾기 결과는 티켓 id별로 `outputs/stage2/{ticket_id}.json`에 저장 — **재개 후 끝까지 완료됐을 때만**. 현재 개발자를 바꿨다 돌아와도·새로고침해도 다시 실행하지 않는다
+- 범위 검증의 `trim_range`는 범위 앞뒤의 빈 줄·주석·docstring·def·try·finally 줄을 잘라낸다(프롬프트의 "실행 코드 줄만" 규칙을 검증에서도)
 - 세션에 남은 옛 결과(예: `repo`가 없는 예전 `Impact`)는 쓰지 않는다 — 지우고 "이전 버전으로 만든 결과라 지웠습니다. 코드 찾기를 다시 실행하세요."
 - 탭 3(이모티콘 없음, 위에서 아래로 한 줄씩, 모두 가로 폭 전체 · 좌우 분할 없음):
   1. 수정 위치 요약 — 표 한 개: 레포지토리 · 파일 · 수정 라인 · 기준 커밋 (추천 파일이 하나면 1줄, 여러 개면 여러 줄, confidence 높은 순)

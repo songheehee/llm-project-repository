@@ -29,11 +29,19 @@ def main() -> None:
     graph = stage2.build_stage2_graph()
     result = {}
     t0 = time.perf_counter()
-    for event in stage2.stream_stage2(graph, ticket):
+    thread_id = f"{ticket.ticket_id}:1"
+    events = list(stage2.stream_stage2(graph, ticket, thread_id))
+    if events and events[-1][0] == "interrupt":  # 폴더 확인에서 멈춤 — 터미널에서는 기본 규칙(빈 값)으로 재개
+        payload = events[-1][1]
+        print("⏸ 폴더 확인에서 멈춤 — 폴더 후보:",
+              ", ".join(f"{f['repo']}/{f['path']}{'(감점)' if f['penalized'] else ''}" for f in payload["folders"][:6]))
+        events += list(stage2.resume_stage2(graph, thread_id, []))
+    for event in events:
         if event[0] == "node":
             print(f"✓ {config.NODE_LABELS[event[1]]} ({event[2]:.1f}초)")
-        else:
+        elif event[0] == "done":
             result = event[1]
+    print(f"\n[폴더 확인] 수정 라인을 찾은 폴더: {[f['repo'] + '/' + f['path'] for f in result['selected_folders']]}")
     print(f"\n[⑥ 후보 파일별 search_file — 동시 최대 {config.MAX_PARALLEL_LLM}개] 그래프 전체 {time.perf_counter() - t0:.1f}초")
     for key, secs in result.get("timings", {}).items():
         if key.startswith("search_file:"):
