@@ -785,6 +785,37 @@ setTimeout(() => {{
 }}, 80);
 </script>""", unsafe_allow_javascript=True)
 
+# ════════════════════════════ 탭 2: 티켓 ════════════════════════════
+# 티켓 탭을 대시보드보다 먼저 실행한다 (화면의 탭 순서는 st.tabs 그대로) — 화면은 실행 순서대로 바뀌므로,
+# 대시보드(차트·VOC 표)를 다 보낸 뒤에야 티켓 보기가 바뀌면 [내 티켓]↔[다른 개발자 티켓] 전환 때 이전 보기가 잠깐 남아 보였다
+
+with tab2:
+    my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
+    others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
+    # 맨 위 보기 전환: [내 티켓 (N)] [다른 개발자 티켓 (N)] — 괄호 = 진행 중 티켓 수 (0건이어도 버튼은 둔다)
+    view_counts = {"mine": len(my_recent), "others": len(others)}
+    ss.setdefault("ticket_view", "mine")  # 기본 = 내 티켓 (default 인자 대신 — 발행 후 이동에서 세션 값으로 바꾸므로)
+    view = st.segmented_control(
+        "티켓 보기", ["mine", "others"], key="ticket_view", required=True,
+        format_func=lambda v: f"{TICKET_VIEW_LABELS[v]} ({view_counts[v]})", label_visibility="collapsed")
+    # 보기마다 자리(st.empty)를 따로 두고, 안 보이는 보기의 자리는 빈 요소로 둔다.
+    # 같은 자리의 컨테이너는 Streamlit이 이전 자식 요소를 실행이 끝날 때까지 남겨 두므로(전환 때 이전 카드·상자가 남아 보임),
+    # 보기를 바꾸면 이전 보기 자리가 '빈 요소'로 바뀌어 그 안의 카드·상자가 즉시 통째로 지워진다
+    slots = {"mine": st.empty(), "others": st.empty()}
+    with slots[view].container(key=f"ticket_view_{view}"):
+        if view == "others":
+            # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
+            if others:
+                render_ticket_cards(others, "tcards_others")
+            else:
+                st.info("다른 개발자가 맡은 티켓이 없습니다")
+        elif not my_recent:
+            st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
+        else:
+            # 내 티켓: 1. 카드 → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
+            render_ticket_cards(my_recent, "tcards_mine")
+            render_representative_vocs(my_recent)
+
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
 with tab1:
@@ -988,33 +1019,6 @@ with tab1:
                 # 3. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
                 #    (발행된 티켓 카드 · 대표 VOC는 2️⃣ 티켓 탭으로 옮겼다)
                 render_voc_map(cur, all_clusters)
-
-# ════════════════════════════ 탭 2: 티켓 ════════════════════════════
-
-with tab2:
-    my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
-    others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
-    # 맨 위 보기 전환: [내 티켓 (N)] [다른 개발자 티켓 (N)] — 괄호 = 진행 중 티켓 수 (0건이어도 버튼은 둔다)
-    view_counts = {"mine": len(my_recent), "others": len(others)}
-    ss.setdefault("ticket_view", "mine")  # 기본 = 내 티켓 (default 인자 대신 — 발행 후 이동에서 세션 값으로 바꾸므로)
-    view = st.segmented_control(
-        "티켓 보기", ["mine", "others"], key="ticket_view", required=True,
-        format_func=lambda v: f"{TICKET_VIEW_LABELS[v]} ({view_counts[v]})", label_visibility="collapsed")
-    # 보기마다 key가 다른 컨테이너 하나 — 보기가 바뀌면 컨테이너가 통째로 새로 만들어져
-    # 이전 보기의 카드·상자가 새 보기 자리에 섞여 남지 않는다 (같은 자리에 개수가 다른 요소를 그릴 때의 잔상 방지)
-    with st.container(key=f"ticket_view_{view}"):
-        if view == "others":
-            # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
-            if others:
-                render_ticket_cards(others, "tcards_others")
-            else:
-                st.info("다른 개발자가 맡은 티켓이 없습니다")
-        elif not my_recent:
-            st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
-        else:
-            # 내 티켓: 1. 카드 → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
-            render_ticket_cards(my_recent, "tcards_mine")
-            render_representative_vocs(my_recent)
 
 # ════════════════════════════ 탭 3: 의심 위치 ════════════════════════════
 
