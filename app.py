@@ -653,9 +653,10 @@ def show_table(df: pd.DataFrame, key: str, gray: tuple = (), value_styles: dict 
     data = view.style if (gray or value_styles) else view
     if gray:
         data = data.map(lambda v: f"color:{config.MUTED_TEXT_COLOR}" if v in gray else "")
-    for col, styles in (value_styles or {}).items():
+    for col, styles in (value_styles or {}).items():  # styles = {값: CSS} 또는 값 → CSS 함수
         if col in view.columns:
-            data = data.map(lambda v, styles=styles: styles.get(v, ""), subset=[col])
+            rule = styles if callable(styles) else (lambda v, styles=styles: styles.get(v, ""))
+            data = data.map(rule, subset=[col])
     return st.dataframe(data, hide_index=True, width="stretch", key=key, **kwargs)
 
 
@@ -952,16 +953,95 @@ setTimeout(() => {{
 # 다른 탭이 열려 있으면 대시보드 뒤에 실행 (첫 화면에서 대표 VOC 임베딩 캐시 읽기가 대시보드를 막지 않게)
 # 대시보드(차트·VOC 표)를 다 보낸 뒤에야 티켓 보기가 바뀌면 [내 티켓]↔[다른 개발자 티켓] 전환 때 이전 보기가 잠깐 남아 보였다
 
+DONE_RECENT, DONE_CUSTOM = PERIOD_RECENT, PERIOD_CUSTOM  # 대시보드와 같은 "최근 2주"(기본) · "직접 선택"
+
+
+def done_owner_options() -> list[tuple[str, str]]:
+    """[처리 완료] 담당자 필터 (종류, 값) — 개발자: 전체 / 본인 / 파트별, 관리자: 우리 파트(기본) / 전체 / 파트별 / 개발자별."""
+    parts = list(dict.fromkeys(u["part"] for u in USERS if not stage1.is_manager(u)))
+    if IS_MANAGER:
+        devs = [("dev", u["id"]) for u in USERS if not stage1.is_manager(u)]
+        return [("mypart", me["part"]), ("all", "")] + [("part", p) for p in parts] + devs
+    return [("all", ""), ("me", me["id"])] + [("part", p) for p in parts]
+
+
+def done_owner_label(opt: tuple[str, str]) -> str:
+    kind, value = opt
+    return {"all": "전체", "me": "본인", "mypart": f"우리 파트 ({value})", "part": value}.get(
+        kind, user_label(USER_BY_ID[value]) if kind == "dev" else value)
+
+
+def done_owner_match(t, opt: tuple[str, str]) -> bool:
+    kind, value = opt
+    if kind in ("mypart", "part"):
+        return t.owner_part == value
+    if kind in ("me", "dev"):
+        return t.assignee_id == value
+    return True
+
+
+def render_done_view() -> None:
+    """2️⃣ 티켓 [처리 완료] 이력: 완료일 기간 · 담당자 필터 → 요약 카드 4개 → 목록 표(완료일 최신순) → CSV 다운로드.
+    기준은 Ticket.completed_at(VOC 작성일 아님), 발행 취소 티켓은 넣지 않는다. 예상 완료일은 승인된 최종 날짜."""
+    today = date.today()
+    # 1. 완료일 기간 — 대시보드 기간 줄과 같은 모양·기본값: [최근 2주 | 직접 선택] [날짜 칸 고정 폭] (최근 2주면 날짜 칸 비활성)
+    row = st.container(horizontal=True, gap="small", vertical_alignment="bottom")
+    mode = row.segmented_control("완료일", [DONE_RECENT, DONE_CUSTOM], key="done_period_mode", default=DONE_RECENT,
+                                 required=True)
+    recent = (today - timedelta(days=config.RECENT_PERIOD_DAYS), today)  # 대시보드 최근 2주와 같은 범위 (오늘 기준)
+    if mode == DONE_CUSTOM:
+        picked = row.date_input("날짜", value=ss.get("done_last_custom", recent), max_value=today, format="YYYY/MM/DD",
+                                width=config.DATE_INPUT_WIDTH, key="done_dates")
+        if isinstance(picked, (tuple, list)) and len(picked) == 2:
+            ss["done_last_custom"] = tuple(picked)
+        start, end = ss.get("done_last_custom", recent)
+    else:
+        start, end = recent
+        row.date_input("날짜", value=recent, format="YYYY/MM/DD", width=config.DATE_INPUT_WIDTH, disabled=True,
+                       key="done_dates_recent")
+    # 2. 담당자 필터 (같은 줄 오른쪽)
+    options = done_owner_options()
+    owner = row.selectbox("파트", options, format_func=done_owner_label, key=f"done_owner_{IS_MANAGER}",
+                          width=config.DATE_INPUT_WIDTH)
+    # 기간 줄 아래 회색 작은 글씨 — 카드·표가 모두 완료일 기준임을 알린다 (대시보드 처리 완료는 VOC 작성일 기준)
+    st.caption(f"완료일 기준 · {start:%m/%d}~{end:%m/%d}에 처리 완료된 티켓")
+    done = [t for t in stage1.completed_in(ss["tickets"].values(), start, end) if done_owner_match(t, owner)]
+    if not done:
+        st.info("선택한 기간에 처리 완료된 티켓이 없습니다")
+        return
+    # 3. 요약 카드 4개 (대시보드 카드와 같은 st.metric)
+    sm = stage1.done_summary(done)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("완료 티켓", f"{sm['tickets']:,}개")
+    k2.metric("완료 VOC", f"{sm['vocs']:,}건")
+    k3.metric("평균 소요일", f"{sm['avg_days']:.1f}일")
+    k4.metric("기한 내 완료", f"{sm['on_time_rate']:.1f}%")
+    # 4. 목록 표 (완료일 최신순, 체크박스 없음) — 기한 "기한 내" / "N일 초과"(빨간 글씨)
+    table = pd.DataFrame([{
+        # 누가(파트 → 담당자) → 무엇을(우선순위 → 유형 → 건수) → 언제·얼마나(발행일 → … → 기한) — CSV도 같은 순서
+        "티켓 ID": t.ticket_id, "파트": t.owner_part, "담당자": t.assignee,
+        "우선순위": t.priority, "유형": t.cluster_label, "건수": t.count,
+        "발행일": t.issued_on, "예상 완료일": t.due_date,
+        "완료일": stage1.completed_on(t).isoformat(), "소요일": stage1.lead_days(t),
+        "기한": "기한 내" if stage1.late_days(t) <= 0 else f"{stage1.late_days(t)}일 초과",
+    } for t in done])
+    # 높이: 10건 이하면 행 수만큼, 넘으면 10줄 높이에서 표 안 스크롤 (DONE_TABLE_ROWS)
+    show_table(table, key="tbl_done",
+               height=(min(len(table), config.DONE_TABLE_ROWS) + 1) * config.TABLE_ROW_PX + 3,
+               value_styles={"기한": lambda v: f"color:{config.LATE_TEXT_COLOR}" if str(v).endswith("초과") else ""},
+               column_config={"건수": st.column_config.NumberColumn(format="%d건"),
+                              "소요일": st.column_config.NumberColumn(format="%d일")})
+    # 5. CSV (지금 필터 결과 그대로, 엑셀에서 한글이 깨지지 않게 utf-8-sig)
+    st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"completed_tickets_{today:%Y%m%d}.csv", mime="text/csv")
+
+
 def render_tickets_tab() -> None:
     """2️⃣ 티켓 탭. 열려 있으면 대시보드보다 먼저 실행해 보기 전환이 바로 반영되고, 아니면 대시보드 뒤에 실행한다
     (첫 화면에서 대표 VOC 임베딩 캐시 읽기가 대시보드보다 먼저 돌아 대시보드가 비어 보이지 않게)."""
     with tab2:
         my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
         others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
-        # 처리 완료: 개발자는 내가 완료한 티켓, 관리자는 같은 파트에서 완료된 티켓 (완료 일시 최신순, 버튼 없음)
-        done = sorted((t for t in ss["tickets"].values() if stage1.is_done(t)
-                       and (t.owner_part == me["part"] if IS_MANAGER else t.assignee_id == me["id"])),
-                      key=lambda t: t.completed_at or "", reverse=True)
         # 맨 위 보기 전환 — 괄호 = 진행 중 수 / 대기 신청 수 (0건이어도 버튼은 둔다). 처리 완료는 수 없이
         view_counts = {"mine": len(my_recent), "others": len(others), "approvals": len(PENDING), "part": len(my_recent)}
         if ss.get("ticket_view") not in TICKET_VIEWS:  # 기본 = 개발자 내 티켓 / 관리자 승인 요청 (역할을 바꿔도 맞게)
@@ -984,11 +1064,8 @@ def render_tickets_tab() -> None:
                     render_ticket_cards(my_recent, "tcards_part")
                 else:
                     st.info("파트에 진행 중인 티켓이 없습니다")
-            elif view == "done":
-                if done:
-                    render_ticket_cards(done, "tcards_done")
-                else:
-                    st.info("처리 완료한 티켓이 없습니다")
+            elif view == "done":  # 처리 완료 이력 (기간 · 담당자 필터 · 요약 · 표 · CSV)
+                render_done_view()
             elif view == "others":
                 # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
                 if others:

@@ -807,6 +807,36 @@ def voc_links(voc_ids, assignments: dict | None, clusters: list | None, tickets:
     return out
 
 
+def completed_on(t: Ticket) -> date | None:
+    """처리 완료 날짜 (completed_at "YYYY-MM-DD HH:MM"의 날짜, 없으면 None)."""
+    return date.fromisoformat(t.completed_at[:10]) if t.completed_at else None
+
+
+def lead_days(t: Ticket) -> int:
+    """소요일 = 완료일 - 발행일 (일)."""
+    return (completed_on(t) - date.fromisoformat(t.issued_on)).days
+
+
+def late_days(t: Ticket) -> int:
+    """완료일 - 예상 완료일(승인된 최종 날짜). 0 이하면 기한 내."""
+    return (completed_on(t) - date.fromisoformat(t.due_date)).days
+
+
+def completed_in(tickets, start: date, end: date) -> list[Ticket]:
+    """완료일(completed_at)이 start~end인 '완료' 티켓, 완료일 최신순 (발행 취소·진행 중 제외)."""
+    out = [t for t in tickets if is_done(t) and completed_on(t) and start <= completed_on(t) <= end]
+    return sorted(out, key=lambda t: t.completed_at, reverse=True)
+
+
+def done_summary(tickets: list[Ticket]) -> dict:
+    """[처리 완료] 요약: 완료 티켓 수 · 완료 VOC 수(voc_ids 합집합) · 평균 소요일 · 기한 내 완료 비율(%)."""
+    n = len(tickets)
+    return {"tickets": n,
+            "vocs": len({v for t in tickets for v in t.voc_ids}),
+            "avg_days": sum(lead_days(t) for t in tickets) / n if n else None,
+            "on_time_rate": sum(late_days(t) <= 0 for t in tickets) / n * 100 if n else None}
+
+
 def is_done(t: Ticket) -> bool:
     return t.status == config.TICKET_STATUS_DONE
 

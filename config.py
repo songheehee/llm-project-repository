@@ -81,6 +81,7 @@ CHANGE_PENDING = "대기"
 CHANGE_APPROVED = "승인"
 CHANGE_REJECTED = "반려"
 CHANGE_REASON_MAX_CHARS = 100   # 변경 신청 사유 · 반려 사유 최대 글자 수
+LATE_TEXT_COLOR = "#D93025"     # [처리 완료] 표 기한 칸 "N일 초과" 글자색
 # VOC 원문 표의 유형 · 티켓 칸 (stage1.voc_links)
 TYPE_NOT_ANALYZED = "분석 전"   # 티켓에도 없고 지금 기간 유형 분석 결과도 없는 VOC
 NO_TICKET = "–"                # 티켓에 묶이지 않은 VOC
@@ -101,6 +102,7 @@ UNASSIGNED_COLOR = "#80868B"  # 차트 '미분류' 색 — '기타'보다 진한
 TABLE_VISIBLE_ROWS = 5        # 클러스터 표 높이 = N줄 + 헤더, 더 많으면 표 안에서 스크롤
 TABLE_ROW_PX = 35             # st.data_editor 한 줄 높이(px)
 RAW_TABLE_ROWS = 10           # 원본 VOC 원문 표 높이 = N줄 + 헤더
+DONE_TABLE_ROWS = 10          # 2️⃣ 티켓 [처리 완료] 표 최대 높이 = N줄 + 헤더 (넘으면 표 안 스크롤)
 TICKET_CARDS_PER_ROW = 3      # 발행된 티켓 카드 한 줄 최대 개수 (넓은 화면)
 TICKET_CARD_MIN_WIDTH = 240   # 카드 최소 폭(px) — 화면이 좁아 이보다 작아지면 한 줄 카드 수를 줄인다 (버튼 두 개가 한 줄에 들어가는 폭)
 HOVER_LINE_CHARS = 40         # 의미 공간 툴팁 원문 줄바꿈 글자 수
