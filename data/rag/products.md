@@ -31,7 +31,7 @@
 ## 폰 앱 · 서버 · 펌웨어 기능 ↔ 폴더
 - `pulsefit-mobile`: `sync/`(폰 교체 시 예전 기록 가져오기) · `health/`(워치·폰 걸음 수 합치기, 체중·프로필) · `screens/`(표시 전용) · `analytics/`(사용 통계).
 - `pulsefit-server`: `api/`(업로드·통계·동기화, 중복 기록 판정) · `db/` · `auth/` · `jobs/`(리포트 메일).
-- `pulsefit-firmware`: `charging/`(충전 접점 감지·충전 전류·온도 보호) · `haptics/`(진동 모터) · `gnss/`(GPS 칩 시작·보조 위성 정보) · `wear/`(착용 감지) · `thermal/`(온도 측정·보고만 함, 발열 원인 아님) · `boot/`.
+- `pulsefit-firmware`: `charging/`(충전 접점 감지·충전 전류·온도 보호·만충 전압) · `haptics/`(진동 모터) · `gnss/`(GPS 칩 시작·보조 위성 정보) · `wear/`(착용 감지 — 근접 센서 적외선 LED로 주기적 재확인) · `thermal/`(온도 측정·보고만 함, 발열 원인 아님) · `boot/`.
 
 ## 사내 용어
 - **PPG**: 광학 심박 센서. LED를 켜서 혈류를 읽는다. 켜져 있는 시간이 길수록 전력과 열이 늘어난다.

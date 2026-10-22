@@ -175,8 +175,8 @@ RECENT_DAYS_STRONG = 14   # 이 안에 커밋 → 1.0
 RECENT_DAYS_WEAK = 30     # 이 안에 커밋 → 0.5
 RECENT_SCORE_STRONG = 1.0
 RECENT_SCORE_WEAK = 0.5
-ROLE_FACTORS = {"display_only": 0.5}
-ROLE_NOTES = {"display_only": "표시 전용 폴더 → 감점"}
+ROLE_FACTORS = {"display_only": 0.5, "report_only": 0.5}
+ROLE_NOTES = {"display_only": "표시 전용 폴더 → 감점", "report_only": "측정·보고 전용 폴더 → 감점"}
 
 # ── 라인 탐색 · 검증 · 영향 ──────────────────────────
 TOP_FOLDERS_FOR_LINES = 2

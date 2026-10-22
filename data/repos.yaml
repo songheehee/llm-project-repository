@@ -46,10 +46,11 @@ repos:
     path: sample_repos/pulsefit-firmware
     product: 워치 펌웨어
     description: >-
-      워치 하드웨어 칩 제어 펌웨어. 충전 접점 감지·충전 전류, 진동 모터 세기, GPS(GNSS) 수신 칩
-      시작, 착용 감지, 피부 온도 측정(측정·보고만 함)을 담당한다.
+      워치 하드웨어 칩 제어 펌웨어. 충전 접점 감지·충전 전류·만충 전압(배터리 셀 보호), 진동 모터 세기, GPS(GNSS) 수신 칩
+      시작, 착용 감지(근접 센서로 주기적 재확인), 피부 온도 측정(측정·보고만 함)을 담당한다.
     owner_parts: [하드웨어 파트]
-    folder_roles: {}
+    folder_roles:
+      "thermal/": report_only
 
   - name: pulsefit-web
     path: sample_repos/pulsefit-web

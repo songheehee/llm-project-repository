@@ -101,7 +101,7 @@ LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. �
 - '수면 중 발열'은 '자는 동안'만, '배터리 부풂·과열'은 문장마다 '부풀'·'불룩'을 넣는다(틈·들뜸만 말하면 '외관 변형' 묶음이 따로 생겼다).
 - '충전 중 과열·화상'은 '충전하는 동안'(충전기·거치대 위)만 말한다. '운동'·'연결' 단어와 '충전 끝나고 찼더니' 같은 직후 표현은 쓰지 않는다(쓰면 '운동 후 발열' 같은 별도 묶음이 생겼다).
 
-`repos.yaml`의 `pulsefit-py`에는 `folder_roles: {"ui/": display_only}`를 둔다.
+`repos.yaml`의 `pulsefit-py`에는 `folder_roles: {"ui/": display_only}`를, `pulsefit-firmware`에는 `{"thermal/": report_only}`(온도 측정·보고만 하는 함정 폴더)를 둔다.
 
 ## 샘플 저장소 (scripts/build_sample_repos.py가 생성)
 
@@ -111,13 +111,17 @@ LLM 응답은 모두 `llm.with_structured_output(PydanticModel)`로 받는다. �
 
 `pulsefit-py` 폴더: `sensor/`(heart_rate.py, driver.py, filters.py) · `workout/`(session.py, distance.py) · `sync/`(bluetooth.py) · `ui/`(warnings.py, screens.py) · `power/`(battery.py) · `storage/`(records.py). 각 파일 20~60줄의 그럴듯한 Python.
 `pulsefit-sync`: `bluetooth/reconnect.py`(재연결 재시도 루프) 등. `pulsefit-server`: `api/stats.py`, `db/records.py` 등.
+`pulsefit-firmware`: `charging/`(charger.py, cell_protect.py) · `wear/`(wrist_detect.py — 근접 센서 재확인 루프) · `thermal/`(monitor.py, 함정) · `gnss/` · `haptics/` · `boot/`.
 
 | 날짜       | 저장소        | 커밋                                                                                         |
 | ---------- | ------------- | -------------------------------------------------------------------------------------------- |
 | 2026-08-01 | 3개 모두      | 초기 커밋 (`POLL_INTERVAL_S = 1.0`)                                                          |
 | 2026-09-25 | pulsefit-py   | `power/battery.py` 화면 켜짐 유지 시간 변경                                                  |
 | 2026-09-28 | pulsefit-py   | `ui/warnings.py` 발열 경고 문구 추가 (함정: '발열'·heat·temperature 단어가 많지만 표시만 함) |
+| 2026-09-24 | pulsefit-firmware | `charging/charger.py` 충전 전류 200 → 450mA, 일시정지 온도 38 → 45℃ (충전 중 과열·화상의 원인) |
 | 2026-09-28 | pulsefit-sync | `bluetooth/reconnect.py` 재시도 대기 제거                                                    |
+| 2026-09-29 | pulsefit-firmware | `wear/wrist_detect.py` 움직임 없을 때 착용 재확인 30 → 0.5초 (수면 중 발열의 원인)     |
+| 2026-09-30 | pulsefit-firmware | `charging/cell_protect.py` 만충 전압 4350 → 4450mV, 고온 전압 낮추기 해제 (배터리 부풂의 원인) |
 | 2026-10-02 | pulsefit-py   | `sensor/heart_rate.py` "운동 중 심박 정확도 개선: 측정 주기 단축" (1.0 → 0.05)               |
 
 **`sensor/heart_rate.py` 최종본 — 줄 번호가 정답이므로 글자 그대로 쓴다:**
@@ -313,7 +317,7 @@ LangGraph state는 `TypedDict`. 병렬 가지(`Send`)가 결과를 모으는 필
   - 코드 원문 임베딩 유사도도 같이 계산해 화면에서 비교만 한다(점수식에 넣지 않음)
   - 키워드: 폴더 `.py` 전체에서 `code_terms` 등장 횟수(대소문자 무시) ÷ 레포 내 폴더 최대값
   - 최근변경: 분석 시작일 전 14일 안 커밋 1 / 30일 안 0.5 / 없음 0
-  - 역할보정: `display_only` ×0.5 + note "표시 전용 폴더 → 감점"
+  - 역할보정: `display_only` ×0.5 + note "표시 전용 폴더 → 감점" · `report_only` ×0.5 + note "측정·보고 전용 폴더 → 감점"
 - 레포지토리 후보: 점수 < 0.1 제외, 최대 3개
 - 예상 완료일 = 사람이 고른 날짜. 기본값(발행 확인 창) = 발행일 + `DUE_DAYS`: 긴급 3일 · 높음 7일 · 보통 14일 · 낮음 30일, 오늘 이전 불가
 - 수정 범위(4️⃣) = `stage2.change_scope(recs, impacts)` — 파일 수 · 수정 줄 수(범위 줄 수 합) · 함께 확인 수, 등급 작음(`SCOPE_SMALL_MAX` 셋 다 이하) / 큼(`SCOPE_LARGE_MIN` 하나라도 이상) / 보통
@@ -350,6 +354,7 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - 레포 1위 `pulsefit-py` · 폴더 1위 `sensor/` · `ui/`는 감점 note가 붙고 1·2위가 아님 (점수 수치는 화면 예시와 달라도 됨)
 - 수정 라인 `sensor/heart_rate.py` **L17, L45–52** · 커밋 근거 **2026-10-02** "측정 주기 단축" (L17에만 붙음)
 - 영향 `workout/session.py:23` `start_continuous()` 호출
+- 나중에 붙인 유형(pulsefit-firmware, 커밋 근거 포함): 충전 중 과열 → `charging/charger.py` `CHARGE_CURRENT_MA`·`CHARGE_PAUSE_TEMP_C`(09/24) · 배터리 부풂 → `charging/cell_protect.py` `MAX_CHARGE_VOLTAGE_MV`·`HOT_DERATE_MV`(09/30) · 수면 중 발열 → `wear/wrist_detect.py` `IDLE_RECHECK_INTERVAL_S` + `recheck_loop`(09/29). 정답 메모는 build_sample_repos.py 맨 위
 
 정답이 안 나오면 점수식·임계값이 아니라 프롬프트나 샘플 데이터 내용을 고친다.
 
@@ -400,6 +405,6 @@ LLM 분류라 유형 이름·수·건수는 실행마다 조금씩 다르다. **
 - **탭 이동**: `st.tabs(TAB_LABELS, key="active_tab", on_change="rerun")`(1.66은 key·default·on_change 지원 → segmented_control로 바꾸지 않음, 탭 모양 그대로). 선택 탭 값은 위젯을 그리기 전에만 바꿀 수 있으므로 탐색 직후에는 `ss["goto_lines_tab"] = True` + `st.rerun()`, 다음 실행에서 `st.tabs` 직전에 `ss.pop("goto_lines_tab")`이면 `ss["active_tab"] = "4️⃣ 수정 라인"`.
 - **폴더 확인(3️⃣)**: [코드 찾기] → `ss["stage2_run_no"][티켓]` +1 → thread_id → `stream_stage2` → `("interrupt", payload)`면 `ss["stage2_wait"][티켓] = {thread_id, payload, state: stage2.waiting_state(...)}`. 대기 중이면 화면은 그 state(수정 라인 없음 → 카드는 의심 파일·감점만)로 그리고 폴더 카드·점수 구성 아래 `render_folder_pick`: "#### 수정 라인을 찾을 폴더" + `st.multiselect`(라벨 숨김, 선택지 `folder_option` = "pulsefit-py / sensor/", 기본 = 1위 레포지토리에서 감점 아닌 상위 2개, `max_selections=MAX_SELECTED_FOLDERS`, key `pick_folders_{thread_id}`) + 캡션 + [수정 라인 찾기](primary, 0개면 disabled, key `resume_{thread_id}`) → spinner "수정 라인을 찾는 중…" → `resume_stage2` → done이면 `ss["stage2"]`·`save_result`·대기 삭제, 검증된 수정 라인이 있으면 `ss["goto_lines_tab"] = True`(0건·예외면 `ss["stage2_notice"][티켓]`에 안내 → 3️⃣ 탭 위 `st.warning`으로 한 번 표시) → `st.rerun()`. `stage2.is_waiting(graph, thread_id)`가 False(서버 재시작 등)면 "이전 코드 찾기 상태가 없어졌습니다. 다시 [코드 찾기]를 눌러 주세요". 4️⃣ 탭은 대기 중이면 "의심 위치 탭에서 폴더를 고르면 수정 라인이 나옵니다". 발행 취소하면 그 티켓의 대기도 지운다.
 - **세션 결과 검사**: `stage2_result_ok(result)` — impacts·line_recs·repo_candidates·folder_scores가 지금 stage2 모델 클래스의 인스턴스이고 `Impact.repo`가 있어야 사용. 아니면 세션 결과를 버리고 파일 결과(또는 다시 실행)로.
-- **폴더 후보**(3️⃣): `stage2.build_folder_cards(state, repo)` — `folder_scores`(score > 0, 의심도 순) 폴더의 `.py`(`__init__.py`·테스트 제외) **파일 단위**(항목 이름 = 파일 이름 + 파일 점수, 예: reconnect.py · 0.50). **폴더 의심도와 같은 기준**: 의심도 > 0인 폴더마다 카드 하나(폴더 선택 목록과 같음), 파일 점수는 `stage2.file_scores` = 폴더 의심도와 같은 식을 파일 단위로(키워드·의미는 레포 안 파일끼리 정규화, 최근변경은 그 파일 커밋, 역할보정은 폴더 role). 파일에 검증된 추천 범위가 있으면 원인 후보, 파일이 `impacts`에 있으면 함께 확인, 폴더 role이 display_only면 감점, 그 외 의심 파일. 파일 점수 0인 파일은 뺀다(폴더에 남는 게 없으면 1위 파일 하나). 거르기는 여기서만, app에는 없음. 상태 순(`FILE_STATUS_ORDER` = 원인 후보·함께 확인·의심 파일·감점) → 파일 점수 순, 최대 `FOLDER_CARD_MAX_FILES`(5). title 속성 = 경로 · 점수 구성(키워드 N회 · 의미 · MM/DD 변경 · 감점 사유). `stage2.repo_branch(name)` = repos.yaml `branch` → `.git/HEAD` 파일 → `DEFAULT_DEPLOY_BRANCH`. app의 `render_folder_cards`가 제목 줄 · 범례(의심도 색 막대 낮음→높음 · 원인 후보 · 함께 확인 · 감점). 의심 파일·원인 후보 알약 배경 = 파일 점수 색(`SUSPICION_COLOR_STOPS` 노랑 0 → 주황 0.5 → 빨강 1 선형 보간, `SUSPICION_DARK_TEXT_MAX`(0.6) 넘으면 흰 글씨, 원인 후보는 진한 테두리) · CSS grid(`FOLDER_CARD_COLUMNS`=3) HTML을 `st.html`로 출력(값은 전부 `html.escape`, 글꼴 `APP_FONT`, 감점 사유는 `title` 속성).
+- **폴더 후보**(3️⃣): `stage2.build_folder_cards(state, repo)` — `folder_scores`(score > 0, 의심도 순) 폴더의 `.py`(`__init__.py`·테스트 제외) **파일 단위**(항목 이름 = 파일 이름 + 파일 점수, 예: reconnect.py · 0.50). **폴더 의심도와 같은 기준**: 의심도 > 0인 폴더마다 카드 하나(폴더 선택 목록과 같음), 파일 점수는 `stage2.file_scores` = 폴더 의심도와 같은 식을 파일 단위로(키워드·의미는 레포 안 파일끼리 정규화, 최근변경은 그 파일 커밋, 역할보정은 폴더 role). 파일에 검증된 추천 범위가 있으면 원인 후보, 파일이 `impacts`에 있으면 함께 확인, 폴더 role이 감점 역할(`ROLE_FACTORS`: display_only · report_only)이면 감점, 그 외 의심 파일. 파일 점수 0인 파일은 뺀다(폴더에 남는 게 없으면 1위 파일 하나). 거르기는 여기서만, app에는 없음. 상태 순(`FILE_STATUS_ORDER` = 원인 후보·함께 확인·의심 파일·감점) → 파일 점수 순, 최대 `FOLDER_CARD_MAX_FILES`(5). title 속성 = 경로 · 점수 구성(키워드 N회 · 의미 · MM/DD 변경 · 감점 사유). `stage2.repo_branch(name)` = repos.yaml `branch` → `.git/HEAD` 파일 → `DEFAULT_DEPLOY_BRANCH`. app의 `render_folder_cards`가 제목 줄 · 범례(의심도 색 막대 낮음→높음 · 원인 후보 · 함께 확인 · 감점). 의심 파일·원인 후보 알약 배경 = 파일 점수 색(`SUSPICION_COLOR_STOPS` 노랑 0 → 주황 0.5 → 빨강 1 선형 보간, `SUSPICION_DARK_TEXT_MAX`(0.6) 넘으면 흰 글씨, 원인 후보는 진한 테두리) · CSS grid(`FOLDER_CARD_COLUMNS`=3) HTML을 `st.html`로 출력(값은 전부 `html.escape`, 글꼴 `APP_FONT`, 감점 사유는 `title` 속성).
 - **수정 라인**(4️⃣, 이모티콘 없음, 위→아래 · 전체 폭): "#### 수정 위치" 아래 `st.caption(f"수정 범위: {등급} · 파일 N개 · 수정 N줄 · 함께 확인 N곳", help="코드 찾기 결과를 센 값입니다. 예상 완료일을 정할 때 참고하세요")`(`stage2.change_scope`, 예상 완료일을 자동으로 바꾸지 않음) → 수정 위치 요약 `show_table`(레포지토리 · 파일 · 수정 라인 · 기준 커밋, confidence 높은 순) → 파일마다 `st.expander(f"{path} · {라인}", expanded=첫 파일만)` 안에 코드 뷰 → `container(key="card_evidence_…")`(흰 배경 카드, CSS로 td 흰 배경·`white-space:pre-line`) 안 `st.table(evidence_rows)` 근거(관련 커밋 바로 아래 마지막 수정자 — 한 줄 요약 `last_author_summary`) → 범위 2개 이상이면 그 아래 `st.expander(f"마지막 수정자 상세 ({n}개 범위)", expanded=False)`(파일 expander 안 중첩, 1.66에서 허용) 안 `container(key="lastauth_…")`에 마크다운 목록 `last_author_groups`(CSS는 repvoc_와 같게: 14px · line-height 1.4 · 항목 사이 4px) → 함께 확인할 곳 `show_table`(레포지토리 · 파일 · 라인 · 심볼 · 관계, 티켓 전체 기준) → `st.container(horizontal=True)`에 [티켓 Markdown 다운로드] [처리 완료].
 - **티켓 Markdown**: `ticket_to_markdown(ticket, result)`(stage2) → `st.download_button`. 화면과 같은 순서·열(티켓 요약 표 → 상세 → 레포 → 폴더 → 수정 위치·근거 표 → 함께 확인할 곳 표).
