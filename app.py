@@ -323,7 +323,8 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
 def render_ticket_cards(tickets, grid_key: str) -> None:
     """티켓 카드(2️⃣ 티켓 탭 — 내 티켓 · 다른 개발자 티켓이 같이 쓴다): 한 줄 3장, 높이 모두 같음(TICKET_CARD_HEIGHT).
     항목: ID · 우선순위 배지 / 문제점(최대 2줄) / 건수·담당 부서·담당자 / 발행일→예상 완료일.
-    현재 개발자의 티켓은 테두리 primaryColor + [발행 취소]·[처리 완료], 다른 개발자 티켓은 같은 높이의 빈 줄."""
+    현재 개발자의 티켓은 테두리 primaryColor + [변경]·[발행 취소]·[처리 완료], 다른 개발자 티켓은 버튼 줄 없이
+    더 낮은 카드(TICKET_CARD_HEIGHT_OTHERS) — 내 티켓과 다른 개발자 티켓은 따로 그려 한 줄에 섞이지 않는다."""
     # 카드 전체를 한 container에 — CSS grid(st-key-tcards…)로 넓으면 한 줄 TICKET_CARDS_PER_ROW(3)장, 좁으면 카드 최소 폭
     # (TICKET_CARD_MIN_WIDTH)을 지키며 2장·1장으로 줄인다 (좁은 화면에서 버튼이 밀려 카드 밖으로 잘리지 않게)
     with st.container(key=grid_key):
@@ -331,7 +332,8 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
             mine = t.assignee_id == me["id"]
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
             # 흰 배경 · 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓은 primaryColor 테두리
-            with st.container(border=True, height=config.TICKET_CARD_HEIGHT, key=card_key):
+            height = config.TICKET_CARD_HEIGHT if mine else config.TICKET_CARD_HEIGHT_OTHERS
+            with st.container(border=True, height=height, key=card_key):
                 # 1줄: ID(왼쪽) · 우선순위 배지(오른쪽) — st.columns는 좁은 화면(640px 미만)에서 세로로 쌓여 카드가 넘치므로 가로 container
                 head = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center")
                 head.markdown(f"**{t.ticket_id}**")
@@ -346,17 +348,18 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
                 left = (due - date.today()).days
                 with st.container(gap=None, key=f"tdates_{t.ticket_id}"):  # 두 날짜 줄을 간격 없이 붙인다
                     st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d}")
+                    # 담당 카드만 tdue_(CSS min-height 40px — [변경] 자리), 다른 카드는 tduero_(캡션 높이만)
                     due_row = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
-                                           key=f"tdue_{t.ticket_id}")
+                                           key=f"tdue_{t.ticket_id}" if mine else f"tduero_{t.ticket_id}")
                     due_row.caption(f"예상 완료일 {due:%m/%d} " + (":red[(기한 지남)]" if left < 0 else f"(D-{left})"),
                                     width="content")
                     if mine and due_row.button("변경", key=f"due_card_{t.ticket_id}"):
                         change_due(t.ticket_id)
                 # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
-                # distribute = 두 버튼을 양 끝으로 벌린다. 다른 카드는 같은 높이의 빈 줄
-                actions = st.container(horizontal=True, horizontal_alignment="distribute",
-                                       key=f"tact_{t.ticket_id}")
+                # distribute = 두 버튼을 양 끝으로 벌린다. 다른 개발자 카드에는 이 줄이 없다 (그만큼 카드가 낮음)
                 if mine:
+                    actions = st.container(horizontal=True, horizontal_alignment="distribute",
+                                           key=f"tact_{t.ticket_id}")
                     if actions.button("발행 취소", type="secondary", key=f"cancel_card_{t.ticket_id}"):
                         confirm_cancel(t.ticket_id)
                     if actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}"):
@@ -369,7 +372,7 @@ def confirm_issue(clusters: list, period_txt: str) -> None:
     [발행]하면 고른 날짜로 현재 개발자 담당 티켓을 만들고 2️⃣ 티켓 탭으로 이동 + 알림. [취소]하면 대시보드에 그대로 남는다.
     예상 완료일은 사람이 고른다 (LLM이 정하지 않음)."""
     today = date.today()
-    st.caption("예상 완료일을 확인하세요.")
+    st.markdown("예상 완료일을 확인하세요.")  # 회색 캡션 대신 본문 글씨(진한 색 · 한 단계 큰 크기)
     dues = {}
     with st.container(key="issue_rows"):  # 유형별 상자 사이 8px (CSS)
         for c in clusters:
