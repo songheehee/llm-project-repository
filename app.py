@@ -89,9 +89,12 @@ CSS = """
 [class*="st-key-repvoc_"] p, [class*="st-key-repvoc_"] li, [class*="st-key-lastauth_"] p, [class*="st-key-lastauth_"] li {font-size:14px; line-height:1.4;}
 [class*="st-key-repvoc_"] ul, [class*="st-key-lastauth_"] ul {margin:0; padding-left:1.2rem;}
 [class*="st-key-repvoc_"] li, [class*="st-key-lastauth_"] li {margin:0 0 4px 0; padding:0;}
-/* 대표 VOC 보기: 접히는 상자의 제목 줄만 흰 바탕, 펼친 내용은 투명 그대로 */
-[class*="st-key-repvocs"] [data-testid="stExpander"] summary {background:#FFFFFF; border-radius:0.5rem;}
-[class*="st-key-repvocs"] [data-testid="stExpander"] details[open] > summary {border-bottom-left-radius:0; border-bottom-right-radius:0;}
+/* 앱의 모든 접는 상자(st.expander): 흰 배경 · 옅은 테두리 · 모서리 8px — 제목 줄과 펼친 내용이 같은 흰색 */
+[data-testid="stExpander"] details {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:8px;}
+[data-testid="stExpander"] details > summary, [data-testid="stExpander"] details > div {background:#FFFFFF; border-radius:8px;}
+[data-testid="stExpander"] details[open] > summary {border-bottom-left-radius:0; border-bottom-right-radius:0;}
+/* 티켓 탭 '대표 VOC' 제목: 카드와 24px 띄움 (블록 간격 16px + 8px) */
+[class*="st-key-repvocs_title"] {margin-top:8px;}
 </style>
 """
 # 앱 전체 글꼴은 config.APP_FONT 하나 (st.html 폴더 후보 카드도 같은 상수). 코드 뷰(pre)만 고정폭.
@@ -496,11 +499,12 @@ def md_escape(text: str) -> str:
 def render_representative_vocs(tickets) -> None:
     """대표 VOC 보기: 현재 개발자가 담당한 티켓마다 접힌 expander 하나 (다른 개발자의 티켓은 없음).
     펼치면 그 유형의 대표 VOC를 유형 중심에 가까운 순으로 최대 REP_VOC_MAX건, 원문 그대로."""
-    st.subheader("대표 VOC")
+    with st.container(key="repvocs_title"):  # 위 카드와 24px 띄운다 (CSS)
+        st.subheader("대표 VOC")
     if not tickets:
         st.info("티켓을 발행하면 해당 유형의 대표 VOC를 볼 수 있습니다")
         return
-    with st.container(key="repvocs"):  # 이 묶음의 접히는 상자만 제목 줄 흰 바탕 (CSS st-key-repvocs)
+    with st.container(key="repvocs"):  # 대표 VOC 접는 상자 묶음 (배경은 모든 expander 공통 CSS)
         for t in tickets:
             with st.expander(f"{t.ticket_id} · {t.problem}", expanded=False):
                 with st.container(key=f"repvoc_{t.ticket_id}"):  # 3건을 마크다운 목록 하나로 (간격 좁게)
@@ -728,6 +732,7 @@ with st.sidebar:
 
 TAB_LABELS = ["1️⃣ VOC 대시보드", "2️⃣ 티켓", "3️⃣ 의심 위치", "4️⃣ 수정 라인"]
 TAB_TICKETS, TAB_LINES = TAB_LABELS[1], TAB_LABELS[3]
+TICKET_VIEW_LABELS = {"mine": "내 티켓", "others": "다른 개발자 티켓"}  # 2️⃣ 티켓 탭 보기 전환
 # 탭 자동 이동(티켓 발행 → 2️⃣ 티켓, 수정 라인 찾기 → 4️⃣ 수정 라인) — st.tabs(key=…)의 선택 탭은 위젯을
 # 그리기 전에만 바꿀 수 있어서, 그 직후에는 ss["goto_tab"]에 표시만 남기고 st.rerun(), 다음 실행에서 탭을 그리기 전에 바꾼다
 if ss.get("active_tab") not in TAB_LABELS:  # 탭 이름이 바뀌기 전 세션 값은 버린다
@@ -735,6 +740,8 @@ if ss.get("active_tab") not in TAB_LABELS:  # 탭 이름이 바뀌기 전 세션
 goto = ss.pop("goto_tab", None)
 if goto in TAB_LABELS:
     ss["active_tab"] = goto
+    if goto == TAB_TICKETS:  # 티켓 발행 후에는 2️⃣ 티켓 탭의 '내 티켓' 보기로 연다
+        ss["ticket_view"] = "mine"
     ss["scroll_to_tabs"] = True  # 자동 이동한 탭도 맨 위부터 보이게
 if ss.get("toast"):  # 발행 알림 (rerun 뒤에 띄운다)
     st.toast(ss.pop("toast"))
@@ -964,20 +971,26 @@ with tab1:
 # ════════════════════════════ 탭 2: 티켓 ════════════════════════════
 
 with tab2:
-    # 1. 내 티켓 — 발행 시각 최신순(방금 발행한 카드가 맨 앞) → 같은 때 발행한 것끼리 우선순위 순
-    my_recent = stage1.sort_tickets_recent(my_tickets)
-    st.subheader("내 티켓")
-    if not my_recent:
+    my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
+    others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
+    # 맨 위 보기 전환: [내 티켓 (N)] [다른 개발자 티켓 (N)] — 괄호 = 진행 중 티켓 수 (0건이어도 버튼은 둔다)
+    view_counts = {"mine": len(my_recent), "others": len(others)}
+    ss.setdefault("ticket_view", "mine")  # 기본 = 내 티켓 (default 인자 대신 — 발행 후 이동에서 세션 값으로 바꾸므로)
+    view = st.segmented_control(
+        "티켓 보기", ["mine", "others"], key="ticket_view", required=True,
+        format_func=lambda v: f"{TICKET_VIEW_LABELS[v]} ({view_counts[v]})", label_visibility="collapsed")
+    if view == "others":
+        # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
+        if others:
+            render_ticket_cards(others, "tcards_others")
+        else:
+            st.info("다른 개발자가 맡은 티켓이 없습니다")
+    elif not my_recent:
         st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
     else:
+        # 내 티켓: 1. 카드 → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
         render_ticket_cards(my_recent, "tcards_mine")
-        # 2. 대표 VOC — 내 티켓마다 접힌 상자 (내 티켓이 없으면 위 안내만)
         render_representative_vocs(my_recent)
-    # 3. 다른 개발자 티켓 — 접힌 상자, 버튼 없는 카드 (없으면 상자를 숨긴다)
-    others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
-    if others:
-        with st.expander(f"다른 개발자 티켓 ({len(others)}건)", expanded=False):
-            render_ticket_cards(others, "tcards_others")
 
 # ════════════════════════════ 탭 3: 의심 위치 ════════════════════════════
 
