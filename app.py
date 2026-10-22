@@ -218,8 +218,14 @@ def has_api_key() -> bool:
     return False
 
 
-def daily_bar_chart(daily: pd.DataFrame, title: str, weekly: bool = False) -> None:
-    """일별(주별) 누적 막대. 범례는 차트 위 가로, 날짜는 MM/DD, 아래 여백을 줘 눈금이 잘리지 않게 한다."""
+# 차트 막대 단위별 제목 · x축 날짜 형식 (단위는 data_utils.chart_unit)
+CHART_TITLES = {"day": "일별 VOC 건수", "week": "주별 VOC 건수", "month": "월별 VOC 건수"}
+CHART_TICK_FORMATS = {"day": "%m/%d", "week": "%m/%d 주", "month": "%Y-%m"}
+CHART_MAX_TICKS = 16  # 눈금이 이보다 많으면 건너뛰어 겹치지 않게
+
+
+def daily_bar_chart(daily: pd.DataFrame, title: str, unit: str, start: date, end: date) -> None:
+    """일·주·월별 누적 막대. 범례는 차트 위 가로, 날짜 형식은 단위별, 아래 여백을 줘 눈금이 잘리지 않게 한다."""
     order = daily.groupby("group")["count"].sum().sort_values(ascending=False).index.tolist()
     tail = [g for g in (config.OTHER_LABEL, config.UNASSIGNED_LABEL) if g in order]  # '기타' → '미분류'는 항상 마지막 · 회색
     order = [g for g in order if g not in tail] + tail
@@ -235,8 +241,17 @@ def daily_bar_chart(daily: pd.DataFrame, title: str, weekly: bool = False) -> No
                           legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None),
                           plot_bgcolor="#FFFFFF")
         # x축 제목 "날짜"는 눈금(10/03) 아래에 간격(standoff)을 두고, 범례는 차트 위라 겹치지 않는다
-        fig.update_xaxes(title=dict(text="날짜", standoff=20), tickformat="%m/%d",
-                         dtick=86_400_000 * (7 if weekly else 1), tickangle=0)
+        # x축 = 선택 기간의 묶음 전체 (VOC가 없는 묶음도 자리는 둔다) · 눈금은 CHART_MAX_TICKS개 안팎으로
+        buckets = data_utils.bucket_starts(start, end, unit)
+        step = max(1, -(-len(buckets) // CHART_MAX_TICKS))  # 막대 step개마다 눈금 하나
+        half = {"day": 0.5, "week": 3.5, "month": 15}[unit]  # 막대 반 칸만큼 양쪽 여유
+        x_range = [pd.Timestamp(buckets[0]) - pd.Timedelta(days=half), pd.Timestamp(buckets[-1]) + pd.Timedelta(days=half)]
+        if unit == "month":
+            dtick = f"M{step}"
+        else:
+            dtick = 86_400_000 * (7 if unit == "week" else 1) * step
+        fig.update_xaxes(title=dict(text="날짜", standoff=20), tickformat=CHART_TICK_FORMATS[unit],
+                         dtick=dtick, tick0=buckets[0], range=x_range, tickangle=0)
         st.plotly_chart(fig, width="stretch")
 
 
@@ -801,8 +816,8 @@ with tab1:
                                  "secs": round(time.perf_counter() - t0, 1)}
 
     s1 = None if full_period else ss["stage1"].get(key)  # 분석 결과는 세션에 남아 보기를 바꿔도 LLM을 다시 부르지 않는다
-    weekly = (end - start).days + 1 > config.WEEKLY_CHART_MIN_DAYS
-    chart_title = "주별 VOC 건수" if weekly else "일별 VOC 건수"
+    chart_unit = data_utils.chart_unit((end - start).days + 1)  # 기간 길이 → 일·주·월
+    chart_title = CHART_TITLES[chart_unit]
 
     if cur.empty:
         st.info("선택한 기간에 VOC가 없습니다. 기간을 바꿔 보세요.")
@@ -842,7 +857,7 @@ with tab1:
             if view == VIEW_RAW:
                 # 원본 VOC 보기 전체를 묶음(container) 하나로 — 다른 보기의 첫 요소가 이 자리를 차지하면 차트·표가 함께 바로 사라진다
                 with st.container():
-                    daily_bar_chart(data_utils.daily_counts(cur, "channel", weekly=weekly), chart_title, weekly=weekly)
+                    daily_bar_chart(data_utils.daily_counts(cur, "channel", unit=chart_unit), chart_title, chart_unit, start, end)
                     st.subheader("VOC 원문")
                     raw = data_utils.voc_table(cur)  # 최신순
                     # 검색은 페이지가 아니라 기간 전체에서 — 표에 넘기기 전에 거르고, 그 결과를 페이징한다
@@ -888,7 +903,7 @@ with tab1:
                 unassigned = cur["cluster"].replace(config.OTHER_LABEL, config.UNASSIGNED_LABEL)
                 chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
                                                                     keep=(config.UNASSIGNED_LABEL,)))
-                daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
+                daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", unit=chart_unit), chart_title, chart_unit, start, end)
                 st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계  \n"
                            f"· {config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
 

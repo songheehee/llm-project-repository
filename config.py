@@ -97,7 +97,9 @@ CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이�
 RAW_SEARCH_WIDTH = 400       # VOC 원문 검색 칸 폭(px)
 RAW_PAGE_PICK_WIDTH = 100    # VOC 원문 페이지 선택 칸 폭(px)
 RAW_PAGE_SIZE = 100          # VOC 원문 표 한 페이지 행 수 (최신순, 표 아래 이전·다음으로 전체를 넘겨 본다)
-WEEKLY_CHART_MIN_DAYS = 90    # 선택 기간이 이 일수를 넘으면 주별로 묶어 그린다
+# VOC 건수 차트 막대 단위 — 선택 기간 길이(일)로 정한다: 이하면 일별 → 이하면 주별(월요일 시작) → 그 위는 월별
+DAILY_MAX_DAYS = 31
+WEEKLY_MAX_DAYS = 180
 SIMILARITY_MAX_POINTS = 2000  # VOC 유사도(의미 공간)에 그리는 최대 VOC 수 — 넘으면 무작위 표본(PROJECTION_SEED)
 CELL_MAX_CHARS = 40           # 표(st.dataframe) 셀 글자 수 상한 — 넘으면 화면용 복사본만 앞 N자 + '…' (행 클릭 시 표 아래 전체)
 APP_FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'  # 앱 전체 글꼴 — CSS·st.html 공통 (코드 뷰만 고정폭)

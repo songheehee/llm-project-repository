@@ -52,13 +52,28 @@ def compute_kpis(cur: pd.DataFrame, prev: pd.DataFrame) -> dict:
     return {"total": total, "prev_total": prev_total, "change_pct": change_pct}
 
 
-def daily_counts(df: pd.DataFrame, group_col: str = "channel", weekly: bool = False) -> pd.DataFrame:
-    """일별(또는 주별) · 그룹별 건수 (long 형식: date, group, count). 주별이면 date = 그 주 월요일."""
+def chart_unit(days: int) -> str:
+    """선택 기간 길이(일) → 차트 막대 단위 "day" / "week" / "month" (경계는 config.DAILY_MAX_DAYS · WEEKLY_MAX_DAYS)."""
+    if days <= config.DAILY_MAX_DAYS:
+        return "day"
+    return "week" if days <= config.WEEKLY_MAX_DAYS else "month"
+
+
+def bucket_starts(start: date, end: date, unit: str) -> list[date]:
+    """선택 기간에 들어가는 묶음 시작일 목록 (그날 / 그 주 월요일 / 그 달 1일) — 차트 x축 범위용."""
+    freq = {"day": "D", "week": "W-SUN", "month": "M"}[unit]
+    return [p.start_time.date() for p in pd.period_range(start, end, freq=freq)]
+
+
+def daily_counts(df: pd.DataFrame, group_col: str = "channel", unit: str = "day") -> pd.DataFrame:
+    """단위(일·주·월)별 · 그룹별 건수 (long 형식: date, group, count) — 차트에는 묶은 결과만 넘긴다.
+    date = 그날 / 그 주 월요일 / 그 달 1일. 기간 경계에서 잘린 첫·마지막 묶음도 그대로 둔다."""
     if df.empty:
         return pd.DataFrame(columns=["date", "group", "count"])
     key = df["date"]
-    if weekly:
-        key = pd.to_datetime(df["date"]).dt.to_period("W-SUN").dt.start_time.dt.date
+    if unit in ("week", "month"):
+        period = "W-SUN" if unit == "week" else "M"  # W-SUN = 일요일에 끝나는 주 → 시작은 월요일
+        key = pd.to_datetime(df["date"]).dt.to_period(period).dt.start_time.dt.date
     out = df.assign(date=key).groupby(["date", group_col]).size().reset_index(name="count")
     out = out.rename(columns={group_col: "group"})
     if group_col == "channel":
