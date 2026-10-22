@@ -27,8 +27,8 @@ VOC 주제(vocs_1000) ↔ 원인 코드 (교육용 정답 메모 — 앱·LLM에
   착용감·스트랩·피부     (코드 저장소 없음 — 기구 파트)
   충전 중 과열·화상      pulsefit-firmware charging/charger.py       CHARGE_CURRENT_MA = 450 · CHARGE_PAUSE_TEMP_C = 45 (09/24 커밋)
   배터리 부풂·과열       pulsefit-firmware charging/cell_protect.py  MAX_CHARGE_VOLTAGE_MV = 4450 · HOT_DERATE_MV = 0 (09/30 커밋)
-  수면 중 발열           pulsefit-firmware wear/wrist_detect.py      IDLE_RECHECK_INTERVAL_S = 0.5 (09/29 커밋) · recheck_loop
-                         — 벗어 둔 시계를 빨리 알아채려던 변경. 자는 동안(움직임 없음) 적외선 LED가 0.5초마다 켜진다
+  수면 중 발열           pulsefit-py       sleep/night_spo2.py       NIGHT_SPO2_INTERVAL_S = 30 (10/02 커밋 — 새 기능)
+                         — 잠든 동안 30초마다 SpO2를 재며 PPG LED를 30초씩 켠다 (원격 미러에도 같은 커밋)
 함정: pulsefit-py ui/warnings.py · i18n/ (발열 문구만), pulsefit-firmware thermal/ (온도 측정·보고만 — repos.yaml report_only 감점)
 """
 
@@ -52,7 +52,6 @@ AUTHORS = {  # 커밋마다 다른 가상 인물 (git blame '마지막 수정자
     "hw_thermal": ("문시우", "siwoo.moon@pulsefit.example"),
     "hw_charge": ("서지안", "jian.seo@pulsefit.example"),
     "hw_cell": ("노은채", "eunchae.noh@pulsefit.example"),
-    "hw_wear": ("권도윤", "doyun.kwon@pulsefit.example"),
     "notify": ("한예린", "yerin.han@pulsefit.example"),
     "web": ("강민서", "minseo.kang@pulsefit.example"),
     "i18n": ("배소윤", "soyun.bae@pulsefit.example"),
@@ -850,6 +849,35 @@ def sleep_score(stages: list[str], wake_count: int) -> int:
     return round(total * 100)
 '''
 
+# 수면 중 발열의 원인 (10/02 새 기능): 잠든 동안 30초마다 SpO2 측정 — 잴 때마다 PPG LED가 30초 켜진다
+NIGHT_SPO2 = '''"""잠든 동안 혈중 산소(SpO2)를 주기적으로 재서 수면 기록에 남긴다."""
+
+import time
+
+from sensor.spo2 import SPO2_MEASURE_SECONDS, Spo2Meter
+
+# 잠든 동안 SpO2 측정 간격 (초) — 잴 때마다 PPG 적색·적외선 LED를 SPO2_MEASURE_SECONDS 동안 켠다
+NIGHT_SPO2_INTERVAL_S = 30
+
+
+class NightSpo2Recorder:
+    """수면 추적기가 '잠듦'으로 본 동안만 SpO2를 잰다."""
+
+    def __init__(self, tracker, meter: Spo2Meter | None = None):
+        self.tracker = tracker
+        self.meter = meter or Spo2Meter()
+        self.readings = []
+
+    def record_while_asleep(self, read_window):
+        """수면 중 측정 루프 — 잠들어 있는 동안 재고, 다음 측정까지 쉰다."""
+        while self.tracker.asleep_at is not None:
+            samples, quality = read_window(SPO2_MEASURE_SECONDS)
+            value = self.meter.measure(samples, quality)
+            if value is not None:
+                self.readings.append(value)
+            time.sleep(NIGHT_SPO2_INTERVAL_S)
+'''
+
 NOTIFY_DISPATCHER = '''"""폰에서 넘어온 알림을 화면 배너와 진동으로 내보낸다."""
 
 from notify.dnd import DoNotDisturb
@@ -1474,7 +1502,7 @@ CHARGER_FAST = CHARGER_FINAL.replace(
     "CHARGE_PAUSE_TEMP_C = 38\nCHARGE_RESUME_TEMP_C = 35", "CHARGE_PAUSE_TEMP_C = 45\nCHARGE_RESUME_TEMP_C = 42")
 assert "CHARGE_CURRENT_MA = 450" in CHARGER_FAST and "CHARGE_PAUSE_TEMP_C = 45" in CHARGER_FAST
 
-CELL_PROTECT_INITIAL = ''''"""배터리 셀 보호 — 만충 전압과 고온일 때 전압 낮추기."""
+CELL_PROTECT_INITIAL = '''"""배터리 셀 보호 — 만충 전압과 고온일 때 전압 낮추기."""
 
 # 만충 전압 (mV)
 MAX_CHARGE_VOLTAGE_MV = 4350
@@ -1612,27 +1640,16 @@ def bootloader_ok(bootloader: str) -> bool:
     return parse(bootloader) >= MIN_BOOTLOADER
 '''
 
-WRIST_DETECT = ''''"""착용 감지 — 손목에 차고 있는지 판단한다 (소프트웨어로 착용감은 바꾸지 못한다).
-
-근접 센서는 적외선 LED를 켜서 피부까지 거리를 잰다. 잴 때마다 LED와 센서 칩이 깨어난다.
-"""
+WRIST_DETECT = '''"""착용 감지 — 손목에 차고 있는지 판단한다 (소프트웨어로 착용감은 바꾸지 못한다)."""
 
 # 근접 값이 이 값 이상이면 착용 중
 WORN_PROXIMITY = 0.6
 # 착용 해제로 판단하기까지 기다리는 시간 (초)
 OFF_WRIST_DELAY_S = 10
-# 착용 재확인 주기 (초) — 손목이 움직일 때
-RECHECK_INTERVAL_S = 30
-# 손목 움직임이 없을 때(idle)의 착용 재확인 주기 (초)
-IDLE_RECHECK_INTERVAL_S = 30
 
 
 class WristDetector:
-    """근접 센서로 착용 여부를 주기적으로 다시 확인한다."""
-
-    def __init__(self, proximity_sensor, motion):
-        self.sensor = proximity_sensor
-        self.motion = motion
+    def __init__(self):
         self.worn = False
         self._off_since = None
 
@@ -1646,26 +1663,7 @@ class WristDetector:
             if now_s - self._off_since >= OFF_WRIST_DELAY_S:
                 self.worn = False
         return self.worn
-
-    def next_check_s(self) -> float:
-        """다음 재확인까지 기다릴 시간. 손목이 가만히 있으면(idle) 벗어 둔 것일 수 있어 따로 정한 주기를 쓴다."""
-        if self.motion.is_idle():
-            return IDLE_RECHECK_INTERVAL_S
-        return RECHECK_INTERVAL_S
-
-    def recheck_loop(self, clock):
-        """착용 재확인 루프 — 근접 센서(적외선 LED) 전원을 켜서 재고 끈 뒤 다음 확인까지 쉰다."""
-        while True:
-            self.sensor.power_on()
-            value = self.sensor.read()
-            self.sensor.power_off()
-            self.update(value, clock.now())
-            clock.sleep(self.next_check_s())
 '''
-
-# 수면 중 발열의 원인 (09/29): 움직임이 없을 때 재확인 주기 30초 → 0.5초 — 자는 동안 LED가 계속 켜진다
-WRIST_DETECT_FINAL = WRIST_DETECT.replace("IDLE_RECHECK_INTERVAL_S = 30", "IDLE_RECHECK_INTERVAL_S = 0.5")
-assert "IDLE_RECHECK_INTERVAL_S = 0.5" in WRIST_DETECT_FINAL
 
 # ═══════════════════════ pulsefit-web (브랜드 사이트 · 스토어, 더미) ═══════════════════════
 
@@ -1855,8 +1853,6 @@ CHANGES = [
      {"thermal/monitor.py": THERMAL_FINAL}, "피부 온도 측정 주기 60초 → 30초"),
     ("2026-09-24T15:30:00+09:00", "pulsefit-firmware", "hw_charge",
      {"charging/charger.py": CHARGER_FAST}, "충전 시간 단축: 충전 전류 200mA → 450mA, 충전 일시정지 온도 38℃ → 45℃"),
-    ("2026-09-29T10:15:00+09:00", "pulsefit-firmware", "hw_wear",
-     {"wear/wrist_detect.py": WRIST_DETECT_FINAL}, "벗어 둔 시계 빨리 감지: 움직임 없을 때 착용 재확인 30초 → 0.5초"),
     ("2026-09-30T17:00:00+09:00", "pulsefit-firmware", "hw_cell",
      {"charging/cell_protect.py": CELL_PROTECT_FINAL}, "배터리 사용 시간 늘리기: 만충 전압 4.35V → 4.45V, 고온 전압 낮추기 해제"),
     ("2026-09-30T11:30:00+09:00", "pulsefit-py", "i18n",
@@ -1871,6 +1867,8 @@ CHANGES = [
      {"bluetooth/reconnect.py": RECONNECT_FINAL}, "재연결 속도 개선: 재시도 대기 제거"),
     ("2026-10-02T18:30:00+09:00", "pulsefit-py", "sensor",
      {"sensor/heart_rate.py": HEART_RATE_FINAL}, "운동 중 심박 정확도 개선: 측정 주기 단축"),
+    ("2026-10-02T21:00:00+09:00", "pulsefit-py", "health",
+     {"sleep/night_spo2.py": NIGHT_SPO2}, "수면 중 산소포화도 기록 추가: 잠든 동안 30초마다 SpO2 측정"),
 ]
 
 
@@ -1929,7 +1927,7 @@ def main() -> None:
     assert hr_lines[51].strip() == "time.sleep(POLL_INTERVAL_S)", hr_lines[51]
     assert session_lines[22].strip() == "self.hr.start_continuous()", session_lines[22]
     fw = root / "pulsefit-firmware"  # 펌웨어 정답 3개
-    assert "IDLE_RECHECK_INTERVAL_S = 0.5" in (fw / "wear/wrist_detect.py").read_text(encoding="utf-8")
+    assert "NIGHT_SPO2_INTERVAL_S = 30" in (root / "pulsefit-py/sleep/night_spo2.py").read_text(encoding="utf-8")
     assert "CHARGE_CURRENT_MA = 450" in (fw / "charging/charger.py").read_text(encoding="utf-8")
     assert "MAX_CHARGE_VOLTAGE_MV = 4450" in (fw / "charging/cell_protect.py").read_text(encoding="utf-8")
 

@@ -1045,7 +1045,7 @@ def folder_option(f: dict) -> str:
 def render_folder_pick(sel: str, wait: dict) -> None:
     """폴더 확인(interrupt 대기): '수정 라인을 찾을 폴더'를 고르고 [수정 라인 찾기]로 그래프를 재개한다.
     끝나서 검증된 수정 라인이 있으면 4️⃣ 수정 라인 탭으로 이동, 실패하거나 0건이면 3️⃣ 의심 위치 탭에 남아 안내.
-    기본 선택 = 1위 레포지토리에서 감점되지 않은 의심도 상위 2개 폴더, 최대 MAX_SELECTED_FOLDERS개."""
+    기본 선택 = 1위 레포지토리의 의심도 상위 2개 폴더(감점 폴더 포함 — 감점은 점수에만), 최대 MAX_SELECTED_FOLDERS개."""
     st.markdown("#### 수정 라인을 찾을 폴더")
     graph = cached_graph()
     if not stage2.is_waiting(graph, wait["thread_id"]):  # 서버 재시작 등으로 체크포인터에 그 실행이 없다
@@ -1055,13 +1055,13 @@ def render_folder_pick(sel: str, wait: dict) -> None:
     folders = payload["folders"]
     by_label = {folder_option(f): f for f in folders}
     top = payload["repos"][0]["name"] if payload["repos"] else None
-    default = [folder_option(f) for f in folders
-               if f["repo"] == top and not f["penalized"]][:config.TOP_FOLDERS_FOR_LINES]
+    # 감점 폴더도 빼지 않는다 — 감점은 점수에만 반영 (빼면 메뉴·화면 티켓의 정답 폴더 ui/가 기본 선택에서 사라졌다)
+    default = [folder_option(f) for f in folders if f["repo"] == top][:config.TOP_FOLDERS_FOR_LINES]
     picked = st.multiselect("수정 라인을 찾을 폴더", list(by_label), default=default,
                             max_selections=config.MAX_SELECTED_FOLDERS, key=f"pick_folders_{wait['thread_id']}",
                             label_visibility="collapsed")
     st.caption(f"고른 폴더 안의 파일에서만 수정 라인을 찾습니다 · 최대 {config.MAX_SELECTED_FOLDERS}개 · "
-               "기본은 1위 레포지토리에서 감점되지 않은 의심도 상위 2개")
+               "기본은 1위 레포지토리의 의심도 상위 2개")
     if st.button("수정 라인 찾기", type="primary", disabled=not picked,
                  key=f"resume_{wait['thread_id']}") and has_api_key():
         chosen = [{"repo": by_label[o]["repo"], "path": by_label[o]["path"]} for o in picked]

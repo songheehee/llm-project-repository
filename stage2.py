@@ -765,10 +765,14 @@ LINE_SEARCH_SYSTEM = (
     "- read_lines 결과의 'NNNN| '은 줄 번호다. 범위는 그 번호로 쓰고, 범위마다 code에 start 줄 코드를 번호 없이 글자 그대로 복사한다. "
     "읽지 않은 줄은 범위로 쓰지 않는다.\n"
     "- 원인으로 의심되는 값이 정의된 줄과, 그 값이 실제 동작(반복·대기 등)에 쓰이는 블록을 각각 범위로 고른다.\n"
+    "- 고른 블록이 대문자 설정 상수(기준값·주기·시간·배율·한도 등)를 읽으면, 그 상수의 대입 줄도 원인 값을 정하는 줄로 범위에 넣는다. "
+    "최근 커밋에서 바뀌지 않았어도 넣는다 — 개요의 const 줄 번호를 read_lines로 읽은 뒤 쓴다. "
+    "고른 블록 안에 이름이 실제로 나오는 상수만 넣고, 같은 파일의 다른 상수(다른 모드·다른 함수용 주기 등)는 넣지 않는다.\n"
     "- 범위는 실행 코드 줄만 최소로 잡는다. 주석·docstring·def·try·finally 줄과 준비·정리 코드는 넣지 않는다.\n"
     "  예) 상수 `RETRY_LIMIT = 3`은 그 대입 한 줄만 → (12, 12). "
     "반복 블록은 `for`/`while` 줄부터 블록 안 마지막 대기·호출 줄까지만 → (30, 36). "
-    "반복 블록의 start는 반드시 `for`/`while` 줄 자체이고, 그 앞의 전원 켜기·초기화·try 줄은 넣지 않는다. "
+    "반복 블록의 start는 반드시 `for`/`while` 줄 자체이고, 그 앞의 전원 켜기·초기화·try 줄은 넣지 않는다 "
+    "(따로 떼어 낸 한 줄 범위로도 넣지 않는다 — 범위는 원인 값 줄과 그 값을 쓰는 블록뿐이다). "
     "예) `def _run(self):` → docstring → `self.dev.open()` → `try:` → `while self.on:` 순서라면 반복 블록 start는 `while` 줄.\n"
     "- 이 파일의 범위는 추천 하나에 ranges 여러 개로 묶는다 (추천은 최대 1개).\n"
     "- confidence는 이 파일이 티켓 증상의 직접 원인일 가능성이다. 원인 값을 쓰기만 하는 호출부·주변 코드는 낮게 준다. "
@@ -977,6 +981,36 @@ def trim_range(lines: list[str], s: int, e: int) -> tuple[int, int]:
     return s, e
 
 
+def minimal_ranges(ranges: list[tuple[int, int]], snippets: list[str]) -> tuple[list, list]:
+    """겹치는 범위 정리. 시작 줄 순으로 정렬.
+    같은 범위는 하나 · 시작 줄이 같으면 짧은 쪽(같은 블록을 더 길게 잡은 것: L45–52 / L45–54 → L45–52)
+    · 블록 안쪽에서 시작하는 범위는 뺀다(블록 안 한 줄 강조: L45–52 / L52 → L45–52).
+    LLM이 같은 블록을 두 번 내는 경우가 있었다."""
+    first: dict[tuple[int, int], str] = {}
+    for r, sn in zip(ranges, snippets):
+        first.setdefault(r, sn)  # 같은 범위는 처음 것 하나
+
+    def redundant(r: tuple[int, int]) -> bool:
+        return any((o[0] == r[0] and o[1] < r[1]) or (o[0] < r[0] and r[1] <= o[1]) for o in first if o != r)
+
+    keep = [(r, sn) for r, sn in first.items() if not redundant(r)]
+    keep.sort(key=lambda p: p[0])
+    return [r for r, _ in keep], [sn for _, sn in keep]
+
+
+def drop_loop_prep(lines: list[str], ranges: list[tuple[int, int]], snippets: list[str]) -> tuple[list, list]:
+    """반복 블록 바로 앞의 준비 줄(전원 켜기 등)을 따로 떼어 낸 범위는 뺀다 — trim_range가 범위 안에서 하는 일을 범위 사이에도.
+    사이에 빈 줄·주석·try 줄만 있으면 '바로 앞'으로 본다 (L43 power_on → L44 try → L45 while)."""
+    def filler(n: int) -> bool:
+        t = lines[n - 1].strip()
+        return not t or t.startswith("#") or t == "try:"
+
+    loops = [s for s, _ in ranges if re.match(r"\s*(for|while)\b", lines[s - 1])]
+    keep = [(r, sn) for r, sn in zip(ranges, snippets)
+            if not any(r[1] < ls and all(filler(n) for n in range(r[1] + 1, ls)) for ls in loops)]
+    return [r for r, _ in keep], [sn for _, sn in keep]
+
+
 def verify_recs(recs: list[LineRec]) -> tuple[list[LineRec], list[str]]:
     """범위마다 파일 존재 · 1 ≤ 시작 ≤ 끝 ≤ 줄 수 · snippet이 범위 텍스트에 포함인지 확인. 실패분은 버린다.
     (통과한 추천, 실패 사유) — 같은 파일은 신뢰도 높은 추천 하나만."""
@@ -1007,6 +1041,7 @@ def verify_recs(recs: list[LineRec]) -> tuple[list[LineRec], list[str]]:
             ok_snippets.append(lines[ts - 1].strip() if ts != s else snip)  # 잘라냈으면 새 시작 줄로
         if not ok_ranges:
             continue
+        ok_ranges, ok_snippets = drop_loop_prep(lines, *minimal_ranges(ok_ranges, ok_snippets))
         seen_paths.add(rec.path)
         passed.append(rec.model_copy(update={
             "ranges": ok_ranges, "range_snippets": ok_snippets, "snippet": ok_snippets[0], "verified": True}))
