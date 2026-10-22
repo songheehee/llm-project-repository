@@ -60,6 +60,8 @@ CSS = """
 [class*="st-key-tchg_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
 /* 티켓 발행 확인 창: 유형별 상자 사이 8px · 유형 이름은 한 줄, 길면 … (날짜 칸이 아래로 밀리지 않게) */
 [class*="st-key-issue_rows"] {gap:8px;}
+/* VOC 원문 표 위 한 줄: 티켓 상태 전환 버튼을 검색 칸(40px)과 같은 높이로 */
+[class*="st-key-raw_ticket_filter"] button {min-height:40px;}
 [class*="st-key-issue_name_"] {flex-wrap:nowrap; min-width:0;}
 [class*="st-key-issue_name_"] > div {min-width:0;}
 [class*="st-key-issue_name_"] [data-testid="stMarkdownContainer"] {overflow:hidden; margin-bottom:0;}
@@ -469,6 +471,72 @@ def confirm_issue(clusters: list, period_txt: str) -> None:
         st.rerun()
 
 
+def ticket_link_text(t) -> str:
+    """VOC 원문 표 티켓 칸: 티켓 ID만 "TKT-0012" (없으면 "–", 담당자 이름은 넣지 않음)."""
+    return t.ticket_id if t is not None else config.NO_TICKET
+
+
+RAW_TABLE_KEY = "tbl_raw"  # VOC 원문 표 key (고정 — key를 바꾸면 표가 새로 만들어져 화면이 깜빡인다)
+
+
+def clear_raw_selection() -> None:
+    """VOC 상세 창을 닫을 때([닫기] · X · Esc, 콜백이라 표를 그리기 전): 표의 칸 선택 값을 비운다
+    → 같은 칸을 다시 눌러도 창이 뜬다. 표 key는 그대로 둬 다시 그릴 때 깜빡이지 않는다."""
+    ss[RAW_TABLE_KEY] = {"selection": {"rows": [], "columns": [], "cells": []}}
+    ss.pop("raw_detail_voc", None)
+
+
+def pill(text: str, color: str) -> str:
+    """st.html용 둥근 색 배지 (앱 CSS .vocai-badge와 같은 모양을 인라인 스타일로)."""
+    return (f'<span style="display:inline-block; color:#FFFFFF; background:{color}; border-radius:6px; '
+            f'padding:1px 8px; font-size:0.8rem; font-weight:700; white-space:nowrap;">{html.escape(text)}</span>')
+
+
+def voc_detail_html(row: dict, link: dict) -> str:
+    """VOC 상세 내용 전체를 HTML 블록 하나로 (줄마다 st.markdown을 부르면 호출마다 위아래 여백이 붙어 길어진다).
+    모든 값은 html.escape. 글꼴 APP_FONT · 본문 16px · line-height 1.6 · 소제목 13px 회색(값과 6px) · <hr> 위아래 16px."""
+    e = html.escape
+    sub = f'font-size:13px; color:{config.MUTED_TEXT_COLOR}; margin:0 0 6px 0;'
+    hr = '<hr style="margin:16px 0; border:none; border-top:1px solid #E3E6EF;">'
+    if link["type"] == config.TYPE_NOT_ANALYZED:
+        type_line = "유형 분석 전입니다"
+    else:
+        head = pill(link["priority"], config.PRIORITY_COLOR.get(link["priority"], config.MUTED_TEXT_COLOR)) + " " \
+            if link["priority"] else ""
+        # 우선순위 배지와 유형 이름 사이 8px (공백 문자 대신 inline-flex gap — head 끝의 " "는 빼고)
+        type_line = (f'<span style="display:inline-flex; align-items:center; gap:8px;">{head.rstrip()}'
+                     f'<span>{e(link["type"])}</span></span>')
+    t = link["ticket"]
+    if t is None:
+        ticket_html = "<div>아직 발행된 티켓이 없습니다</div>"
+    else:
+        when = (f"완료일 {datetime.strptime(t.completed_at, '%Y-%m-%d %H:%M'):%m/%d}" if stage1.is_done(t) and t.completed_at
+                else f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
+        # 1줄: 티켓 ID · 담당자 (파트) · 상태 배지(STATUS_COLORS) — "·" 없이 16px 간격 / 2줄(위 8px): 발행일 · 완료일 — "·" 앞뒤 12px
+        ticket_html = (
+            f'<div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;"><b>{e(t.ticket_id)}</b>'
+            f'<span>{e(t.assignee)} ({e(t.owner_part)})</span>'
+            f'{pill(t.status, config.STATUS_COLORS.get(t.status, config.MUTED_TEXT_COLOR))}</div>'
+            f'<div style="display:flex; align-items:center; gap:12px; margin-top:8px;"><span>발행일 {date.fromisoformat(t.issued_on):%m/%d}</span>'
+            f'<span>·</span><span>{e(when)}</span></div>')
+    return (
+        # APP_FONT의 큰따옴표는 style="…" 속성을 끊으므로 작은따옴표로 바꿔 넣는다
+        f'<div style="font-family:{config.APP_FONT.replace(chr(34), chr(39))}; font-size:16px; line-height:1.6; color:#202124;">'
+        f'<div style="margin-bottom:12px;"><b>{e(str(row["VOC ID"]))}</b> · {e(str(row["작성 일시"]))} · {e(str(row["채널"]))}</div>'
+        f'<div style="margin-bottom:4px; white-space:pre-wrap; word-break:break-word;">{e(str(row["원문"]))}</div>'
+        f'{hr}<div style="{sub}">유형</div><div>{type_line}</div>'
+        f'{hr}<div style="{sub}">티켓</div>{ticket_html}</div>')
+
+
+@st.dialog("VOC 상세", on_dismiss=clear_raw_selection)
+def voc_detail(row: dict, link: dict) -> None:
+    """VOC 원문 표에서 고른 행의 상세 (표의 유형·티켓·상태 칸과 같은 voc_links 결과). 내용은 HTML 블록 하나 + [닫기]."""
+    st.html(voc_detail_html(row, link))
+    # 콜백(on_click)에서 선택을 비운다 — 스크립트가 표를 그리기 전에 실행돼야 표의 선택 값을 바꿀 수 있다
+    if st.button("닫기", key="dlg_voc_close", on_click=clear_raw_selection):
+        st.rerun()
+
+
 @st.dialog("완료일 변경 신청")
 def request_due(ticket_id: str) -> None:
     """예상 완료일 변경 신청(내 티켓 카드 [변경 신청]): 한 줄 큰 글씨 티켓 ID + 날짜 칸, 사유(필수, 100자) + [신청] [취소].
@@ -573,14 +641,22 @@ def shorten(text, n: int = config.CELL_MAX_CHARS):
     return text[:n] + "…"
 
 
-def show_table(df: pd.DataFrame, key: str, **kwargs) -> None:
+def show_table(df: pd.DataFrame, key: str, gray: tuple = (), value_styles: dict | None = None, **kwargs):
     """모든 st.dataframe 표가 쓰는 규칙: 화면용 복사본만 CELL_MAX_CHARS로 잘라 '…'(원본 df는 그대로).
-    행 선택(체크박스)은 어느 표에도 켜지 않는다 — 체크박스가 있는 표는 클러스터 표(st.data_editor, 티켓 발행) 하나뿐."""
+    gray = 회색 글씨로 보일 값(예: "분석 전", "–"). 행 선택은 VOC 원문 표(누르면 VOC 상세 창)만 kwargs로 켠다
+    — 체크박스가 있는 표는 유형별 처리 우선순위 표(st.data_editor, 티켓 발행)와 VOC 원문 표 둘뿐."""
     view = df.copy()
     for c in view.columns:
         if view[c].map(lambda v: isinstance(v, str) and len(v) > config.CELL_MAX_CHARS).any():
             view[c] = view[c].map(shorten)
-    st.dataframe(view, hide_index=True, width="stretch", key=key, **kwargs)
+    # gray 값은 회색 글씨, value_styles = {열: {값: CSS}} (예: 상태 칸 "진행 중" 파랑 굵게) — pandas Styler
+    data = view.style if (gray or value_styles) else view
+    if gray:
+        data = data.map(lambda v: f"color:{config.MUTED_TEXT_COLOR}" if v in gray else "")
+    for col, styles in (value_styles or {}).items():
+        if col in view.columns:
+            data = data.map(lambda v, styles=styles: styles.get(v, ""), subset=[col])
+    return st.dataframe(data, hide_index=True, width="stretch", key=key, **kwargs)
 
 
 def md_escape(text: str) -> str:
@@ -872,56 +948,63 @@ setTimeout(() => {{
 }}, 80);
 </script>""", unsafe_allow_javascript=True)
 
-# ════════════════════════════ 탭 2: 티켓 ════════════════════════════
-# 티켓 탭을 대시보드보다 먼저 실행한다 (화면의 탭 순서는 st.tabs 그대로) — 화면은 실행 순서대로 바뀌므로,
+# 티켓 탭이 열려 있으면 대시보드보다 먼저 실행한다 (화면의 탭 순서는 st.tabs 그대로) — 화면은 실행 순서대로 바뀌므로,
+# 다른 탭이 열려 있으면 대시보드 뒤에 실행 (첫 화면에서 대표 VOC 임베딩 캐시 읽기가 대시보드를 막지 않게)
 # 대시보드(차트·VOC 표)를 다 보낸 뒤에야 티켓 보기가 바뀌면 [내 티켓]↔[다른 개발자 티켓] 전환 때 이전 보기가 잠깐 남아 보였다
 
-with tab2:
-    my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
-    others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
-    # 처리 완료: 개발자는 내가 완료한 티켓, 관리자는 같은 파트에서 완료된 티켓 (완료 일시 최신순, 버튼 없음)
-    done = sorted((t for t in ss["tickets"].values() if stage1.is_done(t)
-                   and (t.owner_part == me["part"] if IS_MANAGER else t.assignee_id == me["id"])),
-                  key=lambda t: t.completed_at or "", reverse=True)
-    # 맨 위 보기 전환 — 괄호 = 진행 중 수 / 대기 신청 수 (0건이어도 버튼은 둔다). 처리 완료는 수 없이
-    view_counts = {"mine": len(my_recent), "others": len(others), "approvals": len(PENDING), "part": len(my_recent)}
-    if ss.get("ticket_view") not in TICKET_VIEWS:  # 기본 = 개발자 내 티켓 / 관리자 승인 요청 (역할을 바꿔도 맞게)
-        ss["ticket_view"] = TICKET_VIEWS[0]
-    view = st.segmented_control(
-        "티켓 보기", TICKET_VIEWS, key="ticket_view", required=True, label_visibility="collapsed",
-        format_func=lambda v: TICKET_VIEW_LABELS[v] + (f" ({view_counts[v]})" if v in view_counts else ""))
-    # 보기마다 자리(st.empty)를 따로 두고, 안 보이는 보기의 자리는 빈 요소로 둔다.
-    # 같은 자리의 컨테이너는 Streamlit이 이전 자식 요소를 실행이 끝날 때까지 남겨 두므로(전환 때 이전 카드·상자가 남아 보임),
-    # 보기를 바꾸면 이전 보기 자리가 '빈 요소'로 바뀌어 그 안의 카드·상자가 즉시 통째로 지워진다
-    slots = {v: st.empty() for v in TICKET_VIEWS}
-    with slots[view].container(key=f"ticket_view_{view}"):
-        if view == "approvals":  # 관리자: 같은 파트의 대기 중 신청만
-            if PENDING:
-                render_approval_cards(PENDING)
+def render_tickets_tab() -> None:
+    """2️⃣ 티켓 탭. 열려 있으면 대시보드보다 먼저 실행해 보기 전환이 바로 반영되고, 아니면 대시보드 뒤에 실행한다
+    (첫 화면에서 대표 VOC 임베딩 캐시 읽기가 대시보드보다 먼저 돌아 대시보드가 비어 보이지 않게)."""
+    with tab2:
+        my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
+        others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
+        # 처리 완료: 개발자는 내가 완료한 티켓, 관리자는 같은 파트에서 완료된 티켓 (완료 일시 최신순, 버튼 없음)
+        done = sorted((t for t in ss["tickets"].values() if stage1.is_done(t)
+                       and (t.owner_part == me["part"] if IS_MANAGER else t.assignee_id == me["id"])),
+                      key=lambda t: t.completed_at or "", reverse=True)
+        # 맨 위 보기 전환 — 괄호 = 진행 중 수 / 대기 신청 수 (0건이어도 버튼은 둔다). 처리 완료는 수 없이
+        view_counts = {"mine": len(my_recent), "others": len(others), "approvals": len(PENDING), "part": len(my_recent)}
+        if ss.get("ticket_view") not in TICKET_VIEWS:  # 기본 = 개발자 내 티켓 / 관리자 승인 요청 (역할을 바꿔도 맞게)
+            ss["ticket_view"] = TICKET_VIEWS[0]
+        view = st.segmented_control(
+            "티켓 보기", TICKET_VIEWS, key="ticket_view", required=True, label_visibility="collapsed",
+            format_func=lambda v: TICKET_VIEW_LABELS[v] + (f" ({view_counts[v]})" if v in view_counts else ""))
+        # 보기마다 자리(st.empty)를 따로 두고, 안 보이는 보기의 자리는 빈 요소로 둔다.
+        # 같은 자리의 컨테이너는 Streamlit이 이전 자식 요소를 실행이 끝날 때까지 남겨 두므로(전환 때 이전 카드·상자가 남아 보임),
+        # 보기를 바꾸면 이전 보기 자리가 '빈 요소'로 바뀌어 그 안의 카드·상자가 즉시 통째로 지워진다
+        slots = {v: st.empty() for v in TICKET_VIEWS}
+        with slots[view].container(key=f"ticket_view_{view}"):
+            if view == "approvals":  # 관리자: 같은 파트의 대기 중 신청만
+                if PENDING:
+                    render_approval_cards(PENDING)
+                else:
+                    st.info("승인 대기 중인 신청이 없습니다")
+            elif view == "part":     # 관리자: 같은 파트 진행 중 티켓 (버튼 없음)
+                if my_recent:
+                    render_ticket_cards(my_recent, "tcards_part")
+                else:
+                    st.info("파트에 진행 중인 티켓이 없습니다")
+            elif view == "done":
+                if done:
+                    render_ticket_cards(done, "tcards_done")
+                else:
+                    st.info("처리 완료한 티켓이 없습니다")
+            elif view == "others":
+                # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
+                if others:
+                    render_ticket_cards(others, "tcards_others")
+                else:
+                    st.info("다른 개발자가 맡은 티켓이 없습니다")
+            elif not my_recent:
+                st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
             else:
-                st.info("승인 대기 중인 신청이 없습니다")
-        elif view == "part":     # 관리자: 같은 파트 진행 중 티켓 (버튼 없음)
-            if my_recent:
-                render_ticket_cards(my_recent, "tcards_part")
-            else:
-                st.info("파트에 진행 중인 티켓이 없습니다")
-        elif view == "done":
-            if done:
-                render_ticket_cards(done, "tcards_done")
-            else:
-                st.info("처리 완료한 티켓이 없습니다")
-        elif view == "others":
-            # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
-            if others:
-                render_ticket_cards(others, "tcards_others")
-            else:
-                st.info("다른 개발자가 맡은 티켓이 없습니다")
-        elif not my_recent:
-            st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
-        else:
-            # 내 티켓: 1. 카드(버튼 있음) → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
-            render_ticket_cards(my_recent, "tcards_mine", actions=True)
-            render_representative_vocs(my_recent)
+                # 내 티켓: 1. 카드(버튼 있음) → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
+                render_ticket_cards(my_recent, "tcards_mine", actions=True)
+                render_representative_vocs(my_recent)
+
+
+if ss.get("active_tab") == TAB_TICKETS:
+    render_tickets_tab()
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
@@ -1019,36 +1102,72 @@ with tab1:
             st.metric("처리 완료", f"{cards['done_count']:,}건", delta=f"처리율 {cards['done_rate']:.1f}%",
                       delta_color="off", delta_arrow="off", help="처리율 = 처리 완료 VOC ÷ VOC 건수")
 
-        # 보기 영역은 칸 하나(st.empty)에. 새 보기에 없는 자리의 이전 요소(예: 분석 전 '유형 분석 결과'로 바꿨을 때
-        # VOC 원문 표)는 스크립트가 끝날 때까지 남아 보이므로, 원본 VOC 보기는 아래에서 묶음 하나로 그린다
-        view_slot = st.empty()
-        with view_slot.container():
+        # 보기마다 자리(st.empty)를 따로 두고 안 보이는 보기의 자리는 빈 요소로 둔다 — 같은 자리 컨테이너 하나에 그리면
+        # Streamlit이 이전 보기의 요소(예: VOC 원문 표)를 실행이 끝날 때까지 남겨 두어, 보기를 바꿀 때 잠깐 보였다가 사라졌다
+        view_slots = {v: st.empty() for v in VIEW_OPTIONS}
+        with view_slots[view].container():
             if view == VIEW_RAW:
                 # 원본 VOC 보기 전체를 묶음(container) 하나로 — 다른 보기의 첫 요소가 이 자리를 차지하면 차트·표가 함께 바로 사라진다
                 with st.container():
                     daily_bar_chart(data_utils.daily_counts(cur, "channel", unit=chart_unit), chart_title, chart_unit, start, end)
                     st.subheader("VOC 원문")
                     raw = data_utils.voc_table(cur)  # 최신순
-                    # 검색은 페이지가 아니라 기간 전체에서 — 표에 넘기기 전에 거르고, 그 결과를 페이징한다
+                    # 유형 · 티켓 열 — 분석 여부와 상관없이 모든 행 (지금 기간의 분석 결과만 씀, stage1.voc_links 하나로)
+                    links = stage1.voc_links(raw["VOC ID"], s1["assignments"] if s1 else None,
+                                             s1["clusters"] if s1 else None, ss["tickets"])
+                    raw["유형"] = raw["VOC ID"].map(lambda v: links[v]["type"])
+                    raw["티켓"] = raw["VOC ID"].map(lambda v: ticket_link_text(links[v]["ticket"]))
+                    # 상태: 그 티켓의 상태 "진행 중" / "완료" (다른 칸처럼 기본 글자색) — 티켓이 없으면 티켓 칸처럼 회색 "–"
+                    raw["상태"] = raw["VOC ID"].map(lambda v: links[v]["ticket"].status if links[v]["ticket"] else config.NO_TICKET)
+                    # 표 위 한 줄(가로 폭 전체): [VOC ID · 유형 · 원문 검색 — 남은 폭 전체] [전체 | 완료 | 진행 중 | 미발행](오른쪽 끝)
+                    # 검색·상태는 페이지가 아니라 기간 전체에서 — 표에 넘기기 전에 거르고, 그 결과를 페이징한다
                     # (st.dataframe 자체 검색은 지금 페이지 RAW_PAGE_SIZE건 안에서만 찾는다)
-                    query = st.text_input("VOC 검색", key="raw_search", width=config.RAW_SEARCH_WIDTH,
-                                          placeholder="VOC ID · 원문 검색",
-                                          label_visibility="collapsed").strip()
+                    bar = st.container(horizontal=True, gap="small", vertical_alignment="bottom")
+                    query = bar.text_input("VOC 검색", key="raw_search", width="stretch",
+                                           placeholder="VOC ID · 유형 · 원문 검색",
+                                           label_visibility="collapsed").strip()
+                    ticket_filter = bar.segmented_control("티켓 상태", config.TICKET_FILTERS, default="전체",
+                                                          key="raw_ticket_filter", required=True,
+                                                          label_visibility="collapsed")
                     total = len(raw)
-                    if query:
-                        hit = pd.Series(False, index=raw.index)
-                        for col in ("VOC ID", "채널", "원문"):
-                            hit |= raw[col].astype(str).str.contains(query, case=False, regex=False)
-                        raw = raw[hit]
+                    if query:  # VOC ID 일치, 또는 유형·원문에 포함 (대소문자 무시)
+                        raw = raw[(raw["VOC ID"].str.lower() == query.lower())
+                                  | raw["유형"].astype(str).str.contains(query, case=False, regex=False)
+                                  | raw["원문"].astype(str).str.contains(query, case=False, regex=False)]
+                    if ticket_filter == "미발행":
+                        raw = raw[raw["상태"] == config.NO_TICKET]
+                    elif ticket_filter in (config.TICKET_STATUS_OPEN, config.TICKET_STATUS_DONE):
+                        raw = raw[raw["상태"] == ticket_filter]
+                    # 열 순서: VOC ID · 작성 일시 · 채널 · 유형 · 티켓 · 상태 · 원문 (상세 열·아이콘 없음 — 아무 칸이나 누르면 상세 창)
+                    raw = raw[["VOC ID", "작성 일시", "채널", "유형", "티켓", "상태", "원문"]]
                     # 페이징: 한 페이지 RAW_PAGE_SIZE건만 표에 넘기고, 표 아래 [‹ 이전] [다음 ›]로 전체를 넘겨 본다
                     pages = max(1, -(-len(raw) // config.RAW_PAGE_SIZE))
-                    page_key = f"raw_page_{start}_{end}_{query}"  # 기간·검색어가 바뀌면 1페이지부터
+                    # 기간·검색어·티켓 상태가 바뀌면 1페이지부터
+                    page_key = f"raw_page_{start}_{end}_{query}_{ticket_filter}"
                     # 페이지 번호 = 아래 페이지 선택 칸(selectbox, key=page_key)의 값. [‹ 이전]·[다음 ›]은 콜백에서 같은 값을 ±1
                     page = min(max(1, ss.get(page_key, 1)), pages)
                     ss[page_key] = page  # 위젯을 그리기 전이라 바꿔도 된다 (범위 밖 값 정리)
                     lo = (page - 1) * config.RAW_PAGE_SIZE
-                    show_table(raw.iloc[lo:lo + config.RAW_PAGE_SIZE], key="tbl_raw",
-                               height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3)  # 헤더 + 10줄
+                    page_df = raw.iloc[lo:lo + config.RAW_PAGE_SIZE]
+                    if raw.empty:
+                        st.info("조건에 맞는 VOC가 없습니다")
+                    # 체크박스 없이 셀 선택(single-cell) — 아무 칸이나 누르면 그 행의 VOC 상세 창.
+                    # 창을 닫으면(clear_raw_selection) 표 선택 값을 비운다 → 같은 칸을 다시 눌러도 뜬다 (표 key는 고정)
+                    event = None if raw.empty else show_table(
+                        page_df, key=RAW_TABLE_KEY,
+                        gray=(config.TYPE_NOT_ANALYZED, config.NO_TICKET),
+                        column_config={"상태": st.column_config.TextColumn(width="small")},
+                        height=(config.RAW_TABLE_ROWS + 1) * config.TABLE_ROW_PX + 3,  # 헤더 + 10줄
+                        on_select="rerun", selection_mode="single-cell")
+                    cells = event.selection.cells if event else []
+                    row_pos = cells[0][0] if cells and cells[0][0] < len(page_df) else None
+                    picked_voc = page_df.iloc[row_pos]["VOC ID"] if row_pos is not None else None
+                    # 창이 떠 있는 동안 다른 조작으로 다시 실행돼도 또 띄우지 않는다 (새로 누른 칸일 때만)
+                    if picked_voc and picked_voc != ss.get("raw_detail_voc"):
+                        ss["raw_detail_voc"] = picked_voc
+                        voc_detail(page_df.iloc[row_pos].to_dict(), links[picked_voc])
+                    elif not picked_voc:
+                        ss.pop("raw_detail_voc", None)
                     pager = st.container(horizontal=True, horizontal_alignment="center", vertical_alignment="center")
                     pager.button("‹ 이전", key="raw_prev", disabled=page <= 1,
                                  on_click=lambda: ss.update({page_key: page - 1}))
@@ -1056,7 +1175,8 @@ with tab1:
                                     label_visibility="collapsed", width=config.RAW_PAGE_PICK_WIDTH)
                     pager.button("다음 ›", key="raw_next", disabled=page >= pages,
                                  on_click=lambda: ss.update({page_key: page + 1}))
-                    found = f"'{query}' 검색 {len(raw):,}건 (전체 {total:,}건)" if query else f"전체 {total:,}건"
+                    found = (f"조건에 맞는 {len(raw):,}건 (전체 {total:,}건)" if query or ticket_filter != "전체"
+                             else f"전체 {total:,}건")
                     shown = f"{lo + 1:,}~{min(lo + config.RAW_PAGE_SIZE, len(raw)):,} / " if len(raw) else ""
                     pager.caption(f"{shown}{found} · 총 {pages}페이지", width="content")
             elif full_period:
@@ -1128,6 +1248,9 @@ with tab1:
                 # 3. VOC 유사도 (의미 공간 · LLM 분류 vs 임베딩 분류) — 색·범례는 발행 여부와 상관없이 전체 유형
                 #    (발행된 티켓 카드 · 대표 VOC는 2️⃣ 티켓 탭으로 옮겼다)
                 render_voc_map(cur, all_clusters)
+
+if ss.get("active_tab") != TAB_TICKETS:
+    render_tickets_tab()
 
 # ════════════════════════════ 탭 3: 의심 위치 ════════════════════════════
 

@@ -781,6 +781,32 @@ def open_tickets(tickets: dict[str, Ticket]) -> dict[str, Ticket]:
 # ── 티켓·유형 상태 판정 (한 곳) — 요약 카드 · 유형 표 · 티켓 카드 · 사이드바 · 2️⃣·3️⃣ 목록 · 대표 VOC가 모두 쓴다 ──
 # 티켓 status: "진행 중" / "완료" / "취소". status 필드가 없는 예전 티켓(Round 22 전)은 기본값 "진행 중"
 
+def voc_links(voc_ids, assignments: dict | None, clusters: list | None, tickets: dict[str, Ticket]) -> dict[str, dict]:
+    """VOC마다 연결된 유형·티켓 (VOC 원문 표와 VOC 상세 창이 같이 쓴다). {voc_id: {type, priority, ticket}}
+    - ticket: 그 VOC가 voc_ids에 든 진행 중·완료 티켓 (발행 취소 제외). 여럿이면 진행 중 → 최근 발행 순으로 하나
+    - type: 1) 티켓이 있으면 티켓의 유형 이름(cluster_label, 유형 분석 전이어도) 2) 지금 선택 기간의 분석 결과(assignments)
+      3) 둘 다 없으면 "분석 전". 다른 기간의 분석 캐시는 쓰지 않는다(기간마다 유형 이름이 달라서) — assignments는 이 기간 것만 넘긴다
+    - priority: 티켓 유형이면 티켓의 우선순위, 분석 결과면 그 유형의 우선순위, 그 외 None"""
+    by_voc: dict[str, Ticket] = {}
+    for t in sorted((t for t in tickets.values() if is_open(t) or is_done(t)),
+                    key=lambda t: (is_open(t), t.issued_at or t.issued_on)):  # 뒤에 오는 것이 우선 (진행 중 · 최근 발행)
+        for v in t.voc_ids:
+            by_voc[v] = t
+    prio = {c.label: c.priority for c in clusters or []}
+    out = {}
+    for v in voc_ids:
+        t = by_voc.get(v)
+        if t is not None:
+            out[v] = {"type": t.cluster_label, "priority": t.priority, "ticket": t}
+        elif assignments and v in assignments:
+            label = assignments[v]
+            label = config.UNASSIGNED_LABEL if label == config.OTHER_LABEL else label  # LLM 미분류 '기타' → '미분류'
+            out[v] = {"type": label, "priority": prio.get(assignments[v]), "ticket": None}
+        else:
+            out[v] = {"type": config.TYPE_NOT_ANALYZED, "priority": None, "ticket": None}
+    return out
+
+
 def is_done(t: Ticket) -> bool:
     return t.status == config.TICKET_STATUS_DONE
 

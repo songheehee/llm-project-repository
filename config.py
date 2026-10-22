@@ -81,6 +81,13 @@ CHANGE_PENDING = "대기"
 CHANGE_APPROVED = "승인"
 CHANGE_REJECTED = "반려"
 CHANGE_REASON_MAX_CHARS = 100   # 변경 신청 사유 · 반려 사유 최대 글자 수
+# VOC 원문 표의 유형 · 티켓 칸 (stage1.voc_links)
+TYPE_NOT_ANALYZED = "분석 전"   # 티켓에도 없고 지금 기간 유형 분석 결과도 없는 VOC
+NO_TICKET = "–"                # 티켓에 묶이지 않은 VOC
+MUTED_TEXT_COLOR = "#9AA0A6"   # 표의 회색 글씨 ("분석 전" · "–")
+# 티켓 상태 배지 색 (VOC 상세 창) — 진행 중 파랑 · 완료 초록
+STATUS_COLORS = {TICKET_STATUS_OPEN: "#1E6FD9", TICKET_STATUS_DONE: "#1E9E5A"}
+TICKET_FILTERS = ["전체", "완료", "진행 중", "미발행"]  # VOC 원문 표 티켓 상태 필터 (검색 창 오른쪽 끝)
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}
 # 수정 범위 등급 (4️⃣ 수정 라인 — 코드 찾기 결과를 센 값, 예상 완료일 참고용)
 SCOPE_SMALL_MAX = {"files": 1, "lines": 20, "impacts": 2}   # 작음: 셋 다 이하
@@ -104,7 +111,6 @@ TICKET_CARD_HEIGHT_OTHERS = 227  # 버튼 없는 티켓 카드 높이(px) — �
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
 RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
 CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이전 기간 VOC 수 (LLM 호출 수가 건수에 비례)
-RAW_SEARCH_WIDTH = 400       # VOC 원문 검색 칸 폭(px)
 RAW_PAGE_PICK_WIDTH = 100    # VOC 원문 페이지 선택 칸 폭(px)
 RAW_PAGE_SIZE = 100          # VOC 원문 표 한 페이지 행 수 (최신순, 표 아래 이전·다음으로 전체를 넘겨 본다)
 # VOC 건수 차트 막대 단위 — 선택 기간 길이(일)로 정한다: 이하면 일별 → 이하면 주별(월요일 시작) → 그 위는 월별
