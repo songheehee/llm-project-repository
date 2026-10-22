@@ -665,7 +665,7 @@ def due_date_for(priority: str, issued_on: date) -> date:
 
 
 def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: int, assignee: dict,
-              issued_on: date | None = None) -> Ticket:
+              issued_on: date | None = None, due_date: date | None = None) -> Ticket:
     """고객 언어 유형을 개발자 언어 티켓으로 바꾼다. LLM은 문제점·조건·키워드·검색어만 쓴다(파트는 정하지 않음).
     담당자·담당 부서는 발행한 개발자(assignee = users.yaml 항목 {id, name, part}), 예상 완료일은 config.DUE_DAYS — LLM이 아님."""
     system = (
@@ -704,7 +704,8 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         tech_keywords=draft.tech_keywords, code_terms=list(dict.fromkeys(code_terms)),
         assignee_id=assignee["id"], assignee=assignee["name"], owner_part=assignee["part"],
         status=config.TICKET_STATUS_OPEN,
-        issued_on=issued_on.isoformat(), due_date=due_date_for(cluster.priority, issued_on).isoformat(),
+        # 예상 완료일 = 사람이 발행 확인 창에서 고른 날짜 (없으면 우선순위 규칙) — LLM이 정하지 않는다
+        issued_on=issued_on.isoformat(), due_date=(due_date or due_date_for(cluster.priority, issued_on)).isoformat(),
         cluster_label=cluster.label, voc_ids=cluster.voc_ids,
     )
 
@@ -827,6 +828,16 @@ def load_tickets() -> tuple[dict[str, Ticket], int]:
     used = [int(t.ticket_id.split("-")[-1]) for t in tickets.values()]
     next_no = max([data.get("next_ticket_no", config.FIRST_TICKET_NO), *(n + 1 for n in used)])
     return tickets, next_no
+
+
+def set_due_date(ticket_id: str, day: date) -> None:
+    """예상 완료일 변경(카드 [변경]) — 파일을 다시 읽어 그 티켓의 due_date만 바꿔 저장. 바꾼 기록은 남기지 않는다(마지막 값만)."""
+    tickets, next_no = load_tickets()
+    t = tickets.get(ticket_id)
+    if t is None:
+        return
+    tickets[ticket_id] = t.model_copy(update={"due_date": day.isoformat()})
+    save_tickets(tickets, next_no)
 
 
 def complete_ticket(ticket_id: str, now: datetime | None = None) -> None:

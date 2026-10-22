@@ -52,6 +52,10 @@ CSS = """
 /* 근거 표: 흰 배경, 긴 내용은 줄바꿈 그대로 (마지막 수정자는 한 줄 요약 · 범위별은 아래 접힌 상자) */
 [class*="st-key-card_evidence"] table, [class*="st-key-card_evidence"] th, [class*="st-key-card_evidence"] td {background:#FFFFFF;}
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
+/* 티켓 카드 예상 완료일 줄: [변경](기본 크기, 담당 카드에만)이 들어가는 높이 — 버튼 없는 카드도 같은 높이로 */
+[class*="st-key-tdue_"] {min-height:40px;}
+/* 티켓 발행 확인 창: 유형별 상자 사이 8px */
+[class*="st-key-issue_rows"] {gap:8px;}
 /* 티켓 카드 마지막 줄: [처리 완료](담당 카드만, 오른쪽 끝) — 버튼 없는 카드도 같은 높이의 빈 줄 */
 [class*="st-key-tact_"] {min-height:40px;}
 /* 현재 개발자의 티켓 카드: primaryColor 테두리 */
@@ -317,8 +321,18 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
                     st.markdown(f"**{t.problem}**")
                 with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
                     st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
-                st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d} → "
-                           f"예상 완료일 {date.fromisoformat(t.due_date):%m/%d}")
+                # 날짜 두 줄: "발행일 10/21" / "예상 완료일 10/28 (D-6)" + 오른쪽 끝 [변경](기본 크기, 담당 카드에만)
+                # 기한이 지났으면 빨간 "(기한 지남)" — 사이드바와 같은 규칙
+                due = date.fromisoformat(t.due_date)
+                left = (due - date.today()).days
+                with st.container(gap=None, key=f"tdates_{t.ticket_id}"):  # 두 날짜 줄을 간격 없이 붙인다
+                    st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d}")
+                    due_row = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
+                                           key=f"tdue_{t.ticket_id}")
+                    due_row.caption(f"예상 완료일 {due:%m/%d} " + (":red[(기한 지남)]" if left < 0 else f"(D-{left})"),
+                                    width="content")
+                    if mine and due_row.button("변경", key=f"due_card_{t.ticket_id}"):
+                        change_due(t.ticket_id)
                 # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
                 # distribute = 두 버튼을 양 끝으로 벌린다. 다른 카드는 같은 높이의 빈 줄
                 actions = st.container(horizontal=True, horizontal_alignment="distribute",
@@ -328,6 +342,72 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
                         confirm_cancel(t.ticket_id)
                     if actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}"):
                         confirm_complete(t.ticket_id)
+
+
+@st.dialog("티켓 발행")
+def confirm_issue(clusters: list, period_txt: str) -> None:
+    """티켓 발행 확인 창: 체크한 유형마다 유형 이름 · 우선순위 · 예상 완료일 칸(기본값 = 우선순위 규칙 DUE_DAYS, 오늘 이전 불가).
+    [발행]하면 고른 날짜로 현재 개발자 담당 티켓을 만들고 2️⃣ 티켓 탭으로 이동 + 알림. [취소]하면 대시보드에 그대로 남는다.
+    예상 완료일은 사람이 고른다 (LLM이 정하지 않음)."""
+    today = date.today()
+    st.caption("예상 완료일을 확인하세요.")
+    dues = {}
+    with st.container(key="issue_rows"):  # 유형별 상자 사이 8px (CSS)
+        for c in clusters:
+            with st.container(border=True):
+                # 1줄: 우선순위 배지(카드와 같은 색, 고정 라벨 HTML) + 한 칸 띄우고 유형 이름(굵게, LLM 글이라 일반 마크다운)
+                head = st.container(horizontal=True, gap="small", vertical_alignment="center")
+                head.markdown(badge(c.priority), unsafe_allow_html=True, width="content")
+                head.markdown(f"**{md_escape(c.label)}**", width="content")
+                # 2줄: "예상 완료일" 글자 + 날짜 칸(폭 DATE_INPUT_WIDTH)을 한 줄에
+                due_line = st.container(horizontal=True, gap="small", vertical_alignment="center")
+                due_line.markdown("예상 완료일", width="content")
+                dues[c.cluster_id] = due_line.date_input(
+                    "예상 완료일", value=stage1.due_date_for(c.priority, today), min_value=today, format="YYYY/MM/DD",
+                    key=f"issue_due_{period_txt}_{c.cluster_id}", width=config.DATE_INPUT_WIDTH,
+                    label_visibility="collapsed")
+    row = st.container(horizontal=True, gap="small")  # [발행] [취소] 바로 옆에
+    if row.button("발행", type="primary", key="dlg_issue") and has_api_key():
+        # 그사이 다른 개발자가 발행한 유형은 건너뛴다 ('취소' 티켓만 걸린 유형은 처리 전 → 다시 발행 가능)
+        tickets, next_no = stage1.load_tickets()
+        taken = {cid for cid, state in stage1.cluster_states(tickets, period_txt).items()
+                 if state != config.CLUSTER_STATE_NEW}
+        chosen = sorted((c for c in clusters if c.cluster_id not in taken),
+                        key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
+        issued_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 한 번에 발행한 티켓은 같은 시각
+        issued: list[str] = []
+        with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):
+            for c in chosen:
+                samples = stage1.sample_texts(df_all, c, config.TICKET_SAMPLE_VOCS)
+                ticket = stage1.ticketize(c, samples, period_txt, next_no, assignee=me, due_date=dues[c.cluster_id])
+                ticket = ticket.model_copy(update={"issued_at": issued_at})
+                tickets[ticket.ticket_id] = ticket
+                next_no += 1
+                stage1.save_tickets(tickets, next_no)
+                issued.append(ticket.ticket_id)
+                ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
+        ss["editor_nonce"] += 1  # 표를 체크 없이 새로 그린다 (발행된 유형은 표에서 빠진다)
+        if issued:  # 2️⃣ 티켓 탭으로 이동 + 알림 (다음 실행에서 탭을 그리기 전에 처리)
+            ss["goto_tab"] = TAB_TICKETS
+            ss["toast"] = f"{issued[0]} 발행됨" if len(issued) == 1 else f"{issued[0]} 외 {len(issued) - 1}건 발행됨"
+        st.rerun()
+    if row.button("취소", key="dlg_issue_cancel"):
+        st.rerun()
+
+
+@st.dialog("예상 완료일 변경")
+def change_due(ticket_id: str) -> None:
+    """예상 완료일 변경(내 티켓 카드 [변경]): 날짜 칸 하나(기본값 = 지금 예상 완료일, 오늘 이전 불가) + [저장] [취소].
+    저장하면 tickets.json에 반영 → 카드·사이드바 날짜와 D-day가 바로 바뀐다. 바꾼 기록은 남기지 않는다."""
+    today = date.today()
+    current = date.fromisoformat(ss["tickets"][ticket_id].due_date)
+    new_day = st.date_input(f"{ticket_id} 예상 완료일", value=max(current, today), min_value=today, format="YYYY/MM/DD")
+    row = st.container(horizontal=True, gap="small")
+    if row.button("저장", type="primary", key="dlg_due_save"):
+        stage1.set_due_date(ticket_id, new_day)
+        st.rerun()
+    if row.button("취소", key="dlg_due_cancel"):
+        st.rerun()
 
 
 @st.dialog("처리 완료")
@@ -841,32 +921,8 @@ with tab1:
                     to_issue = []
                 issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch", disabled=not to_issue)
 
-                if issue_clicked and has_api_key():
-                    # 현재 개발자(me)를 담당자로 바로 발행 → outputs/tickets.json. 그사이 다른 개발자가 발행한 유형은 건너뛴다
-                    tickets, next_no = stage1.load_tickets()
-                    # 처리 전이 아닌 유형은 건너뛴다 ('취소' 티켓만 걸린 유형은 처리 전 → 다시 발행 가능)
-                    taken = {cid for cid, state in stage1.cluster_states(tickets, period_txt).items()
-                             if state != config.CLUSTER_STATE_NEW}
-                    chosen = sorted((c for c in to_issue if c.cluster_id not in taken),
-                                    key=lambda c: (config.PRIORITY_ORDER[c.priority], -c.priority_score))
-                    issued_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 한 번에 발행한 티켓은 같은 시각
-                    issued: list[str] = []
-                    with st.spinner(f"티켓 {len(chosen)}건 작성 중…"):
-                        for c in chosen:
-                            samples = stage1.sample_texts(df_all, c, config.TICKET_SAMPLE_VOCS)
-                            ticket = stage1.ticketize(c, samples, period_txt, next_no, assignee=me)
-                            ticket = ticket.model_copy(update={"issued_at": issued_at})
-                            tickets[ticket.ticket_id] = ticket
-                            next_no += 1
-                            stage1.save_tickets(tickets, next_no)
-                            issued.append(ticket.ticket_id)
-                            ss["current_ticket"] = ss["current_ticket"] or ticket.ticket_id
-                    ss["editor_nonce"] += 1  # 표를 체크 없이 새로 그린다 (발행된 유형은 표에서 빠진다)
-                    if issued:  # 2️⃣ 티켓 탭으로 이동 + 알림 (다음 실행에서 탭을 그리기 전에 처리)
-                        ss["goto_tab"] = TAB_TICKETS
-                        ss["toast"] = (f"{issued[0]} 발행됨" if len(issued) == 1
-                                       else f"{issued[0]} 외 {len(issued) - 1}건 발행됨")
-                    st.rerun()
+                if issue_clicked:  # 확인 창에서 유형별 예상 완료일을 고르고 [발행] (취소하면 대시보드에 그대로)
+                    confirm_issue(to_issue, period_txt)
                 thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
                 st.caption(
                     f"· 이전 기간 = 선택한 기간 바로 앞의 같은 길이 기간 ({ps:%m/%d}~{pe:%m/%d})  \n"
@@ -1089,6 +1145,9 @@ with tab4:
         recs = sorted(recs, key=lambda r: -r.confidence)
         if recs:
             st.markdown("#### 수정 위치")
+            scope = stage2.change_scope(recs, result.get("impacts", []))  # LLM 없이 결과를 센 값 (예상 완료일은 바꾸지 않음)
+            st.caption(f"수정 범위: {scope['grade']} · 파일 {scope['files']}개 · 수정 {scope['lines']}줄 · "
+                       f"함께 확인 {scope['impacts']}곳", help="코드 찾기 결과를 센 값입니다. 예상 완료일을 정할 때 참고하세요")
             show_table(pd.DataFrame([{"레포지토리": r.repo, "파일": r.path, "수정 라인": stage2.fmt_line_ranges(r.ranges),
                                       "기준 커밋": r.commit_sha} for r in recs]), key=f"tbl_lines_{sel}")
             st.markdown("#### 파일별 상세")

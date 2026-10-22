@@ -1392,6 +1392,22 @@ def waiting_state(graph, thread_id: str) -> dict:
 
 # ════════════════════════════ 티켓 Markdown ════════════════════════════
 
+def change_scope(recs: list[LineRec], impacts: list[Impact]) -> dict:
+    """수정 범위 (LLM 없이 결과를 센다): 파일 수 = 검증된 수정 라인이 있는 파일 수, 수정 줄 수 = 추천 범위 줄 수 합
+    (L17 → 1줄, L45–52 → 8줄), 함께 확인 = 영향 범위 항목 수. 등급은 config SCOPE_SMALL_MAX / SCOPE_LARGE_MIN."""
+    verified = [r for r in recs if r.verified]
+    n = {"files": len({(r.repo, r.path) for r in verified}),
+         "lines": sum(e - s + 1 for r in verified for s, e in r.ranges),
+         "impacts": len(impacts)}
+    if any(n[k] >= config.SCOPE_LARGE_MIN[k] for k in n):
+        grade = "큼"
+    elif all(n[k] <= config.SCOPE_SMALL_MAX[k] for k in n):
+        grade = "작음"
+    else:
+        grade = "보통"
+    return {"grade": grade, **n}
+
+
 def fmt_line_ranges(ranges) -> str:
     return ", ".join(f"L{s}" if s == e else f"L{s}–{e}" for s, e in ranges)
 
