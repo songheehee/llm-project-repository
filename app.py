@@ -22,8 +22,17 @@ st.set_page_config(page_title="VOCAI", page_icon="🔎", layout="wide")
 
 CSS = """
 <style>
+:root {--vocai-header-h: 78px;}  /* 고정 헤더 칸 높이(헤더 상자 + 아래 여백) — 탭 줄이 그 바로 아래에 붙는다 */
 .block-container {padding-top: 4.5rem;}  /* Streamlit 상단 바에 헤더가 가리지 않게 */
-.vocai-header {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 20px; margin-bottom:10px;}
+.vocai-header {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 20px; margin-bottom:0;}
+/* 상단 고정: 스크롤해도 VOCAI 헤더와 탭 줄이 항상 보이게 (position: sticky, 스크롤 영역은 stMain).
+   st.tabs는 탭 내용까지 감싸서 헤더와 한 container로 묶을 수 없으므로 헤더 칸과 탭 목록에 각각 sticky를 주고 위아래로 쌓는다.
+   배경은 앱 배경색으로 불투명하게 — 아래로 지나가는 표·차트 글자가 비치지 않게 */
+[data-testid="stHeader"] {background:#F6F7FB;}  /* Streamlit 상단 바(3.75rem)도 불투명하게 */
+[data-testid="stElementContainer"]:has(.vocai-header) {position:sticky; top:3.75rem; z-index:999;
+  background:#F6F7FB; padding-bottom:26px; box-shadow:0 -1px 0 #F6F7FB;}  /* 26px = 마크다운 칸의 -16px 여백을 메우고 탭 줄과 10px 띄움 → 칸 높이 = --vocai-header-h */
+[data-testid="stTabs"] [role="tablist"] {position:sticky; top:calc(3.75rem + var(--vocai-header-h)); z-index:998;
+  background:#F6F7FB; border-bottom:1px solid #E3E6EF;}
 .vocai-title {font-size:1.5rem; font-weight:800; color:#1428A0;}
 .vocai-badge {display:inline-block; color:#FFFFFF; border-radius:6px; padding:1px 8px; font-size:0.8rem; font-weight:700; white-space:nowrap;}
 [class*="st-key-card"] {background:#FFFFFF; border:1px solid #E3E6EF; border-radius:12px; padding:14px 16px;}
@@ -571,6 +580,11 @@ def to_raw_view_if_period_changed() -> None:
         to_raw_view()
 
 
+def on_tab_change() -> None:
+    """탭을 직접 바꾸면 다음 실행에서 새 탭 맨 위로 스크롤 (상단 고정 영역에 가려지지 않게)."""
+    ss["scroll_to_tabs"] = True
+
+
 def pick_ticket(ticket_id: str) -> None:
     ss["current_ticket"] = ticket_id
 
@@ -615,9 +629,27 @@ if ss.get("active_tab") not in TAB_LABELS:  # 탭 이름이 바뀌기 전 세션
 goto = ss.pop("goto_tab", None)
 if goto in TAB_LABELS:
     ss["active_tab"] = goto
+    ss["scroll_to_tabs"] = True  # 자동 이동한 탭도 맨 위부터 보이게
 if ss.get("toast"):  # 발행 알림 (rerun 뒤에 띄운다)
     st.toast(ss.pop("toast"))
-tab1, tab2, tab3, tab4 = st.tabs(TAB_LABELS, key="active_tab", on_change="rerun")  # key로 선택 탭을 코드에서 바꾼다
+tab1, tab2, tab3, tab4 = st.tabs(TAB_LABELS, key="active_tab", on_change=on_tab_change)  # key로 선택 탭을 코드에서 바꾼다
+if ss.pop("scroll_to_tabs", False):
+    # 탭을 바꾸면(직접 누르거나 자동 이동) 새 탭의 맨 위가 고정 영역 바로 아래에 오도록 스크롤을 올린다.
+    # 아래까지 스크롤한 채로 바꾸면 스크롤 위치가 그대로라 새 탭 위쪽이 화면 밖에 남기 때문. 이미 위쪽이면 그대로 둔다
+    ss["scroll_nonce"] = ss.get("scroll_nonce", 0) + 1  # 내용이 달라야 다시 그려져 스크립트가 또 실행된다
+    with st.sidebar:
+        st.html(f"""<script>/* {ss['scroll_nonce']} */
+setTimeout(() => {{
+  const main = document.querySelector('[data-testid="stMain"]');
+  const tabs = document.querySelector('[data-testid="stTabs"]');
+  const header = document.querySelector('[data-testid="stHeader"]');
+  const box = [...document.querySelectorAll('[data-testid="stElementContainer"]')].find(e => e.querySelector('.vocai-header'));
+  if (!main || !tabs || !header || !box) return;
+  const stick = header.getBoundingClientRect().height + box.getBoundingClientRect().height;
+  const over = stick - tabs.getBoundingClientRect().top;
+  if (over > 0) main.scrollBy({{top: -over}});
+}}, 80);
+</script>""", unsafe_allow_javascript=True)
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
 
