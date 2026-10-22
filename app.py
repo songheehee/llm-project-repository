@@ -54,6 +54,12 @@ CSS = """
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
 /* 티켓 카드 예상 완료일 줄: [변경](기본 크기, 담당 카드에만)이 들어가는 높이 — 버튼 없는 카드도 같은 높이로 */
 [class*="st-key-tdue_"] {min-height:40px;}
+/* 좁은 카드(폭 ~260px 이하): 예상 완료일 글과 [변경 신청]이 한 줄에 안 들어가도 줄을 나누지 않는다 —
+   버튼은 오른쪽에 그대로, 글만 자기 칸 안에서 두 줄로 (두 줄 ≈ 버튼 높이 40px라 줄 높이·카드 높이가 그대로) */
+[class*="st-key-tdue_"] {flex-wrap:nowrap !important;}
+[class*="st-key-tdue_"] > [data-testid="stElementContainer"]:has([data-testid="stCaptionContainer"]) {flex:1 1 auto !important; min-width:0; width:auto !important;}
+[class*="st-key-tdue_"] > [data-testid="stElementContainer"]:has(button) {flex:0 0 auto !important;}
+[class*="st-key-tdue_"] [data-testid="stCaptionContainer"] p {line-height:1.4;}
 /* 승인 요청 카드: [사유 전체 보기] 자리는 버튼이 없어도 같은 높이(카드 높이 맞춤) · 작은 글자 */
 [class*="st-key-card_appr_"] {gap:6px !important;}  /* 승인 요청 카드 안 요소 사이 6px (기본 16px) */
 [class*="st-key-reqmore_"] {min-height:20px; margin-top:-8px;}  /* 사유 상자 아래 여백(10px)과 겹쳐 버튼과 가깝게 */
