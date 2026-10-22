@@ -707,7 +707,7 @@ with st.sidebar:
     ss["current_user_id"] = user_labels[picked_user]
     me = USER_BY_ID[ss["current_user_id"]]
 
-    st.markdown("**내 티켓**")
+    st.markdown("**진행 중**")
     my_tickets = [t for t in stage1.sort_tickets(OPEN_TICKETS.values()) if t.assignee_id == me["id"]]
     # 현재 티켓은 항상 내 티켓 중 하나 (개발자를 바꾸면 그 사람의 첫 티켓)
     if ss["current_ticket"] not in {t.ticket_id for t in my_tickets}:
