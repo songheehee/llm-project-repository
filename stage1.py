@@ -152,6 +152,16 @@ def product_names() -> list[str]:
     return list(dict.fromkeys(r["product"] for r in data["repos"]))
 
 
+def product_guide() -> str:
+    """제품마다 레지스트리 설명 한 줄 (유형 분석 프롬프트용).
+    이름만 주면 고객이 '시계'라고 말하는 증상을 대부분 하드웨어 펌웨어로 붙였다 — 설명을 보고 담당 제품을 고르게 한다."""
+    data = yaml.safe_load(config.REPOS_YAML.read_text(encoding="utf-8"))
+    by_product: dict[str, list[str]] = {}
+    for r in data["repos"]:
+        by_product.setdefault(r["product"], []).append(" ".join(str(r.get("description", "")).split()))
+    return "\n".join(f"  - {p}: {' / '.join(d)}" for p, d in by_product.items())
+
+
 SEVERITY_RUBRIC = """심각도 기준 (불만 묶음의 '증상'으로 판단):
 - 5: 발열·화상 등 신체 위해 가능성 (기기가 뜨거워짐/따뜻해짐/데워짐이 핵심이면 정도·원인 상황과 무관하게 5.
      손목에 차는 기기라 '따뜻해진다'도 발열로 본다)
@@ -184,7 +194,9 @@ def propose_clusters(texts: list[str]) -> list[ClusterProposal]:
         "'글씨 크기'·'버튼 크기'·'메뉴 위치'처럼 하위 증상 단위로 나누지 않는다.\n"
         "- 같은 핵심 증상(예: 뜨거워짐)을 말하면서 부가 표현(알림 반복 등)만 다른 VOC는 핵심 증상 묶음에 넣는다.\n"
         "- category는 그 묶음의 기능 영역을 짧은 한국어 명사로 쓴다 (예: 센서, 배터리, 화면, 연결, 거리).\n"
-        f"- product는 다음 중 하나: {', '.join(product_names())}\n\n"
+        "- product는 아래 제품 이름 중 하나를 그대로 쓴다. 고객은 무엇이든 '시계'라고 말하므로 단어나 '기기 느낌'으로 고르지 않고, "
+        "그 증상을 일으키는 기능이 설명에 적힌 제품을 고른다 (하드웨어 칩 제어 제품은 설명에 적힌 칩·부품 기능의 증상일 때만).\n"
+        f"{product_guide()}\n\n"
         f"{SEVERITY_RUBRIC}"
     )
     user = "VOC 목록:\n" + "\n".join(f"- {t}" for t in texts)
@@ -682,7 +694,8 @@ def ticketize(cluster: Cluster, sample_vocs: list[str], period: str, ticket_no: 
         f"제품 정보·사내 용어:\n{(config.RAG_DIR / 'products.md').read_text(encoding='utf-8')}"
     )
     user = (
-        f"클러스터: {cluster.label}\n영역: {cluster.category} / 제품: {cluster.product}\n"
+        # 제품은 넣지 않는다 — 유형 분석의 추정값이라 문제점에 '펌웨어' 같은 말이 끌려 들어갔다 (제품 정보는 위 사내 문서)
+        f"클러스터: {cluster.label}\n영역: {cluster.category}\n"
         f"건수: {cluster.count}건 ({cluster.trend}) · 심각도 {cluster.severity}\n"
         "대표 VOC:\n" + "\n".join(f"- {t}" for t in sample_vocs)
     )

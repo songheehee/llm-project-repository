@@ -324,7 +324,9 @@ def ticket_brief(t: Ticket) -> str:
         f"발생 조건: {', '.join(t.conditions)}\n"
         f"기술 키워드: {', '.join(t.tech_keywords)}\n"
         f"코드 검색어: {', '.join(t.code_terms)}\n"
-        f"제품: {t.product} · VOC {t.count}건 ({t.trend})"  # 파트는 넣지 않는다 — 담당자 파트는 원인 위치와 무관
+        f"VOC {t.count}건 ({t.trend})"
+        # 파트는 넣지 않는다 — 담당자 파트는 원인 위치와 무관.
+        # 제품도 넣지 않는다 — 유형 분석 LLM이 붙인 추정값이라 라우팅을 그 제품 레포로 끌고 갔다 (근거는 사내 문서·레지스트리)
     )
 
 
