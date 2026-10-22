@@ -62,8 +62,6 @@ CSS = """
 [class*="st-key-issue_name_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
 /* 티켓 카드 마지막 줄: [처리 완료](담당 카드만, 오른쪽 끝) — 버튼 없는 카드도 같은 높이의 빈 줄 */
 [class*="st-key-tact_"] {min-height:40px;}
-/* 현재 개발자의 티켓 카드: primaryColor 테두리 */
-[class*="st-key-card_mine"] {border:2px solid #1428A0 !important;}
 /* 발행된 티켓 카드: 아래 버튼 줄 밑 여백을 줄인다 (높이 TICKET_CARD_HEIGHT와 함께 맞춤) */
 [class*="st-key-card_mine_"], [class*="st-key-card_ticket_"] {padding-bottom:6px !important;}
 /* 티켓 카드 문제점: 최대 2줄, 넘치면 … (카드 높이 고정) */
@@ -334,7 +332,7 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
         for t in tickets:
             mine = t.assignee_id == me["id"]
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
-            # 흰 배경 · 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓은 primaryColor 테두리
+            # 흰 배경 · 옅은 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓도 같은 테두리 (보기 전환으로 이미 나뉨)
             height = config.TICKET_CARD_HEIGHT if mine else config.TICKET_CARD_HEIGHT_OTHERS
             with st.container(border=True, height=height, key=card_key):
                 # 1줄: ID(왼쪽) · 우선순위 배지(오른쪽) — st.columns는 좁은 화면(640px 미만)에서 세로로 쌓여 카드가 넘치므로 가로 container
