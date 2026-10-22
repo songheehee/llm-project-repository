@@ -152,9 +152,25 @@ def cached_answer_labels() -> dict[str, str]:
     return data_utils.load_answer_labels()
 
 
-@st.cache_data
-def cached_users() -> list[dict]:
+def file_stamp(path) -> tuple[int, int]:
+    """파일 수정 시각·크기 — 캐시 인자로 넘겨 파일이 바뀌면 다시 읽게 한다 (없으면 (0, 0))."""
+    try:
+        st_ = os.stat(path)
+        return st_.st_mtime_ns, st_.st_size
+    except OSError:
+        return 0, 0
+
+
+@st.cache_data(show_spinner=False)
+def cached_users(stamp: tuple[int, int]) -> list[dict]:
+    """users.yaml — 수정 시각(stamp)이 같으면 다시 읽지 않는다."""
     return data_utils.load_users()
+
+
+@st.cache_data(show_spinner=False)
+def cached_tickets(stamp: tuple[int, int]):
+    """outputs/tickets.json — 수정 시각(stamp)이 같으면 다시 읽지 않는다 (발행·완료·취소·날짜 변경으로 파일이 바뀌면 다시 읽음)."""
+    return stage1.load_tickets()
 
 
 @st.cache_data(show_spinner=False)
@@ -191,7 +207,7 @@ def cached_graph():
 ss = st.session_state
 ss.setdefault("stage1", {})          # {(start, end): {"clusters", "assignments", "secs"}}
 # 발행된 티켓은 outputs/tickets.json이 기준 — 매 실행마다 읽어 개발자를 바꾸거나 새로고침해도 남고, 번호도 이어진다
-ss["tickets"], ss["next_ticket_no"] = stage1.load_tickets()
+ss["tickets"], ss["next_ticket_no"] = cached_tickets(file_stamp(config.TICKETS_JSON))
 # 화면(티켓 카드 · 사이드바 · 3️⃣·4️⃣ 티켓 선택 · 대표 VOC)에는 처리 완료되지 않은 티켓만. 완료 기록은 파일에 남는다
 OPEN_TICKETS = stage1.open_tickets(ss["tickets"])
 ss.setdefault("stage2", {})          # {ticket_id: 최종 state} — outputs/stage2/{ticket_id}.json에도 저장
@@ -227,6 +243,15 @@ CHART_MAX_TICKS = 16  # 눈금이 이보다 많으면 건너뛰어 겹치지 않
 
 def daily_bar_chart(daily: pd.DataFrame, title: str, unit: str, start: date, end: date) -> None:
     """일·주·월별 누적 막대. 범례는 차트 위 가로, 날짜 형식은 단위별, 아래 여백을 줘 눈금이 잘리지 않게 한다."""
+    with st.container(key="card_chart"):
+        st.markdown(f"**{title}**")
+        st.plotly_chart(cached_bar_figure(daily, unit, start, end), width="stretch")
+
+
+@st.cache_data(show_spinner=False)
+def cached_bar_figure(daily: pd.DataFrame, unit: str, start: date, end: date):
+    """차트 그림 만들기(Plotly, 한 번에 약 0.07초)를 캐시 — st.tabs는 모든 탭 코드를 매번 실행하므로
+    티켓 탭 보기 전환처럼 다른 탭을 다시 그릴 때 대시보드 차트를 새로 만들지 않는다 (같은 집계·기간이면 재사용)."""
     order = daily.groupby("group")["count"].sum().sort_values(ascending=False).index.tolist()
     tail = [g for g in (config.OTHER_LABEL, config.UNASSIGNED_LABEL) if g in order]  # '기타' → '미분류'는 항상 마지막 · 회색
     order = [g for g in order if g not in tail] + tail
@@ -234,26 +259,24 @@ def daily_bar_chart(daily: pd.DataFrame, title: str, unit: str, start: date, end
     colors = {g: palette[i % len(palette)] for i, g in enumerate(order)}
     colors[config.OTHER_LABEL] = config.OTHER_COLOR
     colors[config.UNASSIGNED_LABEL] = config.UNASSIGNED_COLOR
-    with st.container(key="card_chart"):
-        st.markdown(f"**{title}**")
-        fig = px.bar(daily, x="date", y="count", color="group", labels={"count": "건수", "group": ""},
-                     category_orders={"group": order}, color_discrete_map=colors)
-        fig.update_layout(barmode="stack", height=380, margin=dict(l=10, r=10, t=40, b=90),
-                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None),
-                          plot_bgcolor="#FFFFFF")
-        # x축 제목 "날짜"는 눈금(10/03) 아래에 간격(standoff)을 두고, 범례는 차트 위라 겹치지 않는다
-        # x축 = 선택 기간의 묶음 전체 (VOC가 없는 묶음도 자리는 둔다) · 눈금은 CHART_MAX_TICKS개 안팎으로
-        buckets = data_utils.bucket_starts(start, end, unit)
-        step = max(1, -(-len(buckets) // CHART_MAX_TICKS))  # 막대 step개마다 눈금 하나
-        half = {"day": 0.5, "week": 3.5, "month": 15}[unit]  # 막대 반 칸만큼 양쪽 여유
-        x_range = [pd.Timestamp(buckets[0]) - pd.Timedelta(days=half), pd.Timestamp(buckets[-1]) + pd.Timedelta(days=half)]
-        if unit == "month":
-            dtick = f"M{step}"
-        else:
-            dtick = 86_400_000 * (7 if unit == "week" else 1) * step
-        fig.update_xaxes(title=dict(text="날짜", standoff=20), tickformat=CHART_TICK_FORMATS[unit],
-                         dtick=dtick, tick0=buckets[0], range=x_range, tickangle=0)
-        st.plotly_chart(fig, width="stretch")
+    fig = px.bar(daily, x="date", y="count", color="group", labels={"count": "건수", "group": ""},
+                 category_orders={"group": order}, color_discrete_map=colors)
+    fig.update_layout(barmode="stack", height=380, margin=dict(l=10, r=10, t=40, b=90),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None),
+                      plot_bgcolor="#FFFFFF")
+    # x축 제목 "날짜"는 눈금(10/03) 아래에 간격(standoff)을 두고, 범례는 차트 위라 겹치지 않는다
+    # x축 = 선택 기간의 묶음 전체 (VOC가 없는 묶음도 자리는 둔다) · 눈금은 CHART_MAX_TICKS개 안팎으로
+    buckets = data_utils.bucket_starts(start, end, unit)
+    step = max(1, -(-len(buckets) // CHART_MAX_TICKS))  # 막대 step개마다 눈금 하나
+    half = {"day": 0.5, "week": 3.5, "month": 15}[unit]  # 막대 반 칸만큼 양쪽 여유
+    x_range = [pd.Timestamp(buckets[0]) - pd.Timedelta(days=half), pd.Timestamp(buckets[-1]) + pd.Timedelta(days=half)]
+    if unit == "month":
+        dtick = f"M{step}"
+    else:
+        dtick = 86_400_000 * (7 if unit == "week" else 1) * step
+    fig.update_xaxes(title=dict(text="날짜", standoff=20), tickformat=CHART_TICK_FORMATS[unit],
+                     dtick=dtick, tick0=buckets[0], range=x_range, tickangle=0)
+    return fig
 
 
 def suspicion_color(score: float) -> str:
@@ -668,7 +691,7 @@ st.markdown('<div class="vocai-header"><span class="vocai-title">VOCAI</span></d
 # ════════════════════════════ 사이드바: 현재 개발자 · 내 티켓 ════════════════════════════
 # 실제 로그인 대신 '현재 개발자'를 고른다 (사용자는 모두 개발자, 발행자 역할 없음)
 
-USERS = cached_users()
+USERS = cached_users(file_stamp(config.USERS_YAML))
 USER_BY_ID = {u["id"]: u for u in USERS}
 ss.setdefault("current_user_id", USERS[0]["id"])
 
@@ -977,18 +1000,21 @@ with tab2:
     view = st.segmented_control(
         "티켓 보기", ["mine", "others"], key="ticket_view", required=True,
         format_func=lambda v: f"{TICKET_VIEW_LABELS[v]} ({view_counts[v]})", label_visibility="collapsed")
-    if view == "others":
-        # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
-        if others:
-            render_ticket_cards(others, "tcards_others")
+    # 보기마다 key가 다른 컨테이너 하나 — 보기가 바뀌면 컨테이너가 통째로 새로 만들어져
+    # 이전 보기의 카드·상자가 새 보기 자리에 섞여 남지 않는다 (같은 자리에 개수가 다른 요소를 그릴 때의 잔상 방지)
+    with st.container(key=f"ticket_view_{view}"):
+        if view == "others":
+            # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
+            if others:
+                render_ticket_cards(others, "tcards_others")
+            else:
+                st.info("다른 개발자가 맡은 티켓이 없습니다")
+        elif not my_recent:
+            st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
         else:
-            st.info("다른 개발자가 맡은 티켓이 없습니다")
-    elif not my_recent:
-        st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
-    else:
-        # 내 티켓: 1. 카드 → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
-        render_ticket_cards(my_recent, "tcards_mine")
-        render_representative_vocs(my_recent)
+            # 내 티켓: 1. 카드 → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
+            render_ticket_cards(my_recent, "tcards_mine")
+            render_representative_vocs(my_recent)
 
 # ════════════════════════════ 탭 3: 의심 위치 ════════════════════════════
 
