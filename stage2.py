@@ -20,6 +20,7 @@ from typing import Annotated, Iterator, Literal, TypedDict
 import numpy as np
 import yaml
 from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.tools import tool
@@ -139,10 +140,11 @@ class LineRange(BaseModel):
 class LineRecDraft(BaseModel):
     path: str = Field(description="저장소 기준 파일 경로 (예: 'pkg/module.py')")
     ranges: list[LineRange] = Field(description="원인으로 의심되는 줄 범위 1~3개")
+    # reason 앞에 둔다 — 맨 끝에 설명 없이 두었을 때 LLM이 자주 빠뜨려 파일 하나가 통째로 탐색 실패했다
+    confidence: float = Field(ge=0, le=1, description="이 파일이 티켓 증상의 직접 원인일 가능성 0~1 (반드시 채운다)")
     reason: str = Field(description=f"추천 사유: 명사형으로 끝나는 한국어 한 문장, {config.REASON_MAX_CHARS}자 이내, "
                                     "이모티콘·강조 표현 금지, 수정 방법은 쓰지 않음 "
                                     "(예: '측정 주기 단축 이후 운동 중 센서 동작 횟수 증가')")
-    confidence: float = Field(ge=0, le=1)
 
 
 class LineRecDraftList(BaseModel):
@@ -866,7 +868,8 @@ def run_line_agent(ref: FileRef, user: str) -> tuple[LineRecDraftList, dict]:
             time.sleep(config.LLM_RETRY_WAITS[min(attempt, len(config.LLM_RETRY_WAITS)) - 1])
         counter = {"calls": 0}
         agent = create_agent(get_llm(), line_tools(ref, counter), system_prompt=LINE_SEARCH_SYSTEM,
-                             response_format=LineRecDraftList)
+                             # 형식 오류(필드 누락 등)는 모델에게 되돌려 다시 쓰게 한다 — 스키마만 넘기면 바로 예외였다
+                             response_format=ToolStrategy(LineRecDraftList, handle_errors=True))
         try:
             out = agent.invoke({"messages": [("user", user)]},
                                config={"recursion_limit": 2 * (config.MAX_TOOL_CALLS + 4) + 1})
@@ -978,6 +981,16 @@ def trim_range(lines: list[str], s: int, e: int) -> tuple[int, int]:
     loop = next((n for n in range(s, e + 1) if re.match(r"\s*(for|while)\b", lines[n - 1])), None)
     if loop is not None:
         s = loop
+        # 끝은 반복 본문까지 (본문보다 얕은 첫 줄 — finally·정리 코드 — 앞에서 자른다: L45–54 → L45–52)
+        indent = len(lines[loop - 1]) - len(lines[loop - 1].lstrip())
+        body_end = loop
+        for n in range(loop + 1, len(lines) + 1):
+            t = lines[n - 1]
+            if t.strip() and len(t) - len(t.lstrip()) <= indent:
+                break
+            if t.strip():
+                body_end = n
+        e = min(e, body_end)
     return s, e
 
 
@@ -999,15 +1012,19 @@ def minimal_ranges(ranges: list[tuple[int, int]], snippets: list[str]) -> tuple[
 
 
 def drop_loop_prep(lines: list[str], ranges: list[tuple[int, int]], snippets: list[str]) -> tuple[list, list]:
-    """반복 블록 바로 앞의 준비 줄(전원 켜기 등)을 따로 떼어 낸 범위는 뺀다 — trim_range가 범위 안에서 하는 일을 범위 사이에도.
-    사이에 빈 줄·주석·try 줄만 있으면 '바로 앞'으로 본다 (L43 power_on → L44 try → L45 while)."""
+    """반복 블록 바로 앞의 준비 줄(전원 켜기)·바로 뒤의 정리 줄(전원 끄기)을 따로 떼어 낸 범위는 뺀다
+    — trim_range가 범위 안에서 하는 일을 범위 사이에도. 사이에 빈 줄·주석·try·finally 줄만 있으면 '바로 앞/뒤'로 본다
+    (L43 power_on → L44 try → L45 while … L52 / L53 finally → L54 power_off)."""
     def filler(n: int) -> bool:
         t = lines[n - 1].strip()
-        return not t or t.startswith("#") or t == "try:"
+        return not t or t.startswith("#") or t in ("try:", "finally:")
 
-    loops = [s for s, _ in ranges if re.match(r"\s*(for|while)\b", lines[s - 1])]
+    def between_filler(a: int, b: int) -> bool:  # a < b, 사이 줄이 모두 채움 줄
+        return a < b and all(filler(n) for n in range(a + 1, b))
+
+    loops = [(s, e) for s, e in ranges if re.match(r"\s*(for|while)\b", lines[s - 1])]
     keep = [(r, sn) for r, sn in zip(ranges, snippets)
-            if not any(r[1] < ls and all(filler(n) for n in range(r[1] + 1, ls)) for ls in loops)]
+            if not any(between_filler(r[1], ls) or between_filler(le, r[0]) for ls, le in loops if (ls, le) != r)]
     return [r for r, _ in keep], [sn for _, sn in keep]
 
 
