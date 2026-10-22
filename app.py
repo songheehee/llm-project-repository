@@ -400,9 +400,13 @@ def render_ticket_cards(tickets, grid_key: str, actions: bool = False) -> None:
                                                help="신청은 한 번에 하나 — 관리자가 처리하면 다시 신청할 수 있습니다"
                                                if pending else None):
                         request_due(t.ticket_id)
-                    # 변경 신청 상태 한 줄 (작은 글씨) — 없어도 자리를 둬 모든 카드 높이가 같다 (CSS st-key-tchg_ min-height)
-                    with st.container(key=f"tchg_{t.ticket_id}"):
-                        st.caption(change_status_line(t) or "\u00a0")
+                    if mine:
+                        # 변경 신청 상태 한 줄 (작은 글씨) — 없어도 자리를 둬 내 카드 높이가 모두 같다 (CSS st-key-tchg_ min-height)
+                        with st.container(key=f"tchg_{t.ticket_id}"):
+                            st.caption(change_status_line(t) or " ")
+                    elif change_status_line(t):
+                        # 버튼 없는 카드: 상태는 예상 완료일 줄 오른쪽 끝에 (따로 줄을 두지 않아 카드가 낮다)
+                        due_row.caption(change_status_line(t), width="content")
                 # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
                 # distribute = 두 버튼을 양 끝으로 벌린다. 다른 개발자 카드에는 이 줄이 없다 (그만큼 카드가 낮음)
                 if mine:
