@@ -1060,8 +1060,7 @@ def render_folder_pick(sel: str, wait: dict) -> None:
     picked = st.multiselect("수정 라인을 찾을 폴더", list(by_label), default=default,
                             max_selections=config.MAX_SELECTED_FOLDERS, key=f"pick_folders_{wait['thread_id']}",
                             label_visibility="collapsed")
-    st.caption(f"고른 폴더 안의 파일에서만 수정 라인을 찾습니다 · 최대 {config.MAX_SELECTED_FOLDERS}개 · "
-               "기본은 1위 레포지토리에서 감점되지 않은 의심도 상위 2개")
+    st.caption(f"고른 폴더 안의 파일에서만 수정 라인을 찾습니다 · 최대 {config.MAX_SELECTED_FOLDERS}개")
     if st.button("수정 라인 찾기", type="primary", disabled=not picked,
                  key=f"resume_{wait['thread_id']}") and has_api_key():
         chosen = [{"repo": by_label[o]["repo"], "path": by_label[o]["path"]} for o in picked]
