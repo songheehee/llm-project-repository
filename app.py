@@ -54,6 +54,12 @@ CSS = """
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
 /* 티켓 카드 예상 완료일 줄: [변경](기본 크기, 담당 카드에만)이 들어가는 높이 — 버튼 없는 카드도 같은 높이로 */
 [class*="st-key-tdue_"] {min-height:40px;}
+/* 승인 요청 카드: [사유 전체 보기] 자리는 버튼이 없어도 같은 높이(카드 높이 맞춤) · 작은 글자 */
+[class*="st-key-card_appr_"] {gap:6px !important;}  /* 승인 요청 카드 안 요소 사이 6px (기본 16px) */
+[class*="st-key-reqmore_"] {min-height:20px; margin-top:-8px;}  /* 사유 상자 아래 여백(10px)과 겹쳐 버튼과 가깝게 */
+[class*="st-key-reqmore_"] button {min-height:20px; height:20px; padding:0; font-size:0.8rem;}
+[class*="st-key-reqmore_"] [data-testid="stCaptionContainer"] {margin-bottom:0;}
+[class*="st-key-reqmore_"] [data-testid="stCaptionContainer"] p {margin:0; line-height:20px;}
 /* 티켓 카드 변경 신청 상태 줄("변경 신청 중 → 11/04" / "변경 반려: 사유"): 한 줄 자리 고정, 길면 … */
 [class*="st-key-tchg_"] {min-height:1.3rem;}
 [class*="st-key-tchg_"] [data-testid="stCaptionContainer"] {margin-bottom:0;}
@@ -351,73 +357,92 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
 
 
 def change_status_line(t) -> str:
-    """카드의 변경 신청 상태 한 줄 (없으면 ""): 대기 → 주황 "변경 신청 중 → 11/04" · 반려 → 회색 "변경 반려: 사유"
-    (반려 표시는 다음 신청 전까지). 승인되면 완료일이 이미 바뀌었으므로 표시하지 않는다."""
-    cr = t.change_request
-    if cr is None:
+    """카드의 신청 상태 한 줄 (없으면 ""). 대기 → 주황 "변경 신청 중 → 11/04" / "취소 신청 중",
+    반려 → 회색 "변경 반려: 사유" / "취소 반려: 사유" (다음 신청 전까지). 승인되면 표시하지 않는다."""
+    r = t.request
+    if r is None:
         return ""
-    if cr.status == config.CHANGE_PENDING:
-        return f":orange[변경 신청 중 → {date.fromisoformat(cr.requested_due):%m/%d}]"
-    if cr.status == config.CHANGE_REJECTED:
-        return "변경 반려" + (f": {md_escape(cr.reject_reason)}" if cr.reject_reason else "")
+    is_due = r.kind == config.REQUEST_DUE
+    if r.status == config.CHANGE_PENDING:
+        return (f":orange[변경 신청 중 → {date.fromisoformat(r.requested_due):%m/%d}]" if is_due
+                else ":orange[취소 신청 중]")
+    if r.status == config.CHANGE_REJECTED:
+        return ("변경 반려" if is_due else "취소 반려") + (f": {md_escape(r.reject_reason)}" if r.reject_reason else "")
     return ""
 
 
+def render_card_grid(items, render_card, grid_key: str) -> None:
+    """카드 그리드 (2️⃣ 티켓 탭의 모든 카드 — 내 티켓 · 다른 개발자 티켓 · 진행 중 · 승인 요청이 같이 쓴다).
+    container 하나(key에 "tcards" — CSS CARD_GRID_CSS)에 카드를 차례로: 넓으면 한 줄 TICKET_CARDS_PER_ROW(3)장,
+    카드가 TICKET_CARD_MIN_WIDTH(240px)보다 좁아지면 2장·1장 (grid auto-fill, 미디어 쿼리 없음). 간격 16px."""
+    with st.container(key=grid_key):
+        for item in items:
+            render_card(item)
+
+
 def render_ticket_cards(tickets, grid_key: str, actions: bool = False) -> None:
-    """티켓 카드(2️⃣ 티켓 탭 — 내 티켓 · 다른 개발자 티켓이 같이 쓴다): 한 줄 3장, 높이 모두 같음(TICKET_CARD_HEIGHT).
+    """티켓 카드(2️⃣ 티켓 탭 — 내 티켓 · 다른 개발자 티켓이 같이 쓴다): render_card_grid로 배치, 버튼 있는 카드 높이 TICKET_CARD_HEIGHT.
     항목: ID · 우선순위 배지 / 문제점(최대 2줄) / 건수·담당 부서·담당자 / 발행일→예상 완료일.
     현재 개발자의 티켓은 테두리 primaryColor + [변경]·[발행 취소]·[처리 완료], 다른 개발자 티켓은 버튼 줄 없이
     더 낮은 카드(TICKET_CARD_HEIGHT_OTHERS) — 내 티켓과 다른 개발자 티켓은 따로 그려 한 줄에 섞이지 않는다."""
-    # 카드 전체를 한 container에 — CSS grid(st-key-tcards…)로 넓으면 한 줄 TICKET_CARDS_PER_ROW(3)장, 좁으면 카드 최소 폭
-    # (TICKET_CARD_MIN_WIDTH)을 지키며 2장·1장으로 줄인다 (좁은 화면에서 버튼이 밀려 카드 밖으로 잘리지 않게)
-    with st.container(key=grid_key):
-        for t in tickets:
-            # 버튼([변경 신청]·[발행 취소]·[처리 완료])은 개발자 본인의 진행 중 티켓에만 — 관리자·다른 사람·처리 완료 카드는 없음
-            mine = actions and not IS_MANAGER and t.assignee_id == me["id"] and stage1.is_open(t)
-            card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
-            # 흰 배경 · 옅은 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓도 같은 테두리 (보기 전환으로 이미 나뉨)
-            height = config.TICKET_CARD_HEIGHT if mine else config.TICKET_CARD_HEIGHT_OTHERS
-            with st.container(border=True, height=height, key=card_key):
-                # 1줄: ID(왼쪽) · 우선순위 배지(오른쪽) — st.columns는 좁은 화면(640px 미만)에서 세로로 쌓여 카드가 넘치므로 가로 container
-                head = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center")
-                head.markdown(f"**{t.ticket_id}**")
-                head.markdown(badge(t.priority), unsafe_allow_html=True)
-                with st.container(key=f"tprob_{t.ticket_id}"):   # 문제점: 최대 2줄, 넘치면 … (CSS line-clamp)
-                    st.markdown(f"**{t.problem}**")
-                with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
-                    st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
-                # 날짜 두 줄: "발행일 10/21" / "예상 완료일 10/28 (D-6)" + 오른쪽 끝 [변경](기본 크기, 담당 카드에만)
-                # 기한이 지났으면 빨간 "(기한 지남)" — 사이드바와 같은 규칙
-                due = date.fromisoformat(t.due_date)
-                left = (due - date.today()).days
-                with st.container(gap=None, key=f"tdates_{t.ticket_id}"):  # 두 날짜 줄을 간격 없이 붙인다
-                    st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d}")
-                    # 담당 카드만 tdue_(CSS min-height 40px — [변경] 자리), 다른 카드는 tduero_(캡션 높이만)
-                    due_row = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
-                                           key=f"tdue_{t.ticket_id}" if mine else f"tduero_{t.ticket_id}")
-                    due_row.caption(f"예상 완료일 {due:%m/%d} " + (":red[(기한 지남)]" if left < 0 else f"(D-{left})"),
-                                    width="content")
-                    pending = stage1.pending_request(t) is not None
-                    if mine and due_row.button("변경 신청", key=f"due_card_{t.ticket_id}", disabled=pending,
-                                               help="신청은 한 번에 하나 — 관리자가 처리하면 다시 신청할 수 있습니다"
-                                               if pending else None):
-                        request_due(t.ticket_id)
-                    if mine:
-                        # 변경 신청 상태 한 줄 (작은 글씨) — 없어도 자리를 둬 내 카드 높이가 모두 같다 (CSS st-key-tchg_ min-height)
-                        with st.container(key=f"tchg_{t.ticket_id}"):
-                            st.caption(change_status_line(t) or " ")
-                    elif change_status_line(t):
-                        # 버튼 없는 카드: 상태는 예상 완료일 줄 오른쪽 끝에 (따로 줄을 두지 않아 카드가 낮다)
-                        due_row.caption(change_status_line(t), width="content")
-                # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
-                # distribute = 두 버튼을 양 끝으로 벌린다. 다른 개발자 카드에는 이 줄이 없다 (그만큼 카드가 낮음)
-                if mine:
-                    actions = st.container(horizontal=True, horizontal_alignment="distribute",
-                                           key=f"tact_{t.ticket_id}")
-                    if actions.button("발행 취소", type="secondary", key=f"cancel_card_{t.ticket_id}"):
-                        confirm_cancel(t.ticket_id)
-                    if actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}"):
-                        confirm_complete(t.ticket_id)
+    render_card_grid(tickets, lambda t: render_ticket_card(t, actions), grid_key)
+
+
+def render_ticket_card(t, actions: bool) -> None:
+    """티켓 카드 하나 (render_card_grid 안에서 부른다). 버튼은 actions이고 개발자 본인의 진행 중 티켓일 때만."""
+    # 버튼([변경 신청]·[발행 취소]·[처리 완료])은 개발자 본인의 진행 중 티켓에만 — 관리자·다른 사람·처리 완료 카드는 없음
+    mine = actions and not IS_MANAGER and t.assignee_id == me["id"] and stage1.is_open(t)
+    card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
+    # 흰 배경 · 옅은 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓도 같은 테두리 (보기 전환으로 이미 나뉨)
+    height = config.TICKET_CARD_HEIGHT if mine else config.TICKET_CARD_HEIGHT_OTHERS
+    with st.container(border=True, height=height, key=card_key):
+        # 1줄: ID(왼쪽) · 우선순위 배지(오른쪽) — st.columns는 좁은 화면(640px 미만)에서 세로로 쌓여 카드가 넘치므로 가로 container
+        head = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center")
+        head.markdown(f"**{t.ticket_id}**")
+        head.markdown(badge(t.priority), unsafe_allow_html=True)
+        with st.container(key=f"tprob_{t.ticket_id}"):   # 문제점: 최대 2줄, 넘치면 … (CSS line-clamp)
+            st.markdown(f"**{t.problem}**")
+        with st.container(key=f"tline_{t.ticket_id}"):   # 한 줄 고정
+            st.markdown(f"{t.count:,}건 · {t.owner_part} · {t.assignee}")
+        # 날짜 두 줄: "발행일 10/21" / "예상 완료일 10/28 (D-6)" + 오른쪽 끝 [변경](기본 크기, 담당 카드에만)
+        # 기한이 지났으면 빨간 "(기한 지남)" — 사이드바와 같은 규칙
+        due = date.fromisoformat(t.due_date)
+        left = (due - date.today()).days
+        with st.container(gap=None, key=f"tdates_{t.ticket_id}"):  # 두 날짜 줄을 간격 없이 붙인다
+            st.caption(f"발행일 {date.fromisoformat(t.issued_on):%m/%d}")
+            # 담당 카드만 tdue_(CSS min-height 40px — [변경] 자리), 다른 카드는 tduero_(캡션 높이만)
+            due_row = st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center",
+                                   key=f"tdue_{t.ticket_id}" if mine else f"tduero_{t.ticket_id}")
+            due_row.caption(f"예상 완료일 {due:%m/%d} " + (":red[(기한 지남)]" if left < 0 else f"(D-{left})"),
+                            width="content")
+            # 신청(일정 변경·발행 취소) 대기 중에는 [변경 신청]·[발행 취소]·[처리 완료] 모두 비활성
+            pending = stage1.pending_request(t) is not None
+            wait_help = "관리자가 신청을 처리하면 다시 쓸 수 있습니다" if pending else None
+            if mine and due_row.button("변경 신청", key=f"due_card_{t.ticket_id}", disabled=pending,
+                                       help=wait_help):
+                request_due(t.ticket_id)
+            if mine:
+                # 변경 신청 상태 한 줄 (작은 글씨) — 없어도 자리를 둬 내 카드 높이가 모두 같다 (CSS st-key-tchg_ min-height)
+                with st.container(key=f"tchg_{t.ticket_id}"):
+                    st.caption(change_status_line(t) or " ")
+            elif change_status_line(t):
+                # 버튼 없는 카드: 상태는 예상 완료일 줄 오른쪽 끝에 (따로 줄을 두지 않아 카드가 낮다)
+                due_row.caption(change_status_line(t), width="content")
+        # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
+        # distribute = 두 버튼을 양 끝으로 벌린다. 다른 개발자 카드에는 이 줄이 없다 (그만큼 카드가 낮음)
+        if mine:
+            actions = st.container(horizontal=True, horizontal_alignment="distribute",
+                                   key=f"tact_{t.ticket_id}")
+            if actions.button("발행 취소", type="secondary", key=f"cancel_card_{t.ticket_id}",
+                              disabled=pending, help=wait_help):
+                # 실수 발행(오늘 발행 · 코드 찾기 안 함)이면 바로 취소, 그 외는 관리자 승인 신청
+                if stage1.can_cancel_now(t):
+                    confirm_cancel(t.ticket_id)
+                else:
+                    request_cancel_dialog(t.ticket_id)
+            if actions.button("처리 완료", type="secondary", key=f"done_card_{t.ticket_id}",
+                              disabled=pending, help=wait_help):
+                confirm_complete(t.ticket_id)
 
 
 @st.dialog("티켓 발행")
@@ -540,7 +565,7 @@ def voc_detail(row: dict, link: dict) -> None:
 @st.dialog("완료일 변경 신청")
 def request_due(ticket_id: str) -> None:
     """예상 완료일 변경 신청(내 티켓 카드 [변경 신청]): 한 줄 큰 글씨 티켓 ID + 날짜 칸, 사유(필수, 100자) + [신청] [취소].
-    신청하면 change_request "대기"로 저장 — 같은 파트 관리자가 승인하기 전까지 예상 완료일은 그대로."""
+    신청하면 request {kind "일정 변경", status "대기"}로 저장 — 같은 파트 관리자가 승인하기 전까지 예상 완료일은 그대로."""
     today = date.today()
     current = date.fromisoformat(ss["tickets"][ticket_id].due_date)
     # 한 줄: 왼쪽 큰 글씨 티켓 ID(코드가 만든 값, 20px 굵게) · 오른쪽 날짜 칸(라벨 없음)
@@ -568,37 +593,162 @@ def request_due(ticket_id: str) -> None:
             st.rerun()
 
 
-@st.dialog("변경 반려")
+@st.dialog("발행 취소 신청")
+def request_cancel_dialog(ticket_id: str) -> None:
+    """발행 취소 신청(오늘 발행이 아니거나 코드 찾기를 한 티켓): 큰 글씨 티켓 ID · 사유(필수, 100자) + [신청] [닫기].
+    신청하면 request {kind "발행 취소", status "대기"} — 같은 파트 관리자가 승인하기 전까지 티켓은 진행 중 그대로."""
+    st.markdown(f'<span style="font-size:20px; font-weight:700;">{html.escape(ticket_id)}</span>', unsafe_allow_html=True)
+    reason = st.text_input("사유", max_chars=config.CHANGE_REASON_MAX_CHARS, key=f"dlg_cancel_reason_{ticket_id}",
+                           placeholder="예: 전력 파트에서 맡는 게 맞음")
+    row = st.container(horizontal=True, gap="small")
+    # 사유가 비어도 [신청]을 끄지 않는다 — 글자를 쓰고 바로 누르면 입력 확정보다 클릭이 먼저라 첫 클릭이 무시됐다(완료일 변경 신청과 같음)
+    clicked = row.button("신청", type="primary", key="dlg_cancel_req")
+    if row.button("닫기", key="dlg_cancel_req_close"):
+        st.rerun()
+    if clicked:
+        if not reason.strip():
+            st.error("사유를 입력하세요")
+        else:
+            stage1.request_cancel(ticket_id, reason, me["id"])
+            ss["toast"] = f"{ticket_id} 발행 취소 신청됨"
+            st.rerun()
+
+
+def after_cancel(ticket_id: str) -> None:
+    """티켓이 취소된 뒤(바로 취소 · 관리자 승인) 세션 정리: 코드 찾기 결과·대기 상태를 버리고 유형 표를 새로 그린다."""
+    ss["stage2"].pop(ticket_id, None)
+    ss["stage2_wait"].pop(ticket_id, None)
+    if ss.get("current_ticket") == ticket_id:
+        ss["current_ticket"] = None
+    ss["editor_nonce"] += 1  # 돌아온 유형이 유형 표에 체크 없이 보이게
+
+
+def request_parts(t) -> dict:
+    """승인 요청 카드·확인 창 공통 HTML 조각 (값은 모두 html.escape). 종류 배지 · 신청일 · 신청자 · 날짜 줄 · 사유 상자."""
+    e = html.escape
+    r = t.request
+    who = USER_BY_ID.get(r.requested_by)
+    requester = user_label(who) if who else r.requested_by
+    if r.kind == config.REQUEST_DUE:
+        before, after = date.fromisoformat(t.due_date), date.fromisoformat(r.requested_due)
+        diff = (after - before).days
+        delta = f"+{diff}일" if diff >= 0 else f"\u2212{-diff}일"  # 당기면 "−3일"
+        date_line = (f'<span>{before:%m/%d}</span><span style="margin:0 8px;">→</span><b>{after:%m/%d}</b>'
+                     f'<span style="margin-left:8px; display:inline-block; background:#E8EAED; color:#3C4043; '
+                     f'border-radius:10px; padding:0 8px; font-size:12px; font-weight:700; line-height:1.6;">{delta}</span>')
+    else:
+        date_line = f"발행 {date.fromisoformat(t.issued_on):%m/%d}"
+    return {"kind": pill(r.kind, config.REQUEST_KIND_COLORS.get(r.kind, config.MUTED_TEXT_COLOR)),
+            "date": f"{datetime.strptime(r.requested_at, '%Y-%m-%d %H:%M'):%m/%d} 신청",
+            "requester": e(requester), "ticket": f"{e(t.ticket_id)} · {e(t.problem)}",
+            "date_line": date_line, "reason": e(r.reason)}
+
+
+def reason_box(reason_html: str, clamp: bool) -> str:
+    """회색 사유 상자 (#F4F5F7 · 모서리 6px · 안쪽 8px 10px · 위아래 10px). clamp면 3줄에서 … (카드), 아니면 전문(확인 창)."""
+    body = ("display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; min-height:4.8em;"
+            if clamp else "")
+    return (f'<div style="background:#F4F5F7; border-radius:6px; padding:8px 10px; margin:10px 0;">'
+            f'<div style="font-size:12px; color:{config.MUTED_TEXT_COLOR};">사유</div>'
+            f'<div style="white-space:pre-wrap; word-break:break-word; {body}">{reason_html}</div></div>')
+
+
+def request_font() -> str:
+    # APP_FONT의 큰따옴표는 style="…" 속성을 끊으므로 작은따옴표로
+    return f"font-family:{config.APP_FONT.replace(chr(34), chr(39))}; font-size:15px; line-height:1.6; color:#202124;"
+
+
+def request_card_html(t) -> str:
+    """승인 요청 카드 내용 (버튼 제외) HTML 하나: [종류] · 신청일 / 신청자(굵게) / 티켓 ID · 문제점(한 줄 …) / 날짜 줄 / 사유 상자(3줄)."""
+    p = request_parts(t)
+    return (f'<div style="{request_font()}">'
+            f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
+            f'{p["kind"]}<span style="font-size:13px; color:{config.MUTED_TEXT_COLOR};">{p["date"]}</span></div>'
+            f'<div style="font-weight:700;">{p["requester"]}</div>'
+            f'<div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{p["ticket"]}</div>'
+            f'<div style="margin-top:8px;">{p["date_line"]}</div>'
+            f'{reason_box(p["reason"], clamp=True)}</div>')
+
+
+def request_detail_html(t) -> str:
+    """승인·반려 확인 창 머리 (사유 전문): [종류] 티켓 ID · 신청자 / 날짜 줄 / 사유 상자(잘리지 않게)."""
+    p = request_parts(t)
+    return (f'<div style="{request_font()}">'
+            f'<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">{p["kind"]}'
+            f'<b>{html.escape(t.ticket_id)}</b><span>· {p["requester"]}</span></div>'
+            f'<div style="margin-top:8px;">{p["date_line"]}</div>{reason_box(p["reason"], clamp=False)}</div>')
+
+
+@st.dialog("신청 사유")
+def show_reason(ticket_id: str) -> None:
+    """[사유 전체 보기]: 큰 글씨 티켓 ID · 신청자 한 줄 + 사유 전문 + [닫기]."""
+    t = ss["tickets"][ticket_id]
+    p = request_parts(t)
+    st.html(f'<div style="{request_font()}"><div><span style="font-size:20px; font-weight:700;">{html.escape(ticket_id)}</span>'
+            f'<span style="margin-left:10px;">{p["requester"]}</span></div>{reason_box(p["reason"], clamp=False)}</div>')
+    if st.button("닫기", key="dlg_reason_close"):
+        st.rerun()
+
+
+@st.dialog("승인")
+def confirm_approve(ticket_id: str) -> None:
+    """승인 확인 창: 종류 · 티켓 · 신청자 / 날짜 줄 / 사유 전문 + [승인] [닫기]. 처리는 Round 41·44 그대로."""
+    t = ss["tickets"][ticket_id]
+    kind, due = t.request.kind, t.request.requested_due
+    st.html(request_detail_html(t))
+    row = st.container(horizontal=True, gap="small")
+    if row.button("승인", type="primary", key="dlg_approve"):
+        stage1.decide_request(ticket_id, True, me["id"])
+        if kind == config.REQUEST_CANCEL:  # 발행 취소 승인 → 티켓 사라짐 · 유형 표로 돌아감
+            after_cancel(ticket_id)
+            ss["toast"] = f"{ticket_id} 발행 취소 승인"
+        else:
+            ss["toast"] = f"{ticket_id} 일정 변경 승인 (→ {date.fromisoformat(due):%m/%d})"
+        st.rerun()
+    if row.button("닫기", key="dlg_approve_close"):
+        st.rerun()
+
+
+@st.dialog("반려")
 def confirm_reject(ticket_id: str) -> None:
-    """관리자 반려 확인 창: 반려 사유(선택) + [반려] [취소]. 반려하면 완료일은 그대로, 카드에 "변경 반려: 사유"."""
-    st.write(f"{ticket_id} 완료일 변경 신청을 반려할까요?")
+    """반려 확인 창: 승인 창과 같은 내용(사유 전문) + 반려 사유(선택) + [반려] [닫기]. 반려하면 티켓은 그대로,
+    카드에 "변경 반려: 사유"/"취소 반려: 사유"."""
+    t = ss["tickets"][ticket_id]
+    kind = t.request.kind
+    st.html(request_detail_html(t))
     reason = st.text_input("반려 사유 (선택)", max_chars=config.CHANGE_REASON_MAX_CHARS,
                            key=f"dlg_reject_reason_{ticket_id}")
     row = st.container(horizontal=True, gap="small")
     if row.button("반려", type="primary", key="dlg_reject"):
-        stage1.decide_due_change(ticket_id, False, me["id"], reason)
-        ss["toast"] = f"{ticket_id} 변경 신청 반려"
+        stage1.decide_request(ticket_id, False, me["id"], reason)
+        ss["toast"] = f"{ticket_id} {kind} 신청 반려"
         st.rerun()
-    if row.button("취소", key="dlg_reject_cancel"):
+    if row.button("닫기", key="dlg_reject_cancel"):
         st.rerun()
 
 
 def render_approval_cards(requests) -> None:
-    """관리자 '승인 요청': 같은 파트의 대기 중 신청 한 건에 카드 하나.
-    "TKT-0011 · 문제점 · 담당자" / "10/28 → 11/04 (+7일) · 사유: …" / [승인] [반려]."""
-    for t in requests:
-        cr = t.change_request
-        before, after = date.fromisoformat(t.due_date), date.fromisoformat(cr.requested_due)
-        with st.container(border=True, key=f"card_appr_{t.ticket_id}"):
-            st.markdown(f"**{t.ticket_id}** · {md_escape(t.problem)} · {t.assignee}")
-            st.markdown(f"{before:%m/%d} → {after:%m/%d} ({(after - before).days:+d}일) · 사유: {md_escape(cr.reason)}")
-            row = st.container(horizontal=True, gap="small")
-            if row.button("승인", type="primary", key=f"appr_ok_{t.ticket_id}"):
-                stage1.decide_due_change(t.ticket_id, True, me["id"])
-                ss["toast"] = f"{t.ticket_id} 완료일 {after:%m/%d}로 변경 승인"
-                st.rerun()
-            if row.button("반려", key=f"appr_no_{t.ticket_id}"):
-                confirm_reject(t.ticket_id)
+    """관리자 '승인 요청': 같은 파트의 대기 중 신청(일정 변경 · 발행 취소), 신청 오래된 순. 배치·폭·간격은 티켓 카드와 같은
+    render_card_grid, 높이는 REQUEST_CARD_HEIGHT (티켓 카드와 따로)."""
+    render_card_grid(requests, render_request_card, "tcards_appr")
+
+
+def render_request_card(t) -> None:
+    """승인 요청 카드 하나: 내용 HTML 하나(request_card_html) / [사유 전체 보기](사유가 REASON_CLAMP_CHARS 넘을 때만,
+    아니면 같은 높이의 빈 줄) / [반려](왼쪽 끝) · [승인](오른쪽 끝) — 둘 다 확인 창에서 사유 전문을 보고 처리."""
+    with st.container(border=True, height=config.REQUEST_CARD_HEIGHT, key=f"card_appr_{t.ticket_id}"):
+        st.html(request_card_html(t))
+        with st.container(key=f"reqmore_{t.ticket_id}"):  # [사유 전체 보기] 자리 (없어도 같은 높이, CSS)
+            if len(t.request.reason) > config.REASON_CLAMP_CHARS:
+                if st.button("사유 전체 보기", type="tertiary", key=f"appr_reason_{t.ticket_id}"):
+                    show_reason(t.ticket_id)
+            else:  # 빈 컨테이너는 그려지지 않아 자리가 사라지므로 보이지 않는 한 줄로 자리를 둔다
+                st.caption("\u00a0")
+        row = st.container(horizontal=True, horizontal_alignment="distribute", key=f"reqact_{t.ticket_id}")
+        if row.button("반려", key=f"appr_no_{t.ticket_id}"):
+            confirm_reject(t.ticket_id)
+        if row.button("승인", type="primary", key=f"appr_ok_{t.ticket_id}"):
+            confirm_approve(t.ticket_id)
 
 
 @st.dialog("처리 완료")
@@ -623,12 +773,8 @@ def confirm_cancel(ticket_id: str) -> None:
     st.write(f"{ticket_id} 발행을 취소할까요?")
     row = st.container(horizontal=True, gap="small")  # [발행 취소] [닫기] 바로 옆에
     if row.button("발행 취소", type="primary", key="dlg_cancel_ticket"):
-        stage1.cancel_ticket(ticket_id)
-        ss["stage2"].pop(ticket_id, None)  # 세션에 남은 코드 찾기 결과도 버린다 (파일은 cancel_ticket이 지움)
-        ss["stage2_wait"].pop(ticket_id, None)
-        if ss.get("current_ticket") == ticket_id:
-            ss["current_ticket"] = None
-        ss["editor_nonce"] += 1  # 유형 표를 새로 그려 돌아온 유형이 체크 없이 보이게
+        stage1.cancel_ticket(ticket_id)  # 실수 발행(오늘 발행 · 코드 찾기 안 함)만 여기로 — 바로 "취소"
+        after_cancel(ticket_id)  # 세션의 코드 찾기 결과·대기 상태도 버린다 (파일은 cancel_ticket이 지움)
         st.rerun()
     if row.button("닫기", key="dlg_close"):
         st.rerun()
@@ -914,9 +1060,9 @@ with st.sidebar:
 
 TAB_LABELS = ["1️⃣ VOC 대시보드", "2️⃣ 티켓", "3️⃣ 의심 위치", "4️⃣ 수정 라인"]
 TAB_TICKETS, TAB_LINES = TAB_LABELS[1], TAB_LABELS[3]
-# 2️⃣ 티켓 탭 보기 전환 — 개발자: 내 티켓 · 다른 개발자 티켓 · 처리 완료 / 관리자: 승인 요청 · 파트 티켓 · 처리 완료
+# 2️⃣ 티켓 탭 보기 전환 — 개발자: 내 티켓 · 다른 개발자 티켓 · 처리 완료 / 관리자: 승인 요청 · 진행 중 · 처리 완료
 TICKET_VIEW_LABELS = {"mine": "내 티켓", "others": "다른 개발자 티켓", "approvals": "승인 요청",
-                      "part": "파트 티켓", "done": "처리 완료"}
+                      "part": "진행 중", "done": "처리 완료"}
 TICKET_VIEWS = ["approvals", "part", "done"] if IS_MANAGER else ["mine", "others", "done"]
 # 탭 자동 이동(티켓 발행 → 2️⃣ 티켓, 수정 라인 찾기 → 4️⃣ 수정 라인) — st.tabs(key=…)의 선택 탭은 위젯을
 # 그리기 전에만 바꿀 수 있어서, 그 직후에는 ss["goto_tab"]에 표시만 남기고 st.rerun(), 다음 실행에서 탭을 그리기 전에 바꾼다
@@ -957,25 +1103,24 @@ DONE_RECENT, DONE_CUSTOM = PERIOD_RECENT, PERIOD_CUSTOM  # 대시보드와 같�
 
 
 def done_owner_options() -> list[tuple[str, str]]:
-    """[처리 완료] 담당자 필터 (종류, 값) — 개발자: 전체 / 본인 / 파트별, 관리자: 우리 파트(기본) / 전체 / 파트별 / 개발자별."""
+    """[처리 완료] 담당자 필터 (종류, 값) — 개발자: 전체 / 본인 / 파트별, 관리자: 전체 / 파트별 (기본 = 본인 파트).
+    같은 파트가 두 번 나오지 않는다 (users.yaml 파트 목록 순서)."""
     parts = list(dict.fromkeys(u["part"] for u in USERS if not stage1.is_manager(u)))
     if IS_MANAGER:
-        devs = [("dev", u["id"]) for u in USERS if not stage1.is_manager(u)]
-        return [("mypart", me["part"]), ("all", "")] + [("part", p) for p in parts] + devs
+        return [("all", "")] + [("part", p) for p in parts]
     return [("all", ""), ("me", me["id"])] + [("part", p) for p in parts]
 
 
 def done_owner_label(opt: tuple[str, str]) -> str:
     kind, value = opt
-    return {"all": "전체", "me": "본인", "mypart": f"우리 파트 ({value})", "part": value}.get(
-        kind, user_label(USER_BY_ID[value]) if kind == "dev" else value)
+    return {"all": "전체", "me": "본인"}.get(kind, value)
 
 
 def done_owner_match(t, opt: tuple[str, str]) -> bool:
     kind, value = opt
-    if kind in ("mypart", "part"):
+    if kind == "part":
         return t.owner_part == value
-    if kind in ("me", "dev"):
+    if kind == "me":
         return t.assignee_id == value
     return True
 
@@ -1001,7 +1146,9 @@ def render_done_view() -> None:
                        key="done_dates_recent")
     # 2. 담당자 필터 (같은 줄 오른쪽)
     options = done_owner_options()
-    owner = row.selectbox("파트", options, format_func=done_owner_label, key=f"done_owner_{IS_MANAGER}",
+    # 관리자 기본값 = 목록의 본인 파트 (key에 사용자 id — 사용자를 바꾸면 그 사람의 기본값부터)
+    default = options.index(("part", me["part"])) if IS_MANAGER and ("part", me["part"]) in options else 0
+    owner = row.selectbox("파트", options, index=default, format_func=done_owner_label, key=f"done_owner_{me['id']}",
                           width=config.DATE_INPUT_WIDTH)
     # 기간 줄 아래 회색 작은 글씨 — 카드·표가 모두 완료일 기준임을 알린다 (대시보드 처리 완료는 VOC 작성일 기준)
     st.caption(f"완료일 기준 · {start:%m/%d}~{end:%m/%d}에 처리 완료된 티켓")
@@ -1411,6 +1558,7 @@ with tab3:
         run_clicked = c_run.button("코드 찾기", type="primary", width="stretch", disabled=IS_MANAGER,
                                    help="관리자는 결과를 보기만 합니다" if IS_MANAGER else None)
         if run_clicked and not IS_MANAGER and has_api_key():  # 내 티켓에서만
+            stage1.mark_code_search(sel)  # 코드 찾기를 한 티켓은 이후 발행 취소가 관리자 승인 신청
             cached_vectorstore()
             graph = cached_graph()  # @st.cache_resource — 체크포인터가 rerun 사이에 유지된다
             # 다시 누르면 실행 번호를 올려 새 thread로 처음부터 (이전 대기 상태와 섞이지 않게)

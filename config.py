@@ -80,6 +80,12 @@ ROLE_MANAGER = "manager"
 CHANGE_PENDING = "대기"
 CHANGE_APPROVED = "승인"
 CHANGE_REJECTED = "반려"
+# 관리자 승인 신청 종류 (Ticket.request.kind) — 관리자 화면에서는 "완료일 변경" 대신 "일정 변경"
+REQUEST_DUE = "일정 변경"
+REQUEST_CANCEL = "발행 취소"
+# 승인 요청 카드 종류 배지 — 우선순위(빨강·주황·노랑·회색)·상태(파랑·초록) 색과 겹치지 않게 청록 · 보라
+REQUEST_KIND_COLORS = {REQUEST_DUE: "#00838F", REQUEST_CANCEL: "#7B1FA2"}
+REASON_CLAMP_CHARS = 90          # 사유가 이 글자 수를 넘으면 카드 사유 상자 3줄에서 … + [사유 전체 보기]
 CHANGE_REASON_MAX_CHARS = 100   # 변경 신청 사유 · 반려 사유 최대 글자 수
 LATE_TEXT_COLOR = "#D93025"     # [처리 완료] 표 기한 칸 "N일 초과" 글자색
 # VOC 원문 표의 유형 · 티켓 칸 (stage1.voc_links)
@@ -108,7 +114,8 @@ TICKET_CARD_MIN_WIDTH = 240   # 카드 최소 폭(px) — 화면이 좁아 이�
 HOVER_LINE_CHARS = 40         # 의미 공간 툴팁 원문 줄바꿈 글자 수
 HOVER_MAX_CHARS = 120         # 의미 공간 툴팁 원문 최대 글자 수 (넘으면 …)
 DATE_INPUT_WIDTH = 260        # 1️⃣ 기간 날짜 칸 고정 폭(px) — "2026/10/06 – 2026/10/20"이 끝까지 보이는 정도, 더 길게 하지 않는다
-TICKET_CARD_HEIGHT = 323      # 티켓 카드 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 발행일 줄 + 예상 완료일·[변경] 줄 + [발행 취소]·[처리 완료] 줄이 스크롤 없이 들어가는 높이
+TICKET_CARD_HEIGHT = 323      # 버튼 있는 티켓 카드(내 티켓) 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 발행일 줄 + 예상 완료일·[변경 신청] 줄 + 신청 상태 줄 + [발행 취소]·[처리 완료] 줄
+REQUEST_CARD_HEIGHT = 340     # 승인 요청 카드 높이(px) 고정 — 카드 안 스크롤 없음 (티켓 카드와 따로)
 TICKET_CARD_HEIGHT_OTHERS = 227  # 버튼 없는 티켓 카드 높이(px) — 버튼 줄·변경 신청 상태 줄 없음 (상태는 예상 완료일 줄 오른쪽 끝)
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
 RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
