@@ -184,7 +184,14 @@ def local_path(name: str) -> Path:
 
 
 def repo_dir(name: str) -> Path:
-    return _RESOLVED.get(name) or local_path(name)
+    """분석에 쓸 저장소 경로. sync_repos() 전(앱 재시작 후 저장된 결과를 볼 때 등)에는
+    url이 있고 받아 둔 미러가 있으면 미러, 아니면 sample_repos (네트워크 호출 없음)."""
+    if name in _RESOLVED:
+        return _RESOLVED[name]
+    mirror = config.MIRRORS_DIR / name
+    if load_registry()[name].get("url") and (mirror / ".git").is_dir():
+        return mirror
+    return local_path(name)
 
 
 def repo_branch(name: str) -> str:
