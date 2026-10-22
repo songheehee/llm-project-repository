@@ -114,9 +114,12 @@ TICKET_CARD_MIN_WIDTH = 240   # 카드 최소 폭(px) — 화면이 좁아 이�
 HOVER_LINE_CHARS = 40         # 의미 공간 툴팁 원문 줄바꿈 글자 수
 HOVER_MAX_CHARS = 120         # 의미 공간 툴팁 원문 최대 글자 수 (넘으면 …)
 DATE_INPUT_WIDTH = 260        # 1️⃣ 기간 날짜 칸 고정 폭(px) — "2026/10/06 – 2026/10/20"이 끝까지 보이는 정도, 더 길게 하지 않는다
-TICKET_CARD_HEIGHT = 323      # 버튼 있는 티켓 카드(내 티켓) 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 발행일 줄 + 예상 완료일·[변경 신청] 줄 + 신청 상태 줄 + [발행 취소]·[처리 완료] 줄
-REQUEST_CARD_HEIGHT = 340     # 승인 요청 카드 높이(px) 고정 — 카드 안 스크롤 없음 (티켓 카드와 따로)
-TICKET_CARD_HEIGHT_OTHERS = 227  # 버튼 없는 티켓 카드 높이(px) — 버튼 줄·변경 신청 상태 줄 없음 (상태는 예상 완료일 줄 오른쪽 끝)
+TICKET_CARD_HEIGHT = 296      # 버튼 있는 티켓 카드(내 티켓) 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 발행일 줄 + 예상 완료일·[변경 신청] 줄 + [발행 취소]·[처리 완료] 줄 (신청 상태는 예상 완료일 줄 자리에, 버튼 아래 빈 공간 12px 이하)
+REQUEST_CARD_HEIGHT = 302     # 승인 요청 카드 높이(px) 고정 — 내용(사유 상자 바로 아래 버튼 줄)에 맞춤, 카드 안 스크롤 없음, 버튼 아래 12px 이하 (티켓 카드와 따로)
+TICKET_CARD_HEIGHT_OTHERS = 227  # 버튼 없는 티켓 카드 높이(px) — 버튼 줄 없음 (신청 상태는 예상 완료일 줄 자리에)
+CARD_LINE_GAP = 6             # 승인 요청 카드(본문 · 사이드바) 신청자 · 티켓 · 날짜 줄 사이 간격(px) — 한 묶음(flex column gap)에서 정한다
+CARD_INLINE_GAP = 8           # 날짜 줄 안 간격(px): "11/05 → 11/10 +5일"의 → 앞뒤 · 바뀐 날짜와 배지 사이 · "변경 신청 중"과 날짜 사이
+PENDING_TEXT_COLOR = "#E8710A"  # 티켓 카드 예상 완료일 줄 "변경 신청 중" · "취소 신청 중" 글자색 (주황)
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
 RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
 CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이전 기간 VOC 수 (LLM 호출 수가 건수에 비례)
@@ -129,7 +132,7 @@ SIMILARITY_MAX_POINTS = 2000  # VOC 유사도(의미 공간)에 그리는 최대
 CELL_MAX_CHARS = 40           # 표(st.dataframe) 셀 글자 수 상한 — 넘으면 화면용 복사본만 앞 N자 + '…' (행 클릭 시 표 아래 전체)
 APP_FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'  # 앱 전체 글꼴 — CSS·st.html 공통 (코드 뷰만 고정폭)
 
-# ── 2️⃣ 의심 위치 — 폴더 후보 ─────────────────────────
+# ── 3️⃣ 코드 찾기 — 폴더 후보 ─────────────────────────
 DEFAULT_DEPLOY_BRANCH = "main"  # repos.yaml에 branch가 없고 .git/HEAD도 못 읽을 때
 FOLDER_CARD_COLUMNS = 3          # 폴더 카드 한 줄 개수
 FOLDER_CARD_MAX_FILES = 5        # 폴더당 보여 줄 파일 최대 수
