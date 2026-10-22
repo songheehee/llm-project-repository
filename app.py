@@ -889,8 +889,8 @@ with tab1:
                 chart_df = cur.assign(cluster=data_utils.top_groups(unassigned, config.CHART_TOP_TYPES, config.OTHER_LABEL,
                                                                     keep=(config.UNASSIGNED_LABEL,)))
                 daily_bar_chart(data_utils.daily_counts(chart_df, "cluster", weekly=weekly), chart_title, weekly=weekly)
-                st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계 · "
-                           f"{config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
+                st.caption(f"· 기타 = 상위 {config.CHART_TOP_TYPES}개 밖 유형의 합계  \n"
+                           f"· {config.UNASSIGNED_LABEL} = 어느 유형에도 맞지 않은 VOC (티켓 대상 아님)")
 
                 # 2. 유형별 처리 우선순위 표 — 제목 줄 오른쪽 [티켓 발행] (버튼은 표의 체크 결과를 본 뒤 채운다)
                 c_title, c_issue = st.columns([4, 1], vertical_alignment="center")
