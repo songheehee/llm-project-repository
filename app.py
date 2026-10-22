@@ -54,8 +54,12 @@ CSS = """
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
 /* 티켓 카드 예상 완료일 줄: [변경](기본 크기, 담당 카드에만)이 들어가는 높이 — 버튼 없는 카드도 같은 높이로 */
 [class*="st-key-tdue_"] {min-height:40px;}
-/* 티켓 발행 확인 창: 유형별 상자 사이 8px */
+/* 티켓 발행 확인 창: 유형별 상자 사이 8px · 유형 이름은 한 줄, 길면 … (날짜 칸이 아래로 밀리지 않게) */
 [class*="st-key-issue_rows"] {gap:8px;}
+[class*="st-key-issue_name_"] {flex-wrap:nowrap; min-width:0;}
+[class*="st-key-issue_name_"] > div {min-width:0;}
+[class*="st-key-issue_name_"] [data-testid="stMarkdownContainer"] {overflow:hidden; margin-bottom:0;}
+[class*="st-key-issue_name_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
 /* 티켓 카드 마지막 줄: [처리 완료](담당 카드만, 오른쪽 끝) — 버튼 없는 카드도 같은 높이의 빈 줄 */
 [class*="st-key-tact_"] {min-height:40px;}
 /* 현재 개발자의 티켓 카드: primaryColor 테두리 */
@@ -355,14 +359,14 @@ def confirm_issue(clusters: list, period_txt: str) -> None:
     with st.container(key="issue_rows"):  # 유형별 상자 사이 8px (CSS)
         for c in clusters:
             with st.container(border=True):
-                # 1줄: 우선순위 배지(카드와 같은 색, 고정 라벨 HTML) + 한 칸 띄우고 유형 이름(굵게, LLM 글이라 일반 마크다운)
-                head = st.container(horizontal=True, gap="small", vertical_alignment="center")
+                # 한 줄: 왼쪽 우선순위 배지(고정 라벨 HTML) + 한 칸 띄우고 유형 이름(굵게, LLM 글이라 일반 마크다운, 길면 …)
+                #        오른쪽 날짜 칸(라벨 없음 — 무엇인지는 맨 위 안내 문구가 알려 줌)
+                c_name, c_due = st.columns([3, 2], vertical_alignment="center")
+                head = c_name.container(horizontal=True, gap="small", vertical_alignment="center",
+                                        key=f"issue_name_{c.cluster_id}")
                 head.markdown(badge(c.priority), unsafe_allow_html=True, width="content")
-                head.markdown(f"**{md_escape(c.label)}**", width="content")
-                # 2줄: "예상 완료일" 글자 + 날짜 칸(폭 DATE_INPUT_WIDTH)을 한 줄에
-                due_line = st.container(horizontal=True, gap="small", vertical_alignment="center")
-                due_line.markdown("예상 완료일", width="content")
-                dues[c.cluster_id] = due_line.date_input(
+                head.markdown(f"**{md_escape(c.label)}**")
+                dues[c.cluster_id] = c_due.date_input(
                     "예상 완료일", value=stage1.due_date_for(c.priority, today), min_value=today, format="YYYY/MM/DD",
                     key=f"issue_due_{period_txt}_{c.cluster_id}", width=config.DATE_INPUT_WIDTH,
                     label_visibility="collapsed")
@@ -401,7 +405,11 @@ def change_due(ticket_id: str) -> None:
     저장하면 tickets.json에 반영 → 카드·사이드바 날짜와 D-day가 바로 바뀐다. 바꾼 기록은 남기지 않는다."""
     today = date.today()
     current = date.fromisoformat(ss["tickets"][ticket_id].due_date)
-    new_day = st.date_input(f"{ticket_id} 예상 완료일", value=max(current, today), min_value=today, format="YYYY/MM/DD")
+    # 한 줄: 왼쪽 큰 글씨 티켓 ID(코드가 만든 값, 20px 굵게) · 오른쪽 날짜 칸(라벨 없음)
+    c_id, c_due = st.columns([2, 3], vertical_alignment="center")
+    c_id.markdown(f'<span style="font-size:20px; font-weight:700;">{html.escape(ticket_id)}</span>', unsafe_allow_html=True)
+    new_day = c_due.date_input(f"{ticket_id} 예상 완료일", value=max(current, today), min_value=today,
+                               format="YYYY/MM/DD", label_visibility="collapsed")
     row = st.container(horizontal=True, gap="small")
     if row.button("저장", type="primary", key="dlg_due_save"):
         stage1.set_due_date(ticket_id, new_day)
