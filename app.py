@@ -1152,7 +1152,9 @@ with tab3:
                 if folders:
                     with st.expander("점수 구성 · 키워드 vs 함수 의미 비교"):
                         st.caption(f"점수 = ({config.W_KEYWORD}×키워드 + {config.W_SEMANTIC}×함수 의미 + "
-                                   f"{config.W_RECENT}×최근 변경) × 역할보정. 함수 의미 = LLM이 함수 동작을 요약한 문장과 "
+                                   f"{config.W_RECENT}×최근 변경) × 역할보정. 최근 변경 = 날짜 점수(14일 안 1 · 30일 안 0.5) × "
+                                   "max(키워드, 함수 의미) — 티켓과 관련 없는 폴더의 최근 커밋은 가점이 줄어든다. "
+                                   "함수 의미 = LLM이 함수 동작을 요약한 문장과 "
                                    "티켓 원인 문장의 임베딩 유사도. 코드 원문 = 함수 코드를 그대로 임베딩한 유사도(비교용, 점수에 안 들어감).")
                         show_table(pd.DataFrame([{
                             "폴더": f.path, "점수": f.score, "키워드": f.keyword, "함수 의미": f.semantic,

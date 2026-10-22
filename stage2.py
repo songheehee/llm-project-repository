@@ -50,7 +50,7 @@ class FolderScore(BaseModel):
     path: str               # "sensor/"
     score: float
     keyword: float          # 0~1 (레포 내 최대값 대비)
-    recent: float           # 0 / 0.5 / 1
+    recent: float           # 0~1 = 날짜 점수(0 / 0.5 / 1) × 관련도 max(키워드, 함수 의미)
     role: str | None = None
     note: str = ""
     semantic: float = 0.0       # 0~1 함수 의미(LLM 요약) 유사도, 레포 내 폴더끼리 정규화 — 점수식에 들어감
@@ -556,6 +556,15 @@ def recent_changes(repo: Path, start: date) -> dict[str, date]:
     return latest
 
 
+def recent_score(last: date | None, start: date, keyword: float, semantic: float) -> float:
+    """최근변경 = 날짜 점수(분석 시작일 전 14일 안 1 · 30일 안 0.5 · 없음 0) × 관련도 max(키워드, 함수 의미).
+    날짜 점수만 쓰면 티켓과 무관하게 최근 커밋이 있는 폴더(power/·sensor/)가 메뉴·앱 멈춤 티켓에서도 위로 올라왔다."""
+    if not last:
+        return 0.0
+    base = config.RECENT_SCORE_STRONG if (start - last).days <= config.RECENT_DAYS_STRONG else config.RECENT_SCORE_WEAK
+    return round(base * max(keyword, semantic), 2)
+
+
 def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_START) -> list[FolderScore]:
     """1단계 폴더마다 (0.3×키워드 + 0.3×함수 의미 + 0.4×최근변경) × 역할보정."""
     repo = repo_dir(repo_name)
@@ -579,12 +588,9 @@ def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_
     for f in folders:
         dates = [d for path, d in changes.items() if path.startswith(f)]
         last = max(dates) if dates else None
-        recent = 0.0
-        if last:
-            days = (start - last).days
-            recent = config.RECENT_SCORE_STRONG if days <= config.RECENT_DAYS_STRONG else config.RECENT_SCORE_WEAK
         keyword = hits[f] / max_hits
         semantic = sem.get(f, 0.0)
+        recent = recent_score(last, start, keyword, semantic)
         role = roles.get(f)
         factor = config.ROLE_FACTORS.get(role, 1.0)
         notes = [f"키워드 {hits[f]}회"]
@@ -1169,14 +1175,10 @@ def file_scores(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_ST
     out = {}
     for rel in files:
         last = changes.get(rel)
-        recent = 0.0
-        if last:
-            recent = (config.RECENT_SCORE_STRONG if (start - last).days <= config.RECENT_DAYS_STRONG
-                      else config.RECENT_SCORE_WEAK)
         factor = config.ROLE_FACTORS.get(roles.get(rel.split("/")[0] + "/"), 1.0)
-        semantic = sem.get(rel, 0.0)
-        score = (config.W_KEYWORD * hits[rel] / max_hits + config.W_SEMANTIC * semantic
-                 + config.W_RECENT * recent) * factor
+        keyword, semantic = hits[rel] / max_hits, sem.get(rel, 0.0)
+        recent = recent_score(last, start, keyword, semantic)  # 폴더 의심도와 같은 식
+        score = (config.W_KEYWORD * keyword + config.W_SEMANTIC * semantic + config.W_RECENT * recent) * factor
         out[rel] = {"score": round(score, 2), "hits": hits[rel], "semantic": round(semantic, 2), "last": last}
     return out
 
