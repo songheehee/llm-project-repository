@@ -207,19 +207,33 @@ USER_PARTS = [
 SCSA_PART, SCSA_GRADE = "SCSA", "CL2"   # SCSA(대졸 신입 과정)는 모두 CL2
 # 파트 순서대로 번갈아 쓰는 직급 패턴 — 파트의 첫 사람은 항상 CL3 이상, CL1~CL4가 섞이도록
 GRADE_PATTERNS = [["CL4", "CL2", "CL1"], ["CL3", "CL1", "CL2"]]
+# 파트마다 관리자 1명(role manager) — 기존 개발자를 바꾸지 않고 새로 추가 (개발자 티켓이 관리자 소유가 되지 않게).
+# 관리자는 티켓을 맡지 않고 같은 파트의 예상 완료일 변경 신청만 승인·반려한다. 직급은 CL4·CL3을 파트 순서대로 번갈아
+MANAGER_NAMES = {
+    "센서 파트": "박지훈", "전력 파트": "김태윤", "UI 파트": "이준혁", "운동 파트": "정수빈", "동기화 파트": "최민호",
+    "서버 파트": "한서연", "헬스 파트": "오세진", "알림 파트": "윤가영", "플랫폼 파트": "장민석", "모바일 파트": "임지아",
+    "하드웨어 파트": "서강민", "기구 파트": "문지영", "웹 파트": "배준서", "SCSA": "곽은지",
+}
+MANAGER_GRADES = ["CL4", "CL3"]
 
 
 def users_yaml() -> str:
-    """users.yaml 내용 (id는 순서대로 u01…, 같은 입력이면 항상 같은 결과)."""
-    lines = ["# 개발자 목록 (교육용 가상 인물) — 사람 목록은 이 파일 한 곳. 사이드바 '현재 개발자'로 고른다 (로그인 대신)",
+    """users.yaml 내용 (id는 순서대로 u01…, 같은 입력이면 항상 같은 결과). 개발자 뒤에 파트별 관리자를 이어 붙인다."""
+    lines = ["# 사용자 목록 (교육용 가상 인물) — 사람 목록은 이 파일 한 곳. 사이드바 '현재 사용자'로 고른다 (로그인 대신)",
              "# grade: CL1 사원급 · CL2 대리·선임급(대졸 신입 포함) · CL3 과장·차장급(책임급) · CL4 부장급(수석급) — config.GRADES",
+             "# role: developer(티켓 발행·코드 찾기·완료일 변경 신청) · manager(같은 파트 완료일 변경 승인·반려만, 파트마다 1명)",
              "users:"]
     n = 0
     for i, (part, names) in enumerate(USER_PARTS):
         for j, name in enumerate(names):
             n += 1
             grade = SCSA_GRADE if part == SCSA_PART else GRADE_PATTERNS[i % 2][j % 3]
-            lines.append(f"  - {{id: u{n:02d}, name: {name}, part: {part}, grade: {grade}}}")
+            lines.append(f"  - {{id: u{n:02d}, name: {name}, part: {part}, grade: {grade}, role: developer}}")
+    # 관리자는 개발자 뒤에 이어서 번호를 매긴다 (기존 개발자 id u01~u41은 그대로)
+    for i, (part, _) in enumerate(USER_PARTS):
+        n += 1
+        lines.append(f"  - {{id: u{n:02d}, name: {MANAGER_NAMES[part]}, part: {part}, "
+                     f"grade: {MANAGER_GRADES[i % 2]}, role: manager}}")
     return "\n".join(lines) + "\n"
 
 

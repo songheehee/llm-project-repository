@@ -54,6 +54,10 @@ CSS = """
 [class*="st-key-card_evidence"] td {white-space:pre-line;}
 /* 티켓 카드 예상 완료일 줄: [변경](기본 크기, 담당 카드에만)이 들어가는 높이 — 버튼 없는 카드도 같은 높이로 */
 [class*="st-key-tdue_"] {min-height:40px;}
+/* 티켓 카드 변경 신청 상태 줄("변경 신청 중 → 11/04" / "변경 반려: 사유"): 한 줄 자리 고정, 길면 … */
+[class*="st-key-tchg_"] {min-height:1.3rem;}
+[class*="st-key-tchg_"] [data-testid="stCaptionContainer"] {margin-bottom:0;}
+[class*="st-key-tchg_"] p {white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;}
 /* 티켓 발행 확인 창: 유형별 상자 사이 8px · 유형 이름은 한 줄, 길면 … (날짜 칸이 아래로 밀리지 않게) */
 [class*="st-key-issue_rows"] {gap:8px;}
 [class*="st-key-issue_name_"] {flex-wrap:nowrap; min-width:0;}
@@ -344,7 +348,20 @@ def render_folder_cards(cards, repo: str, branch: str, voc_type: str) -> None:
     st.html(f'<div style="font-family:{esc(config.APP_FONT)};">{title}{legend}{grid}</div>')
 
 
-def render_ticket_cards(tickets, grid_key: str) -> None:
+def change_status_line(t) -> str:
+    """카드의 변경 신청 상태 한 줄 (없으면 ""): 대기 → 주황 "변경 신청 중 → 11/04" · 반려 → 회색 "변경 반려: 사유"
+    (반려 표시는 다음 신청 전까지). 승인되면 완료일이 이미 바뀌었으므로 표시하지 않는다."""
+    cr = t.change_request
+    if cr is None:
+        return ""
+    if cr.status == config.CHANGE_PENDING:
+        return f":orange[변경 신청 중 → {date.fromisoformat(cr.requested_due):%m/%d}]"
+    if cr.status == config.CHANGE_REJECTED:
+        return "변경 반려" + (f": {md_escape(cr.reject_reason)}" if cr.reject_reason else "")
+    return ""
+
+
+def render_ticket_cards(tickets, grid_key: str, actions: bool = False) -> None:
     """티켓 카드(2️⃣ 티켓 탭 — 내 티켓 · 다른 개발자 티켓이 같이 쓴다): 한 줄 3장, 높이 모두 같음(TICKET_CARD_HEIGHT).
     항목: ID · 우선순위 배지 / 문제점(최대 2줄) / 건수·담당 부서·담당자 / 발행일→예상 완료일.
     현재 개발자의 티켓은 테두리 primaryColor + [변경]·[발행 취소]·[처리 완료], 다른 개발자 티켓은 버튼 줄 없이
@@ -353,7 +370,8 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
     # (TICKET_CARD_MIN_WIDTH)을 지키며 2장·1장으로 줄인다 (좁은 화면에서 버튼이 밀려 카드 밖으로 잘리지 않게)
     with st.container(key=grid_key):
         for t in tickets:
-            mine = t.assignee_id == me["id"]
+            # 버튼([변경 신청]·[발행 취소]·[처리 완료])은 개발자 본인의 진행 중 티켓에만 — 관리자·다른 사람·처리 완료 카드는 없음
+            mine = actions and not IS_MANAGER and t.assignee_id == me["id"] and stage1.is_open(t)
             card_key = f"card_mine_{t.ticket_id}" if mine else f"card_ticket_{t.ticket_id}"
             # 흰 배경 · 옅은 테두리 · 모서리 12px (CSS), 높이 고정 — 내 티켓도 같은 테두리 (보기 전환으로 이미 나뉨)
             height = config.TICKET_CARD_HEIGHT if mine else config.TICKET_CARD_HEIGHT_OTHERS
@@ -377,8 +395,14 @@ def render_ticket_cards(tickets, grid_key: str) -> None:
                                            key=f"tdue_{t.ticket_id}" if mine else f"tduero_{t.ticket_id}")
                     due_row.caption(f"예상 완료일 {due:%m/%d} " + (":red[(기한 지남)]" if left < 0 else f"(D-{left})"),
                                     width="content")
-                    if mine and due_row.button("변경", key=f"due_card_{t.ticket_id}"):
-                        change_due(t.ticket_id)
+                    pending = stage1.pending_request(t) is not None
+                    if mine and due_row.button("변경 신청", key=f"due_card_{t.ticket_id}", disabled=pending,
+                                               help="신청은 한 번에 하나 — 관리자가 처리하면 다시 신청할 수 있습니다"
+                                               if pending else None):
+                        request_due(t.ticket_id)
+                    # 변경 신청 상태 한 줄 (작은 글씨) — 없어도 자리를 둬 모든 카드 높이가 같다 (CSS st-key-tchg_ min-height)
+                    with st.container(key=f"tchg_{t.ticket_id}"):
+                        st.caption(change_status_line(t) or "\u00a0")
                 # 마지막 줄: [발행 취소] 왼쪽 끝 · [처리 완료] 오른쪽 끝 (현재 개발자가 담당자인 카드에만, 기본 크기).
                 # distribute = 두 버튼을 양 끝으로 벌린다. 다른 개발자 카드에는 이 줄이 없다 (그만큼 카드가 낮음)
                 if mine:
@@ -441,10 +465,10 @@ def confirm_issue(clusters: list, period_txt: str) -> None:
         st.rerun()
 
 
-@st.dialog("예상 완료일 변경")
-def change_due(ticket_id: str) -> None:
-    """예상 완료일 변경(내 티켓 카드 [변경]): 날짜 칸 하나(기본값 = 지금 예상 완료일, 오늘 이전 불가) + [저장] [취소].
-    저장하면 tickets.json에 반영 → 카드·사이드바 날짜와 D-day가 바로 바뀐다. 바꾼 기록은 남기지 않는다."""
+@st.dialog("완료일 변경 신청")
+def request_due(ticket_id: str) -> None:
+    """예상 완료일 변경 신청(내 티켓 카드 [변경 신청]): 한 줄 큰 글씨 티켓 ID + 날짜 칸, 사유(필수, 100자) + [신청] [취소].
+    신청하면 change_request "대기"로 저장 — 같은 파트 관리자가 승인하기 전까지 예상 완료일은 그대로."""
     today = date.today()
     current = date.fromisoformat(ss["tickets"][ticket_id].due_date)
     # 한 줄: 왼쪽 큰 글씨 티켓 ID(코드가 만든 값, 20px 굵게) · 오른쪽 날짜 칸(라벨 없음)
@@ -452,12 +476,57 @@ def change_due(ticket_id: str) -> None:
     c_id.markdown(f'<span style="font-size:20px; font-weight:700;">{html.escape(ticket_id)}</span>', unsafe_allow_html=True)
     new_day = c_due.date_input(f"{ticket_id} 예상 완료일", value=max(current, today), min_value=today,
                                format="YYYY/MM/DD", label_visibility="collapsed")
+    reason = st.text_input("사유", max_chars=config.CHANGE_REASON_MAX_CHARS, key=f"dlg_due_reason_{ticket_id}",
+                           placeholder="예: 영향 범위가 3곳이라 테스트 필요")
+    same = new_day == current
+    if same:
+        st.caption("지금 예상 완료일과 같은 날짜는 신청할 수 없습니다")
     row = st.container(horizontal=True, gap="small")
-    if row.button("저장", type="primary", key="dlg_due_save"):
-        stage1.set_due_date(ticket_id, new_day)
-        st.rerun()
+    # 사유는 비어 있어도 [신청]을 끄지 않는다 — 글자를 쓰고 바로 누르면 입력 확정(포커스 이동)보다 클릭이 먼저라
+    # 꺼진 버튼에 눌려 첫 클릭이 무시됐다. 대신 비어 있으면 저장하지 않고 안내만
+    clicked = row.button("신청", type="primary", key="dlg_due_save", disabled=same)
     if row.button("취소", key="dlg_due_cancel"):
         st.rerun()
+    if clicked:
+        if not reason.strip():
+            st.error("사유를 입력하세요")
+        else:
+            stage1.request_due_change(ticket_id, new_day, reason, me["id"])
+            ss["toast"] = f"{ticket_id} 완료일 변경 신청됨"
+            st.rerun()
+
+
+@st.dialog("변경 반려")
+def confirm_reject(ticket_id: str) -> None:
+    """관리자 반려 확인 창: 반려 사유(선택) + [반려] [취소]. 반려하면 완료일은 그대로, 카드에 "변경 반려: 사유"."""
+    st.write(f"{ticket_id} 완료일 변경 신청을 반려할까요?")
+    reason = st.text_input("반려 사유 (선택)", max_chars=config.CHANGE_REASON_MAX_CHARS,
+                           key=f"dlg_reject_reason_{ticket_id}")
+    row = st.container(horizontal=True, gap="small")
+    if row.button("반려", type="primary", key="dlg_reject"):
+        stage1.decide_due_change(ticket_id, False, me["id"], reason)
+        ss["toast"] = f"{ticket_id} 변경 신청 반려"
+        st.rerun()
+    if row.button("취소", key="dlg_reject_cancel"):
+        st.rerun()
+
+
+def render_approval_cards(requests) -> None:
+    """관리자 '승인 요청': 같은 파트의 대기 중 신청 한 건에 카드 하나.
+    "TKT-0011 · 문제점 · 담당자" / "10/28 → 11/04 (+7일) · 사유: …" / [승인] [반려]."""
+    for t in requests:
+        cr = t.change_request
+        before, after = date.fromisoformat(t.due_date), date.fromisoformat(cr.requested_due)
+        with st.container(border=True, key=f"card_appr_{t.ticket_id}"):
+            st.markdown(f"**{t.ticket_id}** · {md_escape(t.problem)} · {t.assignee}")
+            st.markdown(f"{before:%m/%d} → {after:%m/%d} ({(after - before).days:+d}일) · 사유: {md_escape(cr.reason)}")
+            row = st.container(horizontal=True, gap="small")
+            if row.button("승인", type="primary", key=f"appr_ok_{t.ticket_id}"):
+                stage1.decide_due_change(t.ticket_id, True, me["id"])
+                ss["toast"] = f"{t.ticket_id} 완료일 {after:%m/%d}로 변경 승인"
+                st.rerun()
+            if row.button("반려", key=f"appr_no_{t.ticket_id}"):
+                confirm_reject(t.ticket_id)
 
 
 @st.dialog("처리 완료")
@@ -697,8 +766,8 @@ ss.setdefault("current_user_id", USERS[0]["id"])
 
 
 def user_label(u: dict) -> str:
-    """현재 개발자 표시 형식 — 화면 어디서나 "김서준 (센서 파트)"."""
-    return f"{u['name']} ({u['part']})"
+    """현재 사용자 표시 형식 — 개발자 "김서준 (센서 파트)" · 관리자 "박지훈 (센서 파트 · 관리자)"."""
+    return f"{u['name']} ({u['part']} · 관리자)" if stage1.is_manager(u) else f"{u['name']} ({u['part']})"
 
 
 def to_raw_view() -> None:
@@ -724,17 +793,28 @@ with st.sidebar:
     user_labels = {user_label(u): u["id"] for u in USERS}
     # key로 선택 상태를 고정한다 (index로 그리면 바꾼 직후 다시 바꿀 때 다른 위젯으로 인식돼 선택이 무시된다)
     ss.setdefault("current_user_label", user_label(USER_BY_ID[ss["current_user_id"]]))
-    picked_user = st.selectbox("현재 개발자", list(user_labels), key="current_user_label")
+    if ss["current_user_label"] not in user_labels:  # 라벨 형식이 바뀌기 전 세션 값은 버린다
+        ss["current_user_label"] = user_label(USER_BY_ID[ss["current_user_id"]])
+    picked_user = st.selectbox("현재 사용자", list(user_labels), key="current_user_label")
     ss["current_user_id"] = user_labels[picked_user]
     me = USER_BY_ID[ss["current_user_id"]]
+    IS_MANAGER = stage1.is_manager(me)  # 관리자: 티켓 발행·코드 찾기·변경 신청·처리 완료 없음, 같은 파트 승인만
 
-    st.markdown("**진행 중**")
-    my_tickets = [t for t in stage1.sort_tickets(OPEN_TICKETS.values()) if t.assignee_id == me["id"]]
+    if IS_MANAGER:
+        # 관리자: "승인 대기 N건" + 같은 파트 진행 중 티켓 (3️⃣·4️⃣에서 결과 보기용 '선택')
+        PENDING = stage1.part_pending_requests(OPEN_TICKETS, me["part"])
+        st.markdown(f"**승인 대기 {len(PENDING)}건**")
+        st.markdown("**파트 진행 중**")
+        my_tickets = [t for t in stage1.sort_tickets(OPEN_TICKETS.values()) if t.owner_part == me["part"]]
+    else:
+        PENDING = []
+        st.markdown("**진행 중**")
+        my_tickets = [t for t in stage1.sort_tickets(OPEN_TICKETS.values()) if t.assignee_id == me["id"]]
     # 현재 티켓은 항상 내 티켓 중 하나 (개발자를 바꾸면 그 사람의 첫 티켓)
     if ss["current_ticket"] not in {t.ticket_id for t in my_tickets}:
         ss["current_ticket"] = my_tickets[0].ticket_id if my_tickets else None
     if not my_tickets:
-        st.caption("맡은 티켓이 없습니다")
+        st.caption("파트에 진행 중인 티켓이 없습니다" if IS_MANAGER else "맡은 티켓이 없습니다")
     with st.container(key="sbcards"):
         for t in my_tickets:
             due = date.fromisoformat(t.due_date)
@@ -753,7 +833,10 @@ with st.sidebar:
 
 TAB_LABELS = ["1️⃣ VOC 대시보드", "2️⃣ 티켓", "3️⃣ 의심 위치", "4️⃣ 수정 라인"]
 TAB_TICKETS, TAB_LINES = TAB_LABELS[1], TAB_LABELS[3]
-TICKET_VIEW_LABELS = {"mine": "내 티켓", "others": "다른 개발자 티켓"}  # 2️⃣ 티켓 탭 보기 전환
+# 2️⃣ 티켓 탭 보기 전환 — 개발자: 내 티켓 · 다른 개발자 티켓 · 처리 완료 / 관리자: 승인 요청 · 파트 티켓 · 처리 완료
+TICKET_VIEW_LABELS = {"mine": "내 티켓", "others": "다른 개발자 티켓", "approvals": "승인 요청",
+                      "part": "파트 티켓", "done": "처리 완료"}
+TICKET_VIEWS = ["approvals", "part", "done"] if IS_MANAGER else ["mine", "others", "done"]
 # 탭 자동 이동(티켓 발행 → 2️⃣ 티켓, 수정 라인 찾기 → 4️⃣ 수정 라인) — st.tabs(key=…)의 선택 탭은 위젯을
 # 그리기 전에만 바꿀 수 있어서, 그 직후에는 ss["goto_tab"]에 표시만 남기고 st.rerun(), 다음 실행에서 탭을 그리기 전에 바꾼다
 if ss.get("active_tab") not in TAB_LABELS:  # 탭 이름이 바뀌기 전 세션 값은 버린다
@@ -792,18 +875,38 @@ setTimeout(() => {{
 with tab2:
     my_recent = stage1.sort_tickets_recent(my_tickets)  # 발행 시각 최신순 → 같은 때 발행한 것끼리 우선순위 순
     others = stage1.sort_tickets(t for t in OPEN_TICKETS.values() if t.assignee_id != me["id"])
-    # 맨 위 보기 전환: [내 티켓 (N)] [다른 개발자 티켓 (N)] — 괄호 = 진행 중 티켓 수 (0건이어도 버튼은 둔다)
-    view_counts = {"mine": len(my_recent), "others": len(others)}
-    ss.setdefault("ticket_view", "mine")  # 기본 = 내 티켓 (default 인자 대신 — 발행 후 이동에서 세션 값으로 바꾸므로)
+    # 처리 완료: 개발자는 내가 완료한 티켓, 관리자는 같은 파트에서 완료된 티켓 (완료 일시 최신순, 버튼 없음)
+    done = sorted((t for t in ss["tickets"].values() if stage1.is_done(t)
+                   and (t.owner_part == me["part"] if IS_MANAGER else t.assignee_id == me["id"])),
+                  key=lambda t: t.completed_at or "", reverse=True)
+    # 맨 위 보기 전환 — 괄호 = 진행 중 수 / 대기 신청 수 (0건이어도 버튼은 둔다). 처리 완료는 수 없이
+    view_counts = {"mine": len(my_recent), "others": len(others), "approvals": len(PENDING), "part": len(my_recent)}
+    if ss.get("ticket_view") not in TICKET_VIEWS:  # 기본 = 개발자 내 티켓 / 관리자 승인 요청 (역할을 바꿔도 맞게)
+        ss["ticket_view"] = TICKET_VIEWS[0]
     view = st.segmented_control(
-        "티켓 보기", ["mine", "others"], key="ticket_view", required=True,
-        format_func=lambda v: f"{TICKET_VIEW_LABELS[v]} ({view_counts[v]})", label_visibility="collapsed")
+        "티켓 보기", TICKET_VIEWS, key="ticket_view", required=True, label_visibility="collapsed",
+        format_func=lambda v: TICKET_VIEW_LABELS[v] + (f" ({view_counts[v]})" if v in view_counts else ""))
     # 보기마다 자리(st.empty)를 따로 두고, 안 보이는 보기의 자리는 빈 요소로 둔다.
     # 같은 자리의 컨테이너는 Streamlit이 이전 자식 요소를 실행이 끝날 때까지 남겨 두므로(전환 때 이전 카드·상자가 남아 보임),
     # 보기를 바꾸면 이전 보기 자리가 '빈 요소'로 바뀌어 그 안의 카드·상자가 즉시 통째로 지워진다
-    slots = {"mine": st.empty(), "others": st.empty()}
+    slots = {v: st.empty() for v in TICKET_VIEWS}
     with slots[view].container(key=f"ticket_view_{view}"):
-        if view == "others":
+        if view == "approvals":  # 관리자: 같은 파트의 대기 중 신청만
+            if PENDING:
+                render_approval_cards(PENDING)
+            else:
+                st.info("승인 대기 중인 신청이 없습니다")
+        elif view == "part":     # 관리자: 같은 파트 진행 중 티켓 (버튼 없음)
+            if my_recent:
+                render_ticket_cards(my_recent, "tcards_part")
+            else:
+                st.info("파트에 진행 중인 티켓이 없습니다")
+        elif view == "done":
+            if done:
+                render_ticket_cards(done, "tcards_done")
+            else:
+                st.info("처리 완료한 티켓이 없습니다")
+        elif view == "others":
             # 다른 개발자 티켓: 버튼 없는 카드만 (대표 VOC 없음)
             if others:
                 render_ticket_cards(others, "tcards_others")
@@ -812,8 +915,8 @@ with tab2:
         elif not my_recent:
             st.info("맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
         else:
-            # 내 티켓: 1. 카드 → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
-            render_ticket_cards(my_recent, "tcards_mine")
+            # 내 티켓: 1. 카드(버튼 있음) → 2. "대표 VOC" 제목(위 24px) + 티켓마다 접힌 상자
+            render_ticket_cards(my_recent, "tcards_mine", actions=True)
             render_representative_vocs(my_recent)
 
 # ════════════════════════════ 탭 1: VOC 대시보드 ════════════════════════════
@@ -998,15 +1101,17 @@ with tab1:
                             "이번 기간": st.column_config.NumberColumn(format="%d건"),
                             "이전 기간": st.column_config.NumberColumn(format="%d건", help=f"{ps:%m/%d}~{pe:%m/%d}"),
                         },
-                        disabled=[c for c in table.columns if c != "발행"],
+                        disabled=True if IS_MANAGER else [c for c in table.columns if c != "발행"],  # 관리자는 보기만
                     )
                     to_issue = [c for c, flag in zip(clusters, edited["발행"]) if flag]
                 else:
                     st.caption("이 기간의 유형은 모두 티켓으로 발행되었거나 처리 완료되었습니다.")
                     to_issue = []
-                issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch", disabled=not to_issue)
+                issue_clicked = c_issue.button("티켓 발행", type="primary", width="stretch",
+                                               disabled=IS_MANAGER or not to_issue,
+                                               help="관리자는 티켓을 발행하지 않습니다" if IS_MANAGER else None)
 
-                if issue_clicked:  # 확인 창에서 유형별 예상 완료일을 고르고 [발행] (취소하면 대시보드에 그대로)
+                if issue_clicked and not IS_MANAGER:  # 확인 창에서 유형별 예상 완료일을 고르고 [발행] (취소하면 대시보드에 그대로)
                     confirm_issue(to_issue, period_txt)
                 thresholds = " · ".join(f"{round(t * 100)} 이상 {label}" for t, label in config.PRIORITY_THRESHOLDS[:-1])
                 st.caption(
@@ -1022,7 +1127,8 @@ with tab1:
 
 # ════════════════════════════ 탭 3: 의심 위치 ════════════════════════════
 
-NO_MY_TICKET = "내가 맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요"
+NO_MY_TICKET = ("파트에 진행 중인 티켓이 없습니다" if IS_MANAGER
+                else "내가 맡은 티켓이 없습니다. VOC 대시보드에서 유형을 골라 티켓을 발행하세요")
 
 
 def get_result(ticket) -> dict | None:
@@ -1061,8 +1167,8 @@ def render_folder_pick(sel: str, wait: dict) -> None:
                             max_selections=config.MAX_SELECTED_FOLDERS, key=f"pick_folders_{wait['thread_id']}",
                             label_visibility="collapsed")
     st.caption(f"고른 폴더 안의 파일에서만 수정 라인을 찾습니다 (최대 {config.MAX_SELECTED_FOLDERS}개)")
-    if st.button("수정 라인 찾기", type="primary", disabled=not picked,
-                 key=f"resume_{wait['thread_id']}") and has_api_key():
+    if st.button("수정 라인 찾기", type="primary", disabled=IS_MANAGER or not picked,
+                 key=f"resume_{wait['thread_id']}") and not IS_MANAGER and has_api_key():
         chosen = [{"repo": by_label[o]["repo"], "path": by_label[o]["path"]} for o in picked]
         found = 0
         try:
@@ -1098,7 +1204,9 @@ with tab3:
         ss["current_ticket"] = sel
         ticket = ss["tickets"][sel]
 
-        if c_run.button("코드 찾기", type="primary", width="stretch") and has_api_key():  # 내 티켓에서만
+        run_clicked = c_run.button("코드 찾기", type="primary", width="stretch", disabled=IS_MANAGER,
+                                   help="관리자는 결과를 보기만 합니다" if IS_MANAGER else None)
+        if run_clicked and not IS_MANAGER and has_api_key():  # 내 티켓에서만
             cached_vectorstore()
             graph = cached_graph()  # @st.cache_resource — 체크포인터가 rerun 사이에 유지된다
             # 다시 누르면 실행 번호를 올려 새 thread로 처음부터 (이전 대기 상태와 섞이지 않게)
@@ -1238,5 +1346,6 @@ with tab4:
         actions = st.container(horizontal=True, gap="small")  # [티켓 Markdown 다운로드] [처리 완료] 나란히
         actions.download_button("티켓 Markdown 다운로드", stage2.ticket_to_markdown(ticket, result),
                                 file_name=f"{ticket.ticket_id}.md", mime="text/markdown")
-        if actions.button("처리 완료", key=f"done_tab3_{ticket.ticket_id}"):
+        if actions.button("처리 완료", key=f"done_tab3_{ticket.ticket_id}", disabled=IS_MANAGER,
+                          help="관리자는 처리 완료하지 않습니다" if IS_MANAGER else None) and not IS_MANAGER:
             confirm_complete(ticket.ticket_id)

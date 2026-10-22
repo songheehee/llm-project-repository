@@ -58,6 +58,30 @@ class Cluster(BaseModel):
     priority: str
 
 
+class ChangeRequest(BaseModel):
+    """예상 완료일 변경 신청 (담당 개발자 → 같은 파트 관리자 승인). 승인 전까지 Ticket.due_date는 그대로."""
+    requested_due: str            # 바꾸려는 날짜 YYYY-MM-DD
+    reason: str                   # 신청 사유 (필수, CHANGE_REASON_MAX_CHARS자 이내)
+    requested_by: str             # 신청한 개발자 id
+    requested_at: str             # 신청 일시 YYYY-MM-DD HH:MM
+    status: str = config.CHANGE_PENDING   # "대기" → "승인" / "반려"
+    decided_by: str | None = None         # 처리한 관리자 id
+    decided_at: str | None = None         # 처리 일시 YYYY-MM-DD HH:MM
+    reject_reason: str = ""               # 반려 사유 (선택 입력)
+
+
+class DueChange(BaseModel):
+    """예상 완료일 변경 처리 기록 한 건 (승인·반려 모두 남긴다)."""
+    requested_at: str             # 요청일 YYYY-MM-DD HH:MM
+    before: str                   # 변경 전 예상 완료일
+    after: str                    # 요청한 예상 완료일
+    result: str                   # "승인" / "반려"
+    decided_by: str               # 처리한 관리자 id
+    decided_at: str               # 처리 일시
+    reason: str = ""              # 신청 사유
+    reject_reason: str = ""       # 반려 사유
+
+
 class Ticket(BaseModel):
     ticket_id: str
     cluster_id: str
@@ -78,9 +102,11 @@ class Ticket(BaseModel):
     canceled_at: str | None = None           # 발행 취소 일시 YYYY-MM-DD HH:MM (취소 아니면 None)
     issued_on: str              # 발행일 YYYY-MM-DD
     issued_at: str | None = None  # 발행 시각 YYYY-MM-DD HH:MM:SS — 한 번에 같이 발행한 티켓은 같은 값 (티켓 탭 최신순 정렬용)
-    due_date: str               # 예상 완료일 YYYY-MM-DD = 발행일 + DUE_DAYS[우선순위]
+    due_date: str               # 예상 완료일 YYYY-MM-DD — 발행 때 고른 날짜, 이후에는 관리자가 승인한 변경만 반영
     cluster_label: str          # 원래 VOC 유형(클러스터) 이름
     voc_ids: list[str]          # 이 티켓에 묶인 개별 VOC ID (V0001 …)
+    change_request: ChangeRequest | None = None   # 마지막 변경 신청 (대기 중 · 또는 다음 신청 전까지 반려 표시)
+    due_date_history: list[DueChange] = []        # 승인·반려 기록 (요청일·변경 전·변경 후·결과·처리자)
 
 
 # ── LLM 구조화 출력용 ──
@@ -845,14 +871,68 @@ def load_tickets() -> tuple[dict[str, Ticket], int]:
     return tickets, next_no
 
 
-def set_due_date(ticket_id: str, day: date) -> None:
-    """예상 완료일 변경(카드 [변경]) — 파일을 다시 읽어 그 티켓의 due_date만 바꿔 저장. 바꾼 기록은 남기지 않는다(마지막 값만)."""
+def now_text(now: datetime | None = None) -> str:
+    return f"{now or datetime.now():%Y-%m-%d %H:%M}"
+
+
+def is_manager(user: dict) -> bool:
+    """관리자 여부 (users.yaml role, 없으면 개발자)."""
+    return user.get("role", config.ROLE_DEVELOPER) == config.ROLE_MANAGER
+
+
+def pending_request(t: Ticket) -> ChangeRequest | None:
+    """대기 중인 예상 완료일 변경 신청 (없으면 None)."""
+    cr = t.change_request
+    return cr if cr is not None and cr.status == config.CHANGE_PENDING else None
+
+
+def part_pending_requests(tickets: dict[str, Ticket], part: str) -> list[Ticket]:
+    """같은 파트 진행 중 티켓 중 변경 신청이 대기 중인 것 (신청 시각 순) — 관리자 '승인 요청'."""
+    out = [t for t in tickets.values() if is_open(t) and t.owner_part == part and pending_request(t)]
+    return sorted(out, key=lambda t: t.change_request.requested_at)
+
+
+def request_due_change(ticket_id: str, day: date, reason: str, user_id: str, now: datetime | None = None) -> bool:
+    """예상 완료일 변경 신청(담당 개발자) — due_date는 그대로 두고 change_request에 '대기'로 저장.
+    진행 중이 아니거나, 이미 대기 중이거나, 지금 날짜와 같거나, 사유가 비면 저장하지 않는다(False)."""
+    reason = reason.strip()[:config.CHANGE_REASON_MAX_CHARS]
+    tickets, next_no = load_tickets()  # 파일 기준으로 다시 읽어 그사이 다른 변경을 덮어쓰지 않는다
+    t = tickets.get(ticket_id)
+    if t is None or not is_open(t) or pending_request(t) or not reason or day.isoformat() == t.due_date:
+        return False
+    cr = ChangeRequest(requested_due=day.isoformat(), reason=reason, requested_by=user_id, requested_at=now_text(now))
+    tickets[ticket_id] = t.model_copy(update={"change_request": cr})
+    save_tickets(tickets, next_no)
+    return True
+
+
+def decide_due_change(ticket_id: str, approve: bool, manager_id: str, reject_reason: str = "",
+                      now: datetime | None = None) -> bool:
+    """관리자 승인·반려. 승인이면 due_date = 요청한 날짜. 둘 다 change_request.status·처리자를 남기고
+    due_date_history에 한 줄 추가. 대기 중인 신청이 없으면 아무것도 하지 않는다(False)."""
     tickets, next_no = load_tickets()
     t = tickets.get(ticket_id)
-    if t is None:
-        return
-    tickets[ticket_id] = t.model_copy(update={"due_date": day.isoformat()})
+    cr = pending_request(t) if t is not None else None
+    if cr is None:
+        return False
+    when = now_text(now)
+    result = config.CHANGE_APPROVED if approve else config.CHANGE_REJECTED
+    reject_reason = "" if approve else reject_reason.strip()[:config.CHANGE_REASON_MAX_CHARS]
+    decided = cr.model_copy(update={"status": result, "decided_by": manager_id, "decided_at": when,
+                                    "reject_reason": reject_reason})
+    record = DueChange(requested_at=cr.requested_at, before=t.due_date, after=cr.requested_due, result=result,
+                       decided_by=manager_id, decided_at=when, reason=cr.reason, reject_reason=reject_reason)
+    update = {"change_request": decided, "due_date_history": [*t.due_date_history, record]}
+    if approve:
+        update["due_date"] = cr.requested_due
+    tickets[ticket_id] = t.model_copy(update=update)
     save_tickets(tickets, next_no)
+    return True
+
+
+def drop_pending(t: Ticket) -> Ticket:
+    """처리 완료·발행 취소할 때 대기 중인 변경 신청은 없앤다 (반려·승인 표시는 그대로)."""
+    return t.model_copy(update={"change_request": None}) if pending_request(t) else t
 
 
 def complete_ticket(ticket_id: str, now: datetime | None = None) -> None:
@@ -861,8 +941,8 @@ def complete_ticket(ticket_id: str, now: datetime | None = None) -> None:
     t = tickets.get(ticket_id)
     if t is None or t.status == config.TICKET_STATUS_DONE:
         return
-    tickets[ticket_id] = t.model_copy(update={"status": config.TICKET_STATUS_DONE,
-                                              "completed_at": f"{now or datetime.now():%Y-%m-%d %H:%M}"})
+    tickets[ticket_id] = drop_pending(t).model_copy(update={"status": config.TICKET_STATUS_DONE,
+                                                           "completed_at": now_text(now)})
     save_tickets(tickets, next_no)
 
 
@@ -873,8 +953,8 @@ def cancel_ticket(ticket_id: str, now: datetime | None = None) -> None:
     t = tickets.get(ticket_id)
     if t is None or not is_open(t):
         return
-    tickets[ticket_id] = t.model_copy(update={"status": config.TICKET_STATUS_CANCELED,
-                                              "canceled_at": f"{now or datetime.now():%Y-%m-%d %H:%M}"})
+    tickets[ticket_id] = drop_pending(t).model_copy(update={"status": config.TICKET_STATUS_CANCELED,
+                                                           "canceled_at": now_text(now)})
     save_tickets(tickets, next_no)
     (config.STAGE2_RESULTS_DIR / f"{ticket_id}.json").unlink(missing_ok=True)
 

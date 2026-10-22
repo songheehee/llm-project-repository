@@ -1,44 +1,59 @@
-# 개발자 목록 (교육용 가상 인물) — 사람 목록은 이 파일 한 곳. 사이드바 '현재 개발자'로 고른다 (로그인 대신)
+# 사용자 목록 (교육용 가상 인물) — 사람 목록은 이 파일 한 곳. 사이드바 '현재 사용자'로 고른다 (로그인 대신)
 # grade: CL1 사원급 · CL2 대리·선임급(대졸 신입 포함) · CL3 과장·차장급(책임급) · CL4 부장급(수석급) — config.GRADES
+# role: developer(티켓 발행·코드 찾기·완료일 변경 신청) · manager(같은 파트 완료일 변경 승인·반려만, 파트마다 1명)
 users:
-  - {id: u01, name: 김서준, part: 센서 파트, grade: CL4}
-  - {id: u02, name: 이수아, part: 센서 파트, grade: CL2}
-  - {id: u03, name: 박도윤, part: 센서 파트, grade: CL1}
-  - {id: u04, name: 최하린, part: 전력 파트, grade: CL3}
-  - {id: u05, name: 정민재, part: 전력 파트, grade: CL1}
-  - {id: u06, name: 강예은, part: UI 파트, grade: CL4}
-  - {id: u07, name: 조현우, part: UI 파트, grade: CL2}
-  - {id: u08, name: 윤채원, part: 운동 파트, grade: CL3}
-  - {id: u09, name: 장우진, part: 운동 파트, grade: CL1}
-  - {id: u10, name: 임서윤, part: 동기화 파트, grade: CL4}
-  - {id: u11, name: 한지훈, part: 동기화 파트, grade: CL2}
-  - {id: u12, name: 오다인, part: 동기화 파트, grade: CL1}
-  - {id: u13, name: 신유준, part: 서버 파트, grade: CL3}
-  - {id: u14, name: 권나연, part: 서버 파트, grade: CL1}
-  - {id: u15, name: 황시윤, part: 헬스 파트, grade: CL4}
-  - {id: u16, name: 송지안, part: 헬스 파트, grade: CL2}
-  - {id: u17, name: 전하준, part: 알림 파트, grade: CL3}
-  - {id: u18, name: 홍예린, part: 알림 파트, grade: CL1}
-  - {id: u19, name: 고은우, part: 플랫폼 파트, grade: CL4}
-  - {id: u20, name: 문소율, part: 플랫폼 파트, grade: CL2}
-  - {id: u21, name: 양지호, part: 모바일 파트, grade: CL3}
-  - {id: u22, name: 배서현, part: 모바일 파트, grade: CL1}
-  - {id: u23, name: 백승민, part: 하드웨어 파트, grade: CL4}
-  - {id: u24, name: 노하윤, part: 하드웨어 파트, grade: CL2}
-  - {id: u25, name: 남태오, part: 기구 파트, grade: CL3}
-  - {id: u26, name: 서지유, part: 기구 파트, grade: CL1}
-  - {id: u27, name: 유건우, part: 웹 파트, grade: CL4}
-  - {id: u28, name: 류가은, part: 웹 파트, grade: CL2}
-  - {id: u29, name: 강은성, part: SCSA, grade: CL2}
-  - {id: u30, name: 윤지현, part: SCSA, grade: CL2}
-  - {id: u31, name: 이온유, part: SCSA, grade: CL2}
-  - {id: u32, name: 이종협, part: SCSA, grade: CL2}
-  - {id: u33, name: 이지호, part: SCSA, grade: CL2}
-  - {id: u34, name: 이하나, part: SCSA, grade: CL2}
-  - {id: u35, name: 임승현, part: SCSA, grade: CL2}
-  - {id: u36, name: 정동은, part: SCSA, grade: CL2}
-  - {id: u37, name: 정회수, part: SCSA, grade: CL2}
-  - {id: u38, name: 조명현, part: SCSA, grade: CL2}
-  - {id: u39, name: 천예은, part: SCSA, grade: CL2}
-  - {id: u40, name: 홍송희, part: SCSA, grade: CL2}
-  - {id: u41, name: 황지희, part: SCSA, grade: CL2}
+  - {id: u01, name: 김서준, part: 센서 파트, grade: CL4, role: developer}
+  - {id: u02, name: 이수아, part: 센서 파트, grade: CL2, role: developer}
+  - {id: u03, name: 박도윤, part: 센서 파트, grade: CL1, role: developer}
+  - {id: u04, name: 최하린, part: 전력 파트, grade: CL3, role: developer}
+  - {id: u05, name: 정민재, part: 전력 파트, grade: CL1, role: developer}
+  - {id: u06, name: 강예은, part: UI 파트, grade: CL4, role: developer}
+  - {id: u07, name: 조현우, part: UI 파트, grade: CL2, role: developer}
+  - {id: u08, name: 윤채원, part: 운동 파트, grade: CL3, role: developer}
+  - {id: u09, name: 장우진, part: 운동 파트, grade: CL1, role: developer}
+  - {id: u10, name: 임서윤, part: 동기화 파트, grade: CL4, role: developer}
+  - {id: u11, name: 한지훈, part: 동기화 파트, grade: CL2, role: developer}
+  - {id: u12, name: 오다인, part: 동기화 파트, grade: CL1, role: developer}
+  - {id: u13, name: 신유준, part: 서버 파트, grade: CL3, role: developer}
+  - {id: u14, name: 권나연, part: 서버 파트, grade: CL1, role: developer}
+  - {id: u15, name: 황시윤, part: 헬스 파트, grade: CL4, role: developer}
+  - {id: u16, name: 송지안, part: 헬스 파트, grade: CL2, role: developer}
+  - {id: u17, name: 전하준, part: 알림 파트, grade: CL3, role: developer}
+  - {id: u18, name: 홍예린, part: 알림 파트, grade: CL1, role: developer}
+  - {id: u19, name: 고은우, part: 플랫폼 파트, grade: CL4, role: developer}
+  - {id: u20, name: 문소율, part: 플랫폼 파트, grade: CL2, role: developer}
+  - {id: u21, name: 양지호, part: 모바일 파트, grade: CL3, role: developer}
+  - {id: u22, name: 배서현, part: 모바일 파트, grade: CL1, role: developer}
+  - {id: u23, name: 백승민, part: 하드웨어 파트, grade: CL4, role: developer}
+  - {id: u24, name: 노하윤, part: 하드웨어 파트, grade: CL2, role: developer}
+  - {id: u25, name: 남태오, part: 기구 파트, grade: CL3, role: developer}
+  - {id: u26, name: 서지유, part: 기구 파트, grade: CL1, role: developer}
+  - {id: u27, name: 유건우, part: 웹 파트, grade: CL4, role: developer}
+  - {id: u28, name: 류가은, part: 웹 파트, grade: CL2, role: developer}
+  - {id: u29, name: 강은성, part: SCSA, grade: CL2, role: developer}
+  - {id: u30, name: 윤지현, part: SCSA, grade: CL2, role: developer}
+  - {id: u31, name: 이온유, part: SCSA, grade: CL2, role: developer}
+  - {id: u32, name: 이종협, part: SCSA, grade: CL2, role: developer}
+  - {id: u33, name: 이지호, part: SCSA, grade: CL2, role: developer}
+  - {id: u34, name: 이하나, part: SCSA, grade: CL2, role: developer}
+  - {id: u35, name: 임승현, part: SCSA, grade: CL2, role: developer}
+  - {id: u36, name: 정동은, part: SCSA, grade: CL2, role: developer}
+  - {id: u37, name: 정회수, part: SCSA, grade: CL2, role: developer}
+  - {id: u38, name: 조명현, part: SCSA, grade: CL2, role: developer}
+  - {id: u39, name: 천예은, part: SCSA, grade: CL2, role: developer}
+  - {id: u40, name: 홍송희, part: SCSA, grade: CL2, role: developer}
+  - {id: u41, name: 황지희, part: SCSA, grade: CL2, role: developer}
+  - {id: u42, name: 박지훈, part: 센서 파트, grade: CL4, role: manager}
+  - {id: u43, name: 김태윤, part: 전력 파트, grade: CL3, role: manager}
+  - {id: u44, name: 이준혁, part: UI 파트, grade: CL4, role: manager}
+  - {id: u45, name: 정수빈, part: 운동 파트, grade: CL3, role: manager}
+  - {id: u46, name: 최민호, part: 동기화 파트, grade: CL4, role: manager}
+  - {id: u47, name: 한서연, part: 서버 파트, grade: CL3, role: manager}
+  - {id: u48, name: 오세진, part: 헬스 파트, grade: CL4, role: manager}
+  - {id: u49, name: 윤가영, part: 알림 파트, grade: CL3, role: manager}
+  - {id: u50, name: 장민석, part: 플랫폼 파트, grade: CL4, role: manager}
+  - {id: u51, name: 임지아, part: 모바일 파트, grade: CL3, role: manager}
+  - {id: u52, name: 서강민, part: 하드웨어 파트, grade: CL4, role: manager}
+  - {id: u53, name: 문지영, part: 기구 파트, grade: CL3, role: manager}
+  - {id: u54, name: 배준서, part: 웹 파트, grade: CL4, role: manager}
+  - {id: u55, name: 곽은지, part: SCSA, grade: CL3, role: manager}

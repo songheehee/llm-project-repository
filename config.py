@@ -72,6 +72,15 @@ TICKET_STATUS_CANCELED = "취소"  # 담당 개발자가 [발행 취소]한 상�
 CLUSTER_STATE_NEW = "처리 전"      # 티켓 없음, 또는 '취소' 티켓만
 CLUSTER_STATE_OPEN = "진행 중"     # '진행 중' 티켓이 있음
 CLUSTER_STATE_DONE = "처리 완료"   # '완료' 티켓이 있음 (진행 중보다 우선)
+
+# 사용자 역할 (users.yaml role) — 관리자는 티켓을 맡지 않고 같은 파트의 예상 완료일 변경 신청만 승인·반려한다
+ROLE_DEVELOPER = "developer"
+ROLE_MANAGER = "manager"
+# 예상 완료일 변경 신청 (Ticket.change_request.status) — 발행 때 고르는 날짜는 승인 없이, 이미 정한 날짜를 바꿀 때만 승인
+CHANGE_PENDING = "대기"
+CHANGE_APPROVED = "승인"
+CHANGE_REJECTED = "반려"
+CHANGE_REASON_MAX_CHARS = 100   # 변경 신청 사유 · 반려 사유 최대 글자 수
 DUE_DAYS = {"긴급": 3, "높음": 7, "보통": 14, "낮음": 30}
 # 수정 범위 등급 (4️⃣ 수정 라인 — 코드 찾기 결과를 센 값, 예상 완료일 참고용)
 SCOPE_SMALL_MAX = {"files": 1, "lines": 20, "impacts": 2}   # 작음: 셋 다 이하
@@ -90,8 +99,8 @@ TICKET_CARD_MIN_WIDTH = 240   # 카드 최소 폭(px) — 화면이 좁아 이�
 HOVER_LINE_CHARS = 40         # 의미 공간 툴팁 원문 줄바꿈 글자 수
 HOVER_MAX_CHARS = 120         # 의미 공간 툴팁 원문 최대 글자 수 (넘으면 …)
 DATE_INPUT_WIDTH = 260        # 1️⃣ 기간 날짜 칸 고정 폭(px) — "2026/10/06 – 2026/10/20"이 끝까지 보이는 정도, 더 길게 하지 않는다
-TICKET_CARD_HEIGHT = 302      # 티켓 카드 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 발행일 줄 + 예상 완료일·[변경] 줄 + [발행 취소]·[처리 완료] 줄이 스크롤 없이 들어가는 높이
-TICKET_CARD_HEIGHT_OTHERS = 227  # 다른 개발자 티켓 카드 높이(px) — 버튼([변경]·[발행 취소]·[처리 완료])이 없어 버튼 줄 자리를 뺀 높이
+TICKET_CARD_HEIGHT = 323      # 티켓 카드 높이(px) 고정 — ID 줄 + 문제점 최대 2줄 + 담당 줄 + 발행일 줄 + 예상 완료일·[변경] 줄 + [발행 취소]·[처리 완료] 줄이 스크롤 없이 들어가는 높이
+TICKET_CARD_HEIGHT_OTHERS = 248  # 다른 개발자 티켓 카드 높이(px) — 버튼([변경]·[발행 취소]·[처리 완료])이 없어 버튼 줄 자리를 뺀 높이
 # ── 기간 · 대용량 대비 (VOC가 수십만 건까지 커질 수 있다고 본다) ──
 RECENT_PERIOD_DAYS = 14       # 기간 '최근 2주' = 오늘 − 14일 ~ 오늘 (데이터 마지막 날짜가 아니라 오늘 기준)
 CLUSTER_MAX_VOCS = 5000       # 클러스터 분석 상한: 선택 기간 + 이전 기간 VOC 수 (LLM 호출 수가 건수에 비례)
