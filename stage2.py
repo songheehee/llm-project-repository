@@ -568,7 +568,7 @@ def recent_score(last: date | None, start: date, keyword: float, semantic: float
 
 
 def score_folders(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_START) -> list[FolderScore]:
-    """1단계 폴더마다 (0.3×키워드 + 0.3×함수 의미 + 0.4×최근변경) × 역할보정."""
+    """1단계 폴더마다 (0.3×키워드 + 0.4×함수 의미 + 0.3×최근변경) × 역할보정 (가중치 config.W_*)."""
     repo = repo_dir(repo_name)
     roles = load_registry()[repo_name].get("folder_roles") or {}
     folders = sorted(p.name + "/" for p in repo.iterdir()
@@ -1213,7 +1213,7 @@ def is_test_file(rel: str) -> bool:
 
 def file_scores(repo_name: str, ticket: Ticket, start: date = config.ANALYSIS_START) -> dict[str, dict]:
     """파일 의심도 — 폴더 의심도(score_folders)와 같은 식을 파일 단위로:
-    (0.3×키워드 + 0.3×함수 의미 + 0.4×최근변경) × 역할보정. 키워드·의미는 레포 안 파일끼리 정규화.
+    (0.3×키워드 + 0.4×함수 의미 + 0.3×최근변경) × 역할보정. 키워드·의미는 레포 안 파일끼리 정규화.
     {파일 경로: {score, hits, semantic, last}}"""
     repo = repo_dir(repo_name)
     roles = load_registry()[repo_name].get("folder_roles") or {}
